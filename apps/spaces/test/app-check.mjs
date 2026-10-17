@@ -1023,6 +1023,58 @@ console.log("entries on a server");
       ok(`${w} ${v} on a server lints clean`, probs.length === 0, probs.join(" | "));
     }
   }
+
+  // the person's own budget: read once, saved and removed item by item,
+  // with no space in any call
+  a.setWidth(1280, 700);
+  a.answer(JSON.stringify({ from: "2026-10", to: "2027-03", total: 0, shared: 0, by_payer: {}, months: [] }));
+  a.press("sp-bud-part-own");
+  eq("the own budget is asked for", a.outOp(), "own_budget");
+  eq("for no space", a.outBody(), "{}");
+  a.answer(JSON.stringify({ items: [
+    { item_id: "o1", kind: "regular_income", title: "Palkka", amount: 3000, every_months: 1, date: "2026-01-15" },
+    { item_id: "o2", kind: "regular_expense", title: "Vuokra", amount: 1000, every_months: 1, added: "2026-01" }] }));
+  ok("a regular one counts every month", texts(a).includes("tulot 3000 € · menot 1000 €"));
+  t = texts(a);
+  ok("its items and what is left", t.includes("Palkka") && t.includes("Vuokra") && t.includes("2000 €"), t.filter((x) => /€/.test(x)).join(","));
+  a.press("sp-own-kind-4");
+  a.press("sp-own-title");
+  a.applyEdit("sp-own-title", "Auton korjaus", 13, 13);
+  a.press("sp-own-amount");
+  a.applyEdit("sp-own-amount", "350,50", 6, 6);
+  a.press("sp-own-save");
+  eq("an irregular one needs its day", a.outCount(), 0);
+  a.press("sp-owndate-date");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const probs = a.a11yProblems();
+    ok(`${w} the own budget with its calendar lints clean`, probs.length === 0, probs.join(" | "));
+  }
+  a.setWidth(1280, 700);
+  a.press("sp-odp-today");
+  a.press("sp-own-save");
+  eq("saved", a.outOp(), "save_own_item");
+  body = JSON.parse(a.outBody());
+  ok("a new one, without an id or a space", !body.item_id && !body.space_id && body.kind === "irregular_expense" && body.amount === 350.5 && body.date.length === 10, JSON.stringify(body));
+  a.answer(JSON.stringify({ ...body, item_id: "o3" }));
+  eq("it takes the server's id", a.own.items[2].id, "o3");
+  a.press("sp-own-ed-2");
+  a.applyEdit("sp-own-amount", "400", 3, 3);
+  a.press("sp-own-save");
+  body = JSON.parse(a.outBody());
+  ok("a change names it", body.item_id === "o3" && body.amount === 400, JSON.stringify(body));
+  a.answer(JSON.stringify(body));
+  a.press("sp-own-rm-1");
+  eq("removed", a.outOp(), "delete_own_item");
+  eq("by its id", JSON.parse(a.outBody()).item_id, "o2");
+  a.answer(JSON.stringify({ deleted: "o2" }));
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const probs = a.a11yProblems();
+    ok(`${w} the own budget lints clean`, probs.length === 0, probs.join(" | "));
+  }
+  a.press("sp-bud-part-family");
+  eq("back to the family's", a.budgetOwn, false);
 }
 
 console.log("a reminder ticked off on the summary");

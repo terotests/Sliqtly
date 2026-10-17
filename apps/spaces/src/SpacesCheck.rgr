@@ -7,6 +7,7 @@ Import "SpacesAssist.rgr"
 Import "SpacesRemote.rgr"
 Import "SpacesTypes.rgr"
 Import "SpacesBudget.rgr"
+Import "SpacesOwn.rgr"
 Import "../evgui/src/UiDate.rgr"
 
 class SpacesCheck {
@@ -798,6 +799,39 @@ class SpacesCheck {
         this.eqi((array_length badBudget.months) 0 "an answer that does not read is empty")
     }
 
+    ; One person's own money: regular items from their first month, every so
+    ; many months, until their last; irregular ones once; the month on
+    ; average; the server's items read and written.
+    fn ownBudget:void () {
+        def o (new SpOwn())
+        o.read("{\"items\":[{\"item_id\":\"o1\",\"kind\":\"regular_income\",\"title\":\"Palkka\",\"amount\":3000,\"every_months\":1,\"date\":\"2026-01-15\"},{\"item_id\":\"o2\",\"kind\":\"regular_expense\",\"title\":\"Autovakuutus\",\"amount\":600,\"every_months\":6,\"date\":\"2026-11-01\",\"until\":\"2027-12-31\"},{\"item_id\":\"o3\",\"kind\":\"irregular_expense\",\"title\":\"Korjaus\",\"amount\":350,\"date\":\"2026-12-03\"}]}")
+        this.ok(o.loaded "the server's items read")
+        this.eqi((array_length o.items) 3 "three items")
+        def rent (new SpOwnItem())
+        rent.id = "n1"
+        rent.title = "Vuokra"
+        rent.amount = 1000.0
+        rent.added = "2026-10"
+        o.put(rent)
+        def oct:int (SpBudget.monthOf("2026-10"))
+        def m0:SpOwnMonth (o.month(oct))
+        this.ok(((m0.income == 3000.0) && (m0.expenses == 1000.0)) "October: the salary and the rent")
+        def m1:SpOwnMonth (o.month((oct + 1)))
+        this.ok((m1.expenses == 1600.0) "November: the car insurance too")
+        def m2:SpOwnMonth (o.month((oct + 2)))
+        this.ok((m2.expenses == 1350.0) "December: the repair")
+        def m7:SpOwnMonth (o.month((oct + 7)))
+        this.ok((m7.expenses == 1600.0) "six months on: the insurance again")
+        def m13:SpOwnMonth (o.month((oct + 19)))
+        this.ok((m13.expenses == 1000.0) "after its last month: no insurance")
+        this.ok(((SpOwn.paidIn(rent (oct - 1))) == false) "nothing before it was added")
+        def avg:[double] (o.monthly(oct))
+        this.ok((((itemAt avg 0) == 3000.0) && ((itemAt avg 1) == 1100.0)) "a month on average: the insurance spread over six")
+        this.eq((SpOwn.saveBody(rent)) "{\"kind\":\"regular_expense\",\"title\":\"Vuokra\",\"amount\":1000,\"date\":\"\",\"every_months\":1,\"until\":\"\",\"note\":\"\"}" "a new item has no id")
+        o.drop("o3")
+        this.eqi((array_length (o.ofKind("irregular_expense"))) 0 "dropped")
+    }
+
     sfn main:void () {
         def c (new SpacesCheck())
         c.rules()
@@ -815,6 +849,7 @@ class SpacesCheck {
         c.timetable()
         c.entriesRemote()
         c.budget()
+        c.ownBudget()
         c.planned()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {

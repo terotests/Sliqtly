@@ -41,6 +41,7 @@ Import "SpacesAssist.rgr"
 Import "SpacesRemote.rgr"
 Import "SpacesTypes.rgr"
 Import "SpacesBudget.rgr"
+Import "SpacesOwn.rgr"
 Import "../evgui/src/InputCtl.rgr"
 Import "../evgui/src/CalendarCtl.rgr"
 Import "../evgui/src/EventCalBoard.rgr"
@@ -283,6 +284,23 @@ class SpacesApp {
     def budgetPayer:string ""
     def budgetAnswer@(optional):SpBudget
     def budgetAsked:string ""
+    ; the Budget view's own part (budgetOwn): the signed-in person's own
+    ; money, which only they see (SpacesOwn.rgr; the server keeps it under
+    ; their account, in no space), and its form: the item being changed
+    ; ("" adds one), its kind, months between payments, day and last day,
+    ; and which of the two days has EVGUI's calendar open
+    def budgetOwn:boolean false
+    def own:SpOwn (new SpOwn())
+    def ownEdit:string ""
+    def ownKind:string "regular_expense"
+    def ownEvery:int 1
+    def ownTitle:InputCtl (new InputCtl())
+    def ownAmount:InputCtl (new InputCtl())
+    def ownDate:string ""
+    def ownUntil:string ""
+    def ownDateOpen:string ""
+    def ownPick:CalendarCtl (new CalendarCtl())
+    def ownSeq:int 0
     ; the Questions view: the kind whose form is open ("" none), the
     ; assistant's field there and the row of its answer (-1 none), the
     ; question being answered in words and its field, and the questions
@@ -3727,6 +3745,9 @@ class SpacesApp {
         }
         if (tid == "sp-assist-text") {
             return "sp-assist-send"
+        }
+        if ((tid == "sp-own-title") || (tid == "sp-own-amount")) {
+            return "sp-own-save"
         }
         if (tid == "sp-askai-text") {
             return "sp-askai-send"
@@ -7678,12 +7699,16 @@ class SpacesApp {
     }
 
     fn budgetView:EVGElement () {
+        if budgetOwn {
+            return (this.ownView())
+        }
         def v:EVGElement (SpacesApp.box("sp-view"))
         def b:SpBudget (this.currentBudget())
         def from:int (this.budgetStart())
         def range:string ((this.monthName(from)) + " – " + (this.monthName((from + 5))))
         v.addChild((this.heading((SpWords.ui(lang "budget")) range)))
         v.addChild((this.addBar()))
+        v.addChild((this.budgetParts()))
         def bar:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
         bar.addChild((SpacesApp.btn("sp-bud-prev" "sp-action" (SpWords.ui(lang "earlier")))))
         bar.addChild((SpacesApp.btn("sp-bud-next" "sp-action" (SpWords.ui(lang "later")))))
@@ -7873,6 +7898,565 @@ class SpacesApp {
         return row
     }
 
+    ; --- the own budget ----------------------------------------------------------------
+    ; The person's own money, which only they see: what is left of a month
+    ; on average and month by month, the items by kind, and the form that
+    ; adds or changes one.
+
+    ; The two parts of the Budget view: the family's and the person's own.
+    fn budgetParts:EVGElement () {
+        def pills:EVGElement (UiTree.div("sp-bud-parts" "sp-pills"))
+        pills.role = "group"
+        pills.a11yLabel = (SpWords.ui(lang "budget"))
+        def fc:string "sp-pill"
+        def oc:string "sp-pill"
+        if budgetOwn {
+            oc = "sp-pill sp-pill-on"
+        } {
+            fc = "sp-pill sp-pill-on"
+        }
+        def fam:EVGElement (SpacesApp.btn("sp-bud-part-family" fc (SpWords.noun(lang pack "together"))))
+        fam.a11yPressed = (SpacesApp.tri((budgetOwn == false)))
+        pills.addChild(fam)
+        def mine:EVGElement (SpacesApp.btn("sp-bud-part-own" oc (SpWords.pick(lang "🔒 My own" "🔒 Oma talous"))))
+        mine.a11yPressed = (SpacesApp.tri(budgetOwn))
+        pills.addChild(mine)
+        return pills
+    }
+
+    ; On a server, read the person's own items once.
+    fn askOwn:void () {
+        if ((server == false) || own.loaded) {
+            return
+        }
+        if ((this.queued("own_budget" "")) == false) {
+            this.queue("own_budget" "{}" "")
+        }
+    }
+
+    sfn ownKindName:string (lang:string kind:string) {
+        if (kind == "regular_income") {
+            return (SpWords.pick(lang "Regular income" "Säännölliset tulot"))
+        }
+        if (kind == "regular_expense") {
+            return (SpWords.pick(lang "Regular expenses" "Säännölliset menot"))
+        }
+        if (kind == "estimate") {
+            return (SpWords.pick(lang "Estimated budget" "Arviobudjetti"))
+        }
+        if (kind == "irregular_income") {
+            return (SpWords.pick(lang "Irregular income" "Epäsäännölliset tulot"))
+        }
+        return (SpWords.pick(lang "Irregular and surprise expenses" "Epäsäännölliset ja yllättävät menot"))
+    }
+
+    ; one item of the kind, for the form's buttons and its hint
+    sfn ownKindOne:string (lang:string kind:string) {
+        if (kind == "regular_income") {
+            return (SpWords.pick(lang "Regular income" "Säännöllinen tulo"))
+        }
+        if (kind == "regular_expense") {
+            return (SpWords.pick(lang "Regular expense" "Säännöllinen meno"))
+        }
+        if (kind == "estimate") {
+            return (SpWords.pick(lang "Estimate" "Arvio"))
+        }
+        if (kind == "irregular_income") {
+            return (SpWords.pick(lang "Irregular income" "Epäsäännöllinen tulo"))
+        }
+        return (SpWords.pick(lang "Irregular expense" "Epäsäännöllinen meno"))
+    }
+
+    sfn ownKindHint:string (lang:string kind:string) {
+        if (kind == "regular_income") {
+            return (SpWords.pick(lang "e.g. salary" "esim. palkka"))
+        }
+        if (kind == "regular_expense") {
+            return (SpWords.pick(lang "e.g. rent, car insurance" "esim. vuokra, autovakuutus"))
+        }
+        if (kind == "estimate") {
+            return (SpWords.pick(lang "e.g. food, fuel" "esim. ruoka, polttoaine"))
+        }
+        if (kind == "irregular_income") {
+            return (SpWords.pick(lang "e.g. tax refund" "esim. veronpalautus"))
+        }
+        return (SpWords.pick(lang "e.g. car repair" "esim. auton korjaus"))
+    }
+
+    fn ownEveryText:string (n:int) {
+        if (n <= 1) {
+            return (SpWords.pick(lang "monthly" "kuukausittain"))
+        }
+        if (n == 12) {
+            return (SpWords.pick(lang "yearly" "vuosittain"))
+        }
+        return ((to_string n) + (SpWords.pick(lang " months apart" " kk välein")))
+    }
+
+    fn ownView:EVGElement () {
+        def v:EVGElement (SpacesApp.box("sp-view"))
+        v.addChild((this.heading((SpWords.ui(lang "budget")) (SpWords.pick(lang "My own money: only you see this part" "Oma talous: tämän osan näet vain sinä")))))
+        v.addChild((this.budgetParts()))
+        if (server && (own.loaded == false)) {
+            v.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Reading…" "Luetaan…")))))
+        }
+        def now:int (SpBudget.monthOfDay(today))
+        def avg:[double] (own.monthly(now))
+        def inc:double (itemAt avg 0)
+        def exp:double (itemAt avg 1)
+        def sum:EVGElement (this.card("own-sum" (SpWords.pick(lang "A month on average" "Kuukaudessa keskimäärin"))))
+        sum.addChild((this.moneyRow("sp-own-in" (SpWords.pick(lang "Income" "Tulot")) inc false)))
+        sum.addChild((this.moneyRow("sp-own-out" (SpWords.pick(lang "Expenses" "Menot")) exp false)))
+        sum.addChild((this.moneyRow("sp-own-left" (SpWords.pick(lang "Left to spend" "Käytettävissä")) (inc - exp) true)))
+        sum.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Regular income and expenses and the estimates, spread over the months." "Säännölliset tulot ja menot sekä arviot kuukausille jaettuna.")))))
+        v.addChild(sum)
+
+        def from:int (this.budgetStart())
+        def bar:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        bar.addChild((SpacesApp.btn("sp-bud-prev" "sp-action" (SpWords.ui(lang "earlier")))))
+        bar.addChild((SpacesApp.btn("sp-bud-next" "sp-action" (SpWords.ui(lang "later")))))
+        v.addChild(bar)
+        def mc:EVGElement (this.card("own-months" (SpWords.pick(lang "Month by month" "Kuukausittain"))))
+        def m:int 0
+        while (m < 6) {
+            def om:SpOwnMonth (own.month((from + m)))
+            mc.addChild((this.moneyRow(("sp-own-m-" + (to_string m)) (this.monthName((from + m))) (om.income - om.expenses) true)))
+            def parts:[string]
+            push parts ((SpWords.pick(lang "income " "tulot ")) + (SpTypes.money(lang om.income)))
+            push parts ((SpWords.pick(lang "expenses " "menot ")) + (SpTypes.money(lang om.expenses)))
+            def j:int 0
+            while (j < (array_length om.lines)) {
+                def l:SpOwnItem (itemAt om.lines j)
+                if (SpOwn.isOnce(l.kind)) {
+                    def sign:string "−"
+                    if (SpOwn.isIncome(l.kind)) {
+                        sign = "+"
+                    }
+                    push parts (l.title + " " + sign + (SpTypes.money(lang l.amount)))
+                }
+                j = (j + 1)
+            }
+            mc.addChild((SpacesApp.tx("sp-meta" (join parts " · "))))
+            m = (m + 1)
+        }
+        v.addChild(mc)
+
+        def kinds:[string] (SpOwn.kinds())
+        def k:int 0
+        while (k < (array_length kinds)) {
+            def kind:string (itemAt kinds k)
+            def kc:EVGElement (this.card(("own-" + kind) (SpacesApp.ownKindName(lang kind))))
+            def any:boolean false
+            def i:int 0
+            while (i < (array_length own.items)) {
+                def it:SpOwnItem (itemAt own.items i)
+                if (it.kind == kind) {
+                    any = true
+                    kc.addChild((this.ownRow(it i)))
+                }
+                i = (i + 1)
+            }
+            if (any == false) {
+                kc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "None yet" "Ei vielä yhtään")))))
+            }
+            v.addChild(kc)
+            k = (k + 1)
+        }
+        v.addChild((this.ownForm()))
+        return v
+    }
+
+    fn ownRow:EVGElement (it:SpOwnItem i:int) {
+        def row:EVGElement (SpacesApp.box("sp-moneyrow"))
+        row.role = "listitem"
+        def parts:[string]
+        if (SpOwn.isOnce(it.kind)) {
+            if ((strlen it.date) > 0) {
+                push parts (this.dateShown(it.date))
+            }
+        } {
+            push parts (this.ownEveryText(it.every))
+            if ((strlen it.date) > 0) {
+                push parts ((SpWords.pick(lang "from " "alkaen ")) + (this.dateShown(it.date)))
+            }
+            if ((strlen it.until) > 0) {
+                push parts ((SpWords.pick(lang "until " "päättyy ")) + (this.dateShown(it.until)))
+            }
+        }
+        if ((strlen it.note) > 0) {
+            push parts it.note
+        }
+        def meta:string (join parts " · ")
+        def money:string (SpTypes.money(lang it.amount))
+        row.a11yLabel = (it.title + ", " + meta + ": " + money)
+        def col:EVGElement (SpacesApp.box("sp-itemtext"))
+        def tt:EVGElement (SpacesApp.tx("sp-title" it.title))
+        tt.a11yHidden = true
+        col.addChild(tt)
+        def mt:EVGElement (SpacesApp.tx("sp-meta" meta))
+        mt.a11yHidden = true
+        col.addChild(mt)
+        row.addChild(col)
+        def mv:EVGElement (SpacesApp.tx("sp-money" money))
+        mv.a11yHidden = true
+        row.addChild(mv)
+        row.addChild((SpacesApp.btn(("sp-own-ed-" + (to_string i)) "sp-action" (SpWords.pick(lang "Change" "Muuta")))))
+        row.addChild((SpacesApp.btn(("sp-own-rm-" + (to_string i)) "sp-action" (SpWords.ui(lang "remove")))))
+        return row
+    }
+
+    fn ownForm:EVGElement () {
+        def title:string (SpWords.pick(lang "Add to my own budget" "Lisää omaan talouteen"))
+        if ((strlen ownEdit) > 0) {
+            title = (SpWords.pick(lang "Change" "Muuta"))
+        }
+        def c:EVGElement (this.card("own-form" title))
+        def pills:EVGElement (SpacesApp.box("sp-pills sp-wrap"))
+        pills.role = "group"
+        pills.a11yLabel = (SpWords.pick(lang "Kind" "Laji"))
+        def kinds:[string] (SpOwn.kinds())
+        def k:int 0
+        while (k < (array_length kinds)) {
+            def kind:string (itemAt kinds k)
+            def on:boolean (kind == ownKind)
+            def pc:string "sp-pill"
+            if on {
+                pc = "sp-pill sp-pill-on"
+            }
+            def pb:EVGElement (SpacesApp.btn(("sp-own-kind-" + (to_string k)) pc (SpacesApp.ownKindOne(lang kind))))
+            pb.a11yPressed = (SpacesApp.tri(on))
+            pills.addChild(pb)
+            k = (k + 1)
+        }
+        c.addChild(pills)
+        def row:EVGElement (SpacesApp.box("sp-formrow"))
+        row.addChild((this.field(ownTitle "sp-own-title" (SpWords.pick(lang "What" "Mikä")) (SpacesApp.ownKindHint(lang ownKind)) "text")))
+        row.addChild((this.field(ownAmount "sp-own-amount" (SpWords.pick(lang "Amount (€)" "Summa (€)")) "0" "text")))
+        c.addChild(row)
+        def once:boolean (SpOwn.isOnce(ownKind))
+        if (once == false) {
+            def ep:EVGElement (SpacesApp.box("sp-pills sp-wrap"))
+            ep.role = "group"
+            ep.a11yLabel = (SpWords.pick(lang "How often" "Kuinka usein"))
+            def evs:[int] ([] _:int ( 1 3 6 12 ))
+            def e:int 0
+            while (e < (array_length evs)) {
+                def n:int (itemAt evs e)
+                def eon:boolean (n == ownEvery)
+                def ec:string "sp-pill"
+                if eon {
+                    ec = "sp-pill sp-pill-on"
+                }
+                def eb:EVGElement (SpacesApp.btn(("sp-own-every-" + (to_string n)) ec (this.ownEveryText(n))))
+                eb.a11yPressed = (SpacesApp.tri(eon))
+                ep.addChild(eb)
+                e = (e + 1)
+            }
+            c.addChild(ep)
+        }
+        def dates:EVGElement (SpacesApp.box("sp-formrow"))
+        if once {
+            dates.addChild((this.ownDateField("date" (SpWords.pick(lang "Day" "Päivä")) ownDate)))
+        } {
+            dates.addChild((this.ownDateField("date" (SpWords.pick(lang "First payment" "Ensimmäinen maksu")) ownDate)))
+            dates.addChild((this.ownDateField("until" (SpWords.pick(lang "Ends" "Päättyy")) ownUntil)))
+        }
+        c.addChild(dates)
+        def btns:EVGElement (SpacesApp.box("sp-formrow"))
+        def save:string (SpWords.ui(lang "addOne"))
+        if ((strlen ownEdit) > 0) {
+            save = (SpWords.pick(lang "Save" "Tallenna"))
+            btns.addChild((SpacesApp.btn("sp-own-cancel" "sp-action" (SpWords.ui(lang "cancel")))))
+        }
+        btns.addChild((SpacesApp.btn("sp-own-save" "sp-action sp-action-primary" save)))
+        c.addChild(btns)
+        return c
+    }
+
+    ; A day of the own form: a button with the day on it, and while it is
+    ; open EVGUI's calendar under it with Today and Clear.
+    fn ownDateField:EVGElement (which:string label:string v:string) {
+        def w:double 200.0
+        if (this.narrow()) {
+            w = (this.formW())
+        }
+        def open:boolean (ownDateOpen == which)
+        def bw:double w
+        if (open && (w < 300.0)) {
+            w = 300.0
+        }
+        def box:EVGElement (SpacesApp.box("sp-fld"))
+        UiTree.inline(box "width" (SpacesApp.px(w)))
+        def lb:EVGElement (SpacesApp.tx("sp-fldlabel" label))
+        lb.a11yHidden = true
+        box.addChild(lb)
+        def shown:string (this.dateShown(v))
+        def cls:string "sp-datebtn"
+        if ((strlen v) == 0) {
+            shown = (SpWords.pick(lang "Pick a day" "Valitse päivä"))
+            cls = "sp-datebtn sp-datebtn-empty"
+        }
+        if open {
+            cls = (cls + " sp-datebtn-open")
+        }
+        def b:EVGElement (SpacesApp.btn(("sp-owndate-" + which) cls ("📅 " + shown)))
+        b.a11yLabel = ((label + ", ") + shown)
+        b.a11yHasPopup = "dialog"
+        b.a11yExpanded = (SpacesApp.tri(open))
+        UiTree.inline(b "width" (SpacesApp.px(bw)))
+        box.addChild(b)
+        if open {
+            UiTree.dress(ownPick)
+            def cal:EVGElement (unwrap ownPick.rootEl)
+            cal.a11yLabel = label
+            box.addChild(cal)
+            def row:EVGElement (SpacesApp.box("sp-formrow"))
+            row.addChild((SpacesApp.btn("sp-odp-today" "sp-opt" (SpWords.pick(lang "Today" "Tänään")))))
+            if ((strlen v) > 0) {
+                row.addChild((SpacesApp.btn("sp-odp-clear" "sp-opt" (SpWords.pick(lang "Clear" "Tyhjennä")))))
+            }
+            box.addChild(row)
+        }
+        return box
+    }
+
+    fn openOwnDate:void (which:string) {
+        ownDateOpen = which
+        def v:string ownDate
+        if (which == "until") {
+            v = ownUntil
+        }
+        def p:[int] (SpSpace.ymdOf(today))
+        def pick (new CalendarCtl())
+        pick.tid = "sp-odp"
+        if (lang == "fi") {
+            pick.lang = "fi"
+        }
+        pick.weekStart = 1
+        pick.setToday((itemAt p 0) (itemAt p 1) (itemAt p 2))
+        pick.setMonth((itemAt p 0) (itemAt p 1))
+        pick.startYear = ((itemAt p 0) - 15)
+        pick.endYear = ((itemAt p 0) + 10)
+        def d:int (SpTypes.dayOf(v (itemAt p 0)))
+        if (d >= 0) {
+            def q:[int] (SpSpace.ymdOf(d))
+            pick.setSelected((itemAt q 0) (itemAt q 1) (itemAt q 2))
+            pick.setMonth((itemAt q 0) (itemAt q 1))
+        }
+        ownPick = pick
+        focused = (pick.dayTid((pick.currentFocusDay())))
+    }
+
+    fn putOwnDate:void (d:int) {
+        def v:string ""
+        if (d >= 0) {
+            v = (UiDate.isoOfDays(d))
+        }
+        if (ownDateOpen == "until") {
+            ownUntil = v
+        } {
+            ownDate = v
+        }
+        focused = ("sp-owndate-" + ownDateOpen)
+        ownDateOpen = ""
+    }
+
+    fn ownReset:void () {
+        ownEdit = ""
+        ownTitle.setValue("")
+        ownAmount.setValue("")
+        ownDate = ""
+        ownUntil = ""
+        ownDateOpen = ""
+        ownEvery = 1
+    }
+
+    ; The form's item saved: on the page, and on a server for the person.
+    fn ownSave:void () {
+        def t:string (trim ownTitle.value)
+        if ((strlen t) == 0) {
+            status = (SpWords.pick(lang "Write what it is" "Kirjoita, mikä se on"))
+            focused = "sp-own-title"
+            return
+        }
+        def at:string (trim ownAmount.value)
+        if ((SpTypes.readsAsNumber(at)) == false) {
+            status = (SpWords.pick(lang "Write the amount in euros" "Kirjoita summa euroina"))
+            focused = "sp-own-amount"
+            return
+        }
+        def once:boolean (SpOwn.isOnce(ownKind))
+        if (once && ((strlen ownDate) == 0)) {
+            status = (SpWords.pick(lang "Pick its day" "Valitse päivä"))
+            focused = "sp-owndate-date"
+            return
+        }
+        def it (new SpOwnItem())
+        it.added = (SpBudget.monthText((SpBudget.monthOfDay(today))))
+        def was:int (own.indexOf(ownEdit))
+        if (was >= 0) {
+            def old:SpOwnItem (itemAt own.items was)
+            it.id = old.id
+            it.added = old.added
+            it.note = old.note
+        } {
+            ownSeq = (ownSeq + 1)
+            it.id = ("n" + (to_string ownSeq))
+        }
+        it.kind = ownKind
+        it.title = t
+        it.amount = (SpTypes.amountOf(at))
+        it.date = ownDate
+        if (once == false) {
+            it.every = ownEvery
+            it.until = ownUntil
+        }
+        own.put(it)
+        if (server && ((this.queued("save_own_item" it.id)) == false)) {
+            this.queue("save_own_item" "" it.id)
+        }
+        status = ((SpWords.pick(lang "Saved " "Tallennettu ")) + t)
+        this.ownReset()
+    }
+
+    ; The server saved the page's item `ref` as `id`: an item new on the page
+    ; takes its id, and so do the calls still waiting for it.
+    fn ownSaved:void (ref:string id:string) {
+        if (((strlen id) == 0) || (ref == id)) {
+            return
+        }
+        def at:int (own.indexOf(ref))
+        if (at < 0) {
+            ; removed while it was on its way: now it has an id to delete
+            this.queue("delete_own_item" (SpRemote.body(([] _:string ( "item_id" id )))) id)
+            return
+        }
+        def it:SpOwnItem (itemAt own.items at)
+        it.id = id
+        if (ownEdit == ref) {
+            ownEdit = id
+        }
+        def i:int 0
+        while (i < (array_length outbox)) {
+            def c:SpCall (itemAt outbox i)
+            if ((c.op == "save_own_item") && (c.ref == ref)) {
+                c.ref = id
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A press in the own budget: true when it was one.
+    fn pressOwn:boolean (target:string) {
+        if (target == "sp-bud-part-own") {
+            budgetOwn = true
+            this.askOwn()
+            return true
+        }
+        if (target == "sp-bud-part-family") {
+            budgetOwn = false
+            this.askBudget()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-owndate-")) {
+            def which:string (substring target 11 (strlen target))
+            if (which == ownDateOpen) {
+                ownDateOpen = ""
+            } {
+                this.openOwnDate(which)
+            }
+            return true
+        }
+        if ((strlen ownDateOpen) > 0) {
+            if (target == "sp-odp-today") {
+                this.putOwnDate(today)
+                return true
+            }
+            if (target == "sp-odp-clear") {
+                this.putOwnDate(-1)
+                return true
+            }
+            if (UiTree.beginsWith(target "sp-odp")) {
+                def day:int (ownPick.dayOfTid(target))
+                if (day >= 0) {
+                    if ((ownPick.isDisabledDay(day)) == false) {
+                        this.putOwnDate(day)
+                    }
+                    return true
+                }
+                ownPick.activate(target)
+                return true
+            }
+        }
+        if ((UiTree.beginsWith(target "sp-own-")) == false) {
+            return false
+        }
+        ownDateOpen = ""
+        if (UiTree.beginsWith(target "sp-own-kind-")) {
+            def kn@(optional):int (to_int (substring target 12 (strlen target)))
+            if (!null? kn) {
+                def kinds:[string] (SpOwn.kinds())
+                def kk:int (unwrap kn)
+                if ((kk >= 0) && (kk < (array_length kinds))) {
+                    ownKind = (itemAt kinds kk)
+                }
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-own-every-")) {
+            def en@(optional):int (to_int (substring target 13 (strlen target)))
+            if (!null? en) {
+                ownEvery = (unwrap en)
+            }
+            return true
+        }
+        if (target == "sp-own-save") {
+            this.ownSave()
+            return true
+        }
+        if (target == "sp-own-cancel") {
+            this.ownReset()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-own-ed-")) {
+            def n@(optional):int (to_int (substring target 10 (strlen target)))
+            if (!null? n) {
+                def k:int (unwrap n)
+                if ((k >= 0) && (k < (array_length own.items))) {
+                    def it:SpOwnItem (itemAt own.items k)
+                    ownEdit = it.id
+                    ownKind = it.kind
+                    ownEvery = it.every
+                    ownTitle.setValue(it.title)
+                    ownAmount.setValue((to_string it.amount))
+                    ownDate = it.date
+                    ownUntil = it.until
+                    focused = "sp-own-title"
+                }
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-own-rm-")) {
+            def n2@(optional):int (to_int (substring target 10 (strlen target)))
+            if (!null? n2) {
+                def k2:int (unwrap n2)
+                if ((k2 >= 0) && (k2 < (array_length own.items))) {
+                    def gone:SpOwnItem (itemAt own.items k2)
+                    own.drop(gone.id)
+                    if (ownEdit == gone.id) {
+                        this.ownReset()
+                    }
+                    if (server && ((substring gone.id 0 1) != "n")) {
+                        this.queue("delete_own_item" (SpRemote.body(([] _:string ( "item_id" gone.id )))) gone.id)
+                    }
+                    status = ((SpWords.pick(lang "Removed " "Poistettu ")) + gone.title)
+                }
+            }
+            return true
+        }
+        return false
+    }
+
     ; A press on the form, the Add menu, the lists or the budget: true when
     ; it was one.
     fn pressEntries:boolean (target:string) {
@@ -8055,8 +8639,9 @@ class SpacesApp {
             undoKind = ""
         }
         if (target == "") {
-            def wasOpen:boolean (dateOpen >= 0)
+            def wasOpen:boolean ((dateOpen >= 0) || ((strlen ownDateOpen) > 0))
             dateOpen = -1
+            ownDateOpen = ""
             if ((board.closeOverlays()) || wasOpen) {
                 this.rebuild()
             }
@@ -8078,6 +8663,10 @@ class SpacesApp {
             return true
         }
         dateOpen = -1
+        if (this.pressOwn(target)) {
+            this.rebuild()
+            return true
+        }
         def asField@(optional):InputCtl (this.fieldOf(target))
         if (!null? asField) {
             def fc:InputCtl asField
@@ -8122,6 +8711,9 @@ class SpacesApp {
             addOpen = false
             if (tab == "budget") {
                 this.askBudget()
+                if budgetOwn {
+                    this.askOwn()
+                }
             }
             this.rebuild()
             return true
@@ -8416,6 +9008,12 @@ class SpacesApp {
             return "{}"
         }
         def c:SpCall (itemAt outbox 0)
+        if (c.op == "save_own_item") {
+            def oat:int (own.indexOf(c.ref))
+            if (oat >= 0) {
+                c.body = (SpOwn.saveBody((itemAt own.items oat)))
+            }
+        }
         if (c.op == "save_event") {
             def found@(optional):SpEvent (space.event(c.ref))
             if (!null? found) {
@@ -8664,6 +9262,12 @@ class SpacesApp {
                 budgetAnswer = (SpBudget.read(text))
             }
         }
+        if (c.op == "own_budget") {
+            own.read(text)
+        }
+        if (c.op == "save_own_item") {
+            this.ownSaved(c.ref (o.stringOr("item_id" "")))
+        }
         if (c.op == "add_ward") {
             if (UiTree.beginsWith(c.ref "wnew-")) {
                 ; one added on the Members page takes the server's id
@@ -8682,6 +9286,13 @@ class SpacesApp {
         }
         if (c.op == "assist") {
             this.assistAnswered(c.ref (o.stringOr("text" "")) true)
+            ; it may have changed the person's own budget too
+            if (o.boolOr("changed" false)) {
+                own.loaded = false
+                if ((tab == "budget") && budgetOwn) {
+                    this.askOwn()
+                }
+            }
             this.readDone(c.ref o)
             ; what it made or changed, from the server
             if ((o.boolOr("changed" false)) && ((strlen spaceId) > 0)) {
@@ -8758,6 +9369,11 @@ class SpacesApp {
         }
         if (c.op == "budget") {
             budgetAsked = ""
+        }
+        if ((c.op == "save_own_item") || (c.op == "delete_own_item")) {
+            ; the server kept what it had: the page reads it again
+            own.loaded = false
+            this.askOwn()
         }
         if (((c.op == "remove_ward") || (c.op == "add_place")) || (c.op == "remove_place")) {
             ; the server kept what it had: so does the page
@@ -9373,6 +9989,26 @@ class SpacesApp {
                 def to:string (datePick.keyDown(focused k))
                 if ((strlen to) > 0) {
                     focused = to
+                    this.rebuild()
+                    return true
+                }
+            }
+        }
+        if ((strlen ownDateOpen) > 0) {
+            if (k == "Escape") {
+                focused = ("sp-owndate-" + ownDateOpen)
+                ownDateOpen = ""
+                this.rebuild()
+                return true
+            }
+            def oday:int (ownPick.dayOfTid(focused))
+            if (oday >= 0) {
+                if ((k == "Enter") || (k == " ")) {
+                    return (this.press(focused))
+                }
+                def oto:string (ownPick.keyDown(focused k))
+                if ((strlen oto) > 0) {
+                    focused = oto
                     this.rebuild()
                     return true
                 }
