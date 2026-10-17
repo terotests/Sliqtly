@@ -145,6 +145,8 @@ class SpacesApp {
     ; the form: open, on which event ("" for a new one), of which type, and
     ; the day of a repeating event's occurrence it was opened from (-1)
     def editing:boolean false
+    ; the ward whose Remove was pressed, waiting for a second press
+    def wardAsk:string ""
     def editId:string ""
     def editType:string ""
     def editOcc:int -1
@@ -1273,6 +1275,9 @@ class SpacesApp {
             i = (i + 1)
         }
         v.addChild(c)
+        if ((array_length space.resources) > 0) {
+            v.addChild((this.wardsCard(owner)))
+        }
         if (((array_length space.invites) > 0) || owner) {
             def iv:EVGElement (this.card("invites" (SpWords.ui(lang "invited"))))
             def k:int 0
@@ -1294,6 +1299,32 @@ class SpacesApp {
             v.addChild(iv)
         }
         return v
+    }
+
+    ; The wards; the owner removes one with a second press that says what
+    ; happens to its events.
+    fn wardsCard:EVGElement (owner:boolean) {
+        def c:EVGElement (this.card("wards" (SpWords.noun(lang pack "resources"))))
+        def i:int 0
+        while (i < (array_length space.resources)) {
+            def r:SpResource (itemAt space.resources i)
+            def rm:string ""
+            if (owner && (r.id != wardAsk)) {
+                rm = ("sp-unward-" + (to_string i))
+            }
+            def n:int (space.wardUses(r.id))
+            def detail:string ((to_string n) + (SpWords.pick(lang " entries" " merkintää")))
+            c.addChild((this.personRow(("sp-ward-" + (to_string i)) r.name detail "" rm)))
+            if (r.id == wardAsk) {
+                def ask:EVGElement (SpacesApp.box("sp-formrow"))
+                ask.addChild((SpacesApp.tx("sp-meta" ((SpWords.pick(lang "Remove " "Poistetaanko ")) + r.name + (SpWords.pick(lang "? Its entries stay, without it." "? Merkinnät säilyvät ilman häntä.")))))))
+                ask.addChild((SpacesApp.btn("sp-unward-yes" "sp-action sp-action-primary" (SpWords.ui(lang "remove")))))
+                ask.addChild((SpacesApp.btn("sp-unward-no" "sp-action" (SpWords.ui(lang "cancel")))))
+                c.addChild(ask)
+            }
+            i = (i + 1)
+        }
+        return c
     }
 
     ; --- spaces -------------------------------------------------------------------------
@@ -3931,6 +3962,11 @@ class SpacesApp {
         if (c.op == "budget") {
             budgetAsked = ""
         }
+        if (c.op == "remove_ward") {
+            ; the server kept it: so does the page
+            this.openSpace(spaceId)
+            tab = "members"
+        }
         if (c.op == "assist") {
             this.assistAnswered(c.ref message false)
         }
@@ -4042,6 +4078,32 @@ class SpacesApp {
                         who = m.email
                     }
                     this.queue("remove_member" (SpRemote.body(([] _:string ( "space_id" spaceId "member" who )))) who)
+                }
+            }
+            return true
+        }
+        if (target == "sp-unward-no") {
+            wardAsk = ""
+            return true
+        }
+        if (target == "sp-unward-yes") {
+            def gone:string (space.resourceName(wardAsk))
+            space.removeWard(wardAsk)
+            if (server && ((strlen spaceId) > 0)) {
+                this.queue("remove_ward" (SpRemote.body(([] _:string ( "space_id" spaceId "ward" wardAsk )))) wardAsk)
+            }
+            wardAsk = ""
+            status = ((SpWords.pick(lang "Removed " "Poistettu ")) + gone)
+            this.fillBoard()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-unward-")) {
+            def n3@(optional):int (to_int (substring target 10 (strlen target)))
+            if (!null? n3) {
+                def k3:int (unwrap n3)
+                if ((k3 >= 0) && (k3 < (array_length space.resources))) {
+                    def wr:SpResource (itemAt space.resources k3)
+                    wardAsk = wr.id
                 }
             }
             return true

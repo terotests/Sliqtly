@@ -500,6 +500,51 @@ func (s *wardenService) addWardOp(ctx context.Context, sp *wardenSpace, a map[st
 	return w, nil
 }
 
+// remove_ward: owner only; its events stay, without a ward
+func (s *wardenService) removeWard(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
+	if err := sp.owner(); err != nil {
+		return nil, err
+	}
+	id := sp.wardID(argStr(a, "ward"))
+	if id == "" {
+		return nil, roomErr{"no such ward: give its id or name"}
+	}
+	docs, ids, err := s.db.WhereEq(ctx, wardenEvents, "space", sp.id)
+	if err != nil {
+		return nil, err
+	}
+	cleared := 0
+	for i, d := range docs {
+		// the entry's ward, and a typed field naming it (ward ids are random)
+		hit := docStr(d, "ward") == id
+		if hit {
+			d["ward"] = ""
+		}
+		fields, _ := d["fields"].(map[string]any)
+		for k, v := range fields {
+			if v == id {
+				delete(fields, k)
+				hit = true
+			}
+		}
+		if !hit {
+			continue
+		}
+		s.stamp(d, sp)
+		if err := s.db.Set(ctx, wardenEvents, ids[i], d); err != nil {
+			return nil, err
+		}
+		cleared++
+	}
+	sp.doc["wards"] = anys(slices.DeleteFunc(docMaps(sp.doc, "wards"), func(w map[string]any) bool { return docStr(w, "id") == id }))
+	if err := s.save(ctx, sp); err != nil {
+		return nil, err
+	}
+	out := sp.json()
+	out["removed_ward"], out["events_cleared"] = id, cleared
+	return out, nil
+}
+
 // ----------------------------------------------------------------- events --
 
 // an event's fields, checked; what the arguments leave out is left as base has it
@@ -1046,6 +1091,8 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 		return s.removeMember(ctx, sp, a)
 	case "add_ward":
 		return s.addWardOp(ctx, sp, a)
+	case "remove_ward":
+		return s.removeWard(ctx, sp, a)
 	case "list_events":
 		return s.listEvents(ctx, sp, a)
 	case "save_event":

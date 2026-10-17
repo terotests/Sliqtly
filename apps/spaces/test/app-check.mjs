@@ -304,6 +304,24 @@ console.log("a space on a server");
   }
   a.setWidth(1280, 700);
 
+  // a ward added by mistake: Remove asks first, then its events stay without it
+  a.press("sp-nav-members");
+  t = texts(a);
+  ok("the wards are listed", t.includes("Aino") && t.includes("Dependants"));
+  a.press("sp-unward-0");
+  eq("Remove alone sends nothing", a.outCount(), 0);
+  ok("it asks", texts(a).some((s) => s.startsWith("Remove Aino?")));
+  a.press("sp-unward-no");
+  ok("Cancel keeps it", a.space.resources.length === 1 && !texts(a).some((s) => s.startsWith("Remove Aino?")));
+  a.press("sp-unward-0");
+  a.press("sp-unward-yes");
+  eq("then remove_ward", a.outOp(), "remove_ward");
+  eq("of that ward", JSON.parse(a.outBody()).ward, "w1");
+  eq("gone from the page", a.space.resources.length, 0);
+  ok("its events kept, without it", a.space.events.length === 3 && a.space.events.every((e) => e.resource === ""));
+  a.answer(JSON.stringify(spaceOf({ wards: [], members: [{ uid: "u1", name: "Mia", email: "mia@example.com", role: "owner" }] })));
+  eq("nothing left to send after it", a.outCount(), 0);
+
   // a pointer in a field puts the caret where it lands
   a.press("sp-nav-members");
   a.press("sp-invite-email");
