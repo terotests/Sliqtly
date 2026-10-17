@@ -166,6 +166,8 @@ class SpacesApp {
     ; answer asked from it (-1 for none)
     def addManual:boolean false
     def typeSearch:InputCtl (new InputCtl())
+    ; the editor's search for an entry to link with
+    def linkSearch:InputCtl (new InputCtl())
     def addGroup:string ""
     def addAsked:int -1
     ; the form: open, on which event ("" for a new one), of which type, and
@@ -3250,6 +3252,7 @@ class SpacesApp {
             c.addChild(cost)
         }
         this.addWatch(c)
+        this.addLinks(c)
         def bar:EVGElement (SpacesApp.box("sp-formrow"))
         bar.addChild((SpacesApp.btn("sp-ed-save" "sp-action sp-action-primary" (SpWords.ui(lang "save")))))
         bar.addChild((SpacesApp.btn("sp-ed-cancel" "sp-action" (SpWords.ui(lang "cancel")))))
@@ -3304,6 +3307,89 @@ class SpacesApp {
             c.addChild(b)
             i = (i + 1)
         }
+    }
+
+    ; An entry's name in a link: its type's and its own.
+    fn linkName:string (e:SpEvent) {
+        if ((strlen e.typeId) == 0) {
+            return e.title
+        }
+        return ((this.typeName(e.typeId)) + ": " + e.title)
+    }
+
+    ; The entries linked with the one being edited (a thing and its repair,
+    ; a gift and the reminder to buy it), each opening it or unlinked, and a
+    ; search for more. Only saved entries link: the server keeps both ends.
+    fn addLinks:void (c:EVGElement) {
+        if ((strlen editId) == 0) {
+            return
+        }
+        def found@(optional):SpEvent (space.event(editId))
+        if (null? found) {
+            return
+        }
+        def e:SpEvent found
+        if ((strlen e.remoteId) == 0) {
+            return
+        }
+        c.addChild((SpacesApp.tx("sp-formhead" (SpWords.pick(lang "Related" "Liittyvät")))))
+        def have:[SpEvent] (space.linksOf(e))
+        def i:int 0
+        while (i < (array_length have)) {
+            def o:SpEvent (itemAt have i)
+            def row:EVGElement (SpacesApp.box("sp-formrow"))
+            def ob:EVGElement (SpacesApp.btn(("sp-linkopen-" + o.id) "sp-link" (this.linkName(o))))
+            ob.role = "link"
+            row.addChild(ob)
+            def ub:EVGElement (SpacesApp.btn(("sp-unlink-" + o.id) "sp-link" "✕"))
+            ub.a11yLabel = ((SpWords.pick(lang "Unlink" "Poista linkki")) + ": " + o.title)
+            row.addChild(ub)
+            c.addChild(row)
+            i = (i + 1)
+        }
+        c.addChild((this.field(linkSearch "sp-linksearch" (SpWords.pick(lang "Link an entry" "Linkitä merkintä")) (SpWords.pick(lang "Search by name" "Hae nimellä")) "text")))
+        def hits:[SpEvent] (this.linkMatches(e))
+        def k:int 0
+        while (k < (array_length hits)) {
+            def h:SpEvent (itemAt hits k)
+            c.addChild((SpacesApp.btn(("sp-linkadd-" + h.id) "sp-link" ("+ " + (this.linkName(h))))))
+            k = (k + 1)
+        }
+    }
+
+    ; At most six saved entries the link search finds, not `e` nor linked.
+    fn linkMatches:[SpEvent] (e:SpEvent) {
+        def out:[SpEvent]
+        def q:string (to_lowercase (trim linkSearch.value))
+        if ((strlen q) == 0) {
+            return out
+        }
+        def i:int 0
+        while ((i < (array_length space.events)) && ((array_length out) < 6)) {
+            def o:SpEvent (itemAt space.events i)
+            if ((((strlen o.remoteId) > 0) && (o.id != e.id)) && ((e.linked(o.remoteId)) == false)) {
+                def hay:string (to_lowercase ((o.title) + " " + (this.typeName(o.typeId))))
+                if ((indexOf hay q) >= 0) {
+                    push out o
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Link the entry being edited with `otherId` (on) or unlink them.
+    fn linkEdited:void (otherId:string on:boolean) {
+        def a@(optional):SpEvent (space.event(editId))
+        def b@(optional):SpEvent (space.event(otherId))
+        if ((null? a) || (null? b)) {
+            return
+        }
+        def ae:SpEvent a
+        def be:SpEvent b
+        space.link(ae be on)
+        linkSearch.setValue("")
+        this.queueSaves()
     }
 
     ; a find of the entry being edited, opened in a new tab by the host
@@ -4197,6 +4283,18 @@ class SpacesApp {
         }
         if (UiTree.beginsWith(target "sp-entry-")) {
             this.openOcc((substring target 9 (strlen target)))
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-linkopen-")) {
+            this.openOcc((substring target 12 (strlen target)))
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-linkadd-")) {
+            this.linkEdited((substring target 11 (strlen target)) true)
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-unlink-")) {
+            this.linkEdited((substring target 10 (strlen target)) false)
             return true
         }
         if (UiTree.beginsWith(target "sp-list-")) {

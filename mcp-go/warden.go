@@ -832,6 +832,9 @@ func wardenEventJSON(id string, d Doc, now time.Time) map[string]any {
 	if l := docStrs(d, "exdates"); len(l) > 0 {
 		out["exdates"] = anys(l)
 	}
+	if l := docStrs(d, "links"); len(l) > 0 {
+		out["links"] = anys(l)
+	}
 	if l := docMaps(d, "who"); len(l) > 0 {
 		who := []any{}
 		for _, m := range l {
@@ -985,6 +988,14 @@ func (s *wardenService) saveEvent(ctx context.Context, sp *wardenSpace, a map[st
 	if sp.saleLabel(d) {
 		newWards = true // the space's next label number is kept with it
 	}
+	add, err := s.linkIDs(ctx, sp, a, "links", nil)
+	if err != nil {
+		return nil, err
+	}
+	drop, err := s.linkIDs(ctx, sp, a, "unlink", nil)
+	if err != nil {
+		return nil, err
+	}
 	if id == "" {
 		if ext := docStr(d, "ext_id"); ext != "" {
 			id = wardenExtID(sp.id, ext)
@@ -1004,8 +1015,12 @@ func (s *wardenService) saveEvent(ctx context.Context, sp *wardenSpace, a map[st
 			return nil, err
 		}
 	}
+	wardenSetLinks(d, id, add, drop)
 	s.stamp(d, sp)
 	if err := s.db.Set(ctx, wardenEvents, id, d); err != nil {
+		return nil, err
+	}
+	if err := s.linkOthers(ctx, sp, id, add, drop); err != nil {
 		return nil, err
 	}
 	return wardenEventJSON(id, d, s.now()), nil
@@ -1019,10 +1034,14 @@ func (s *wardenService) stamp(d Doc, sp *wardenSpace) {
 
 func (s *wardenService) deleteEvent(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
 	id := argStr(a, "event_id")
-	if _, err := s.event(ctx, sp, id); err != nil {
+	d, err := s.event(ctx, sp, id)
+	if err != nil {
 		return nil, err
 	}
 	if err := s.db.Delete(ctx, wardenEvents, id); err != nil {
+		return nil, err
+	}
+	if err := s.linkOthers(ctx, sp, id, nil, docStrs(d, "links")); err != nil {
 		return nil, err
 	}
 	return map[string]any{"deleted": id}, nil
@@ -1042,9 +1061,11 @@ func (s *wardenService) importEvents(ctx context.Context, sp *wardenSpace, list 
 		return nil, err
 	}
 	type put struct {
-		id  string
-		doc Doc
-		new bool
+		id        string
+		doc       Doc
+		new       bool
+		args      map[string]any
+		add, drop []string
 	}
 	puts := []put{}
 	seen := map[string]bool{}
@@ -1085,7 +1106,23 @@ func (s *wardenService) importEvents(ctx context.Context, sp *wardenSpace, list 
 			newWards = true
 		}
 		seen[id] = true
-		puts = append(puts, put{id, d, !slices.Contains(have, id)})
+		puts = append(puts, put{id: id, doc: d, new: !slices.Contains(have, id), args: m})
+	}
+	// links may name entries of the same import by their ext_id
+	for i := range puts {
+		p := &puts[i]
+		var err error
+		if p.add, err = s.linkIDs(ctx, sp, p.args, "links", seen); err == nil {
+			p.drop, err = s.linkIDs(ctx, sp, p.args, "unlink", seen)
+		}
+		if err != nil {
+			var re roomErr
+			if ok := asRoomErr(err, &re); ok {
+				return nil, roomErr{fmt.Sprintf("events[%d]: %s; nothing was imported", i, re.msg)}
+			}
+			return nil, err
+		}
+		wardenSetLinks(p.doc, p.id, p.add, p.drop)
 	}
 	made := 0
 	for _, p := range puts {
@@ -1108,6 +1145,11 @@ func (s *wardenService) importEvents(ctx context.Context, sp *wardenSpace, list 
 			return nil, err
 		}
 		ids = append(ids, p.id)
+	}
+	for _, p := range puts {
+		if err := s.linkOthers(ctx, sp, p.id, p.add, p.drop); err != nil {
+			return nil, err
+		}
 	}
 	return map[string]any{"space_id": sp.id, "created": made, "updated": len(puts) - made, "event_ids": ids, "wards": sp.json()["wards"]}, nil
 }

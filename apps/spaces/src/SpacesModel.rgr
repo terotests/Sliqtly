@@ -325,7 +325,40 @@ class SpEvent {
     def findTitles:[string]
     def findUrls:[string]
     def findInfo:[string]
+    ; the server ids of the entries it is linked with (both ways), and the
+    ; links made or taken off here that the server has not had yet
+    def links:[string]
+    def linkAdd:[string]
+    def linkDrop:[string]
     Constructor () {
+    }
+
+    fn linked:boolean (rid:string) {
+        def i:int 0
+        while (i < (array_length links)) {
+            if ((itemAt links i) == rid) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; `rid` into (on) or out of (off) its links
+    fn setLink:void (rid:string on:boolean) {
+        def kept:[string]
+        def i:int 0
+        while (i < (array_length links)) {
+            def l:string (itemAt links i)
+            if (l != rid) {
+                push kept l
+            }
+            i = (i + 1)
+        }
+        if on {
+            push kept rid
+        }
+        links = kept
     }
 
     fn dated:boolean () {
@@ -442,6 +475,10 @@ class SpEvent {
             def none:[string]
             dropped = none
             costDropped = false
+            def none2:[string]
+            linkAdd = none2
+            def none3:[string]
+            linkDrop = none3
         }
     }
 
@@ -1192,6 +1229,53 @@ class SpSpace {
     }
 
     ; --- finding ----------------------------------------------------------------
+
+    fn byRemote@(optional):SpEvent (rid:string) {
+        def found@(optional):SpEvent
+        if ((strlen rid) == 0) {
+            return found
+        }
+        def i:int 0
+        while (i < (array_length events)) {
+            def e:SpEvent (itemAt events i)
+            if (e.remoteId == rid) {
+                found = e
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; The entries linked with `e`, in the order linked.
+    fn linksOf:[SpEvent] (e:SpEvent) {
+        def out:[SpEvent]
+        def i:int 0
+        while (i < (array_length e.links)) {
+            def o@(optional):SpEvent (this.byRemote((itemAt e.links i)))
+            if (!null? o) {
+                def oe:SpEvent o
+                push out oe
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Link `a` and `b` both ways (on) or take the link off: here at once, on
+    ; the server with `a`'s next save, which changes `b` there too.
+    fn link:void (a:SpEvent b:SpEvent on:boolean) {
+        if ((((strlen a.remoteId) == 0) || ((strlen b.remoteId) == 0)) || (a.id == b.id)) {
+            return
+        }
+        a.setLink(b.remoteId on)
+        b.setLink(a.remoteId on)
+        if on {
+            push a.linkAdd b.remoteId
+        } {
+            push a.linkDrop b.remoteId
+        }
+        a.touch()
+    }
 
     fn event@(optional):SpEvent (id:string) {
         def found@(optional):SpEvent

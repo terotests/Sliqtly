@@ -443,7 +443,7 @@
     {
       "id": "registration", "kind": "deadline", "group": "activity", "packs": ["family", "sports"], "icon": "pencil",
       "name": { "en": "Registration / course", "fi": "Ilmoittautuminen / kurssi" },
-      "help": { "en": "A registration to make by a day: a hobby's next season, a course, a club or a camp. The entry's day is the last day to register; its fee goes to the budget and is reminded of by pay_by, and each piece of gear to get is its own need, both naming the other in related.", "fi": "Ilmoittautuminen tiettyyn päivään mennessä: harrastuksen seuraava kausi, kurssi, kerho tai leiri. Päivä on viimeinen ilmoittautumispäivä." },
+      "help": { "en": "A registration to make by a day: a hobby's next season, a course, a club or a camp. The entry's day is the last day to register; its fee goes to the budget and is reminded of by pay_by, and each piece of gear to get is its own need, linked to it.", "fi": "Ilmoittautuminen tiettyyn päivään mennessä: harrastuksen seuraava kausi, kurssi, kerho tai leiri. Päivä on viimeinen ilmoittautumispäivä." },
       "fields": [
         { "key": "what", "type": "text", "name": { "en": "Hobby or course", "fi": "Harrastus tai kurssi" } },
         { "key": "organiser", "type": "text", "name": { "en": "Organiser", "fi": "Järjestäjä" } },
