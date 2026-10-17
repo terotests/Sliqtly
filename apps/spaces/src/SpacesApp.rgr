@@ -1118,8 +1118,8 @@ class SpacesApp {
             who = (to_lowercase (SpWords.noun(lang pack "together")))
         }
         def away:string (this.awayText(o.day))
-        row.a11yLabel = ((SpWords.dayLabel(lang o.day)) + " " + o.title + ", " + who + ", " + away)
-        def dl:EVGElement (SpacesApp.tx(("sp-abday sp-abday" + nw) (SpWords.dayLabel(lang o.day))))
+        row.a11yLabel = ((SpWords.dayLabel(lang o.day)) + (this.untilText(o)) + " " + o.title + ", " + who + ", " + away)
+        def dl:EVGElement (this.dayStack(o ("sp-abday sp-abday" + nw) ("sp-abend sp-abend" + nw) ("sp-abdaycol sp-abdaycol" + nw)))
         dl.a11yHidden = true
         row.addChild(dl)
         def dot:EVGElement (SpacesApp.box(("sp-abdot sp-c-" + (this.colorOf(o)))))
@@ -1669,14 +1669,22 @@ class SpacesApp {
 
     fn aheadRow:EVGElement (o:SpOccur w:double) {
         def n:int (this.rowOf(o))
-        def row:EVGElement (UiTree.div(("sp-item-" + (to_string n)) "sp-arow"))
+        def rcls:string "sp-arow"
+        if (o.endDay > o.day) {
+            rcls = "sp-arow sp-arow-span"
+        }
+        def row:EVGElement (UiTree.div(("sp-item-" + (to_string n)) rcls))
         row.role = "button"
         row.a11yFocusable = true
-        row.a11yLabel = ((SpWords.dayLabel(lang o.day)) + " " + o.title)
-        def dot:EVGElement (SpacesApp.box(("sp-adot sp-c-" + (this.colorOf(o)))))
+        row.a11yLabel = ((SpWords.dayLabel(lang o.day)) + (this.untilText(o)) + " " + o.title)
+        def dcls:string "sp-adot"
+        if (o.endDay > o.day) {
+            dcls = "sp-adot sp-adot-span"
+        }
+        def dot:EVGElement (SpacesApp.box((dcls + " sp-c-" + (this.colorOf(o)))))
         dot.a11yHidden = true
         row.addChild(dot)
-        def dl:EVGElement (SpacesApp.tx("sp-aday" (SpWords.dayLabel(lang o.day))))
+        def dl:EVGElement (this.dayStack(o "sp-aday" "sp-aend" "sp-adaycol"))
         dl.a11yHidden = true
         row.addChild(dl)
         def tt:EVGElement (SpacesApp.tx("sp-atitle" o.title))
@@ -1684,6 +1692,27 @@ class SpacesApp {
         UiTree.inline(tt "width" (SpacesApp.px((w - 140.0))))
         row.addChild(tt)
         return row
+    }
+
+    ; The first day in bold and, for a plan over several days, its last
+    ; day under it: "pe 6.11." / "– 8.11.".
+    fn dayStack:EVGElement (o:SpOccur dayCls:string endCls:string colCls:string) {
+        def first:EVGElement (SpacesApp.tx(dayCls (SpWords.dayLabel(lang o.day))))
+        if (o.endDay <= o.day) {
+            return first
+        }
+        def c:EVGElement (SpacesApp.box(colCls))
+        c.addChild(first)
+        c.addChild((SpacesApp.tx(endCls ("– " + (SpWords.dateShort(lang o.endDay))))))
+        return c
+    }
+
+    ; " – 8.11." for a plan over several days, else ""
+    fn untilText:string (o:SpOccur) {
+        if (o.endDay <= o.day) {
+            return ""
+        }
+        return (" – " + (SpWords.dateShort(lang o.endDay)))
     }
 
     ; --- to remember ---
