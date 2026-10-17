@@ -60,9 +60,33 @@ type wardenType struct {
 	Budget []string `json:"budget"`
 	// the date fields ("date": the entry's day) that make reminders
 	Reminders []wardenReminder `json:"reminders"`
+	// the type's own window to get something in
+	Get *wardenGet `json:"get,omitempty"`
 	// kept for entries already made; new ones take ReplacedBy
 	Legacy     bool   `json:"legacy,omitempty"`
 	ReplacedBy string `json:"replaced_by,omitempty"`
+}
+
+// what a type gets by: the date field (or "date"), when the condition holds,
+// until one of done does
+type wardenGet struct {
+	By   string       `json:"by"`
+	When *wardenCond  `json:"when,omitempty"`
+	Done []wardenCond `json:"done,omitempty"`
+}
+
+// a field that is set (Is "") or has the value Is
+type wardenCond struct {
+	Field string `json:"field"`
+	Is    string `json:"is,omitempty"`
+}
+
+func (c wardenCond) holds(fields map[string]any) bool {
+	v, ok := fields[c.Field]
+	if !ok || v == nil || v == "" || v == false {
+		return false
+	}
+	return c.Is == "" || fmt.Sprint(v) == c.Is
 }
 
 type wardenReminder struct {
@@ -98,6 +122,8 @@ const (
 	wardenMaxCost        = 1e7 // euros of one cost
 	wardenMaxInstalments = 120
 	wardenRemindDays     = 30 // a deadline is due this many days before, unless it says
+	wardenPayRemindDays  = 3  // a cost paid in parts is reminded of this many days before each
+	wardenGetDays        = 14 // a get_by without get_from: the days before it to get the thing in
 )
 
 func wardenTypeOf(id string) *wardenType {
@@ -403,6 +429,9 @@ func (sp *wardenSpace) entryDoc(a map[string]any, d Doc, newWards *bool) error {
 			}
 		}
 	}
+	if f, b := docStr(fields, "get_from"), docStr(fields, "get_by"); f != "" && b != "" && f > b {
+		return roomErr{"fields.get_from is after fields.get_by: the thing is got between them"}
+	}
 	if len(fields) > 0 {
 		d["fields"] = fields
 	} else {
@@ -432,7 +461,7 @@ func wardenCost(v any) (map[string]any, error) {
 	m, ok := v.(map[string]any)
 	bad := func(why string) (map[string]any, error) { return nil, roomErr{"cost: " + why} }
 	if !ok {
-		return bad("an object {amount, payer, scope, instalments, first, every_months}")
+		return bad("an object {amount, payer, scope, instalments, first, every_months, remind_days}")
 	}
 	f := wardenField{Key: "amount", Type: "money"}
 	amt, err := (&wardenSpace{}).fieldValue(f, m["amount"], new(bool))
@@ -478,6 +507,13 @@ func wardenCost(v any) (map[string]any, error) {
 		}
 		c["first"] = s
 	}
+	if v, ok := m["remind_days"]; ok && v != nil {
+		x, ok := v.(float64)
+		if !ok || x != math.Trunc(x) || x < 0 || x > 60 {
+			return bad("remind_days is a whole number from 0 (no reminder) to 60")
+		}
+		c["remind_days"] = int(x)
+	}
 	return c, nil
 }
 
@@ -517,15 +553,18 @@ func wardenRemindFrom(d Doc) string {
 }
 
 // the reminders the type makes of an entry's dates: {field, date, day}, the
-// day the reminder is for
-func wardenReminders(d Doc) []any {
-	t := wardenTypeOf(docStr(d, "type"))
-	if t == nil {
-		return nil
-	}
+// day the reminder is for; then the window to get something in (from its
+// first day) and the cost's next payment on or after now
+func wardenReminders(d Doc, now time.Time) []any {
+	t := wardenTypeOf(wardenOr(docStr(d, "type"), "event"))
 	fields, _ := d["fields"].(map[string]any)
 	out := []any{}
-	for _, r := range t.Reminders {
+	for _, r := range func() []wardenReminder {
+		if t == nil {
+			return nil
+		}
+		return t.Reminders
+	}() {
 		date := docStr(d, "date")
 		if r.Field != "date" {
 			date, _ = fields[r.Field].(string)
@@ -536,7 +575,144 @@ func wardenReminders(d Doc) []any {
 		}
 		out = append(out, map[string]any{"field": r.Field, "date": date, "day": day.AddDate(0, 0, -r.Days).Format("2006-01-02")})
 	}
+	if from, by := wardenGetWindow(d); by != "" {
+		out = append(out, map[string]any{"field": "get_by", "date": by, "day": from})
+	}
+	if p := wardenNextPayment(d, now); p != nil && p["remind_from"] != nil {
+		out = append(out, map[string]any{"field": "cost", "date": p["date"], "day": p["remind_from"]})
+	}
 	return out
+}
+
+// the days between which something is got or bought: get_from and get_by
+// as the fields say, else the type's own (a missing thing by its day, a
+// need by needed_by until it is bought); get_by alone is got in the
+// wardenGetDays before it, and get_from alone by the entry's day. "" when
+// there is none.
+func wardenGetWindow(d Doc) (from, by string) {
+	fields, _ := d["fields"].(map[string]any)
+	from, by = docStr(fields, "get_from"), docStr(fields, "get_by")
+	if t := wardenTypeOf(docStr(d, "type")); by == "" && from == "" && t != nil && t.Get != nil {
+		g := t.Get
+		on := g.When == nil || g.When.holds(fields)
+		for _, c := range g.Done {
+			if c.holds(fields) {
+				on = false
+			}
+		}
+		if on {
+			if g.By == "date" {
+				by = docStr(d, "date")
+			} else {
+				by = docStr(fields, g.By)
+			}
+		}
+	}
+	if by == "" && from != "" {
+		by = docStr(d, "date")
+		if by < from {
+			by = from
+		}
+	}
+	if by == "" {
+		return "", ""
+	}
+	if from == "" {
+		t, _ := time.Parse("2006-01-02", by)
+		from = t.AddDate(0, 0, -wardenGetDays).Format("2006-01-02")
+	}
+	return from, by
+}
+
+// a payment of an entry's cost: its day, its amount, which part of how many
+type wardenPayment struct {
+	day    time.Time
+	amount float64
+	n, of  int
+}
+
+// the payments of an entry's cost c: its instalments from first (the
+// entry's day, else the day it was saved), every every_months months, each
+// on the same day of the month (the month's last when it is shorter)
+func wardenPayments(d Doc, c map[string]any) []wardenPayment {
+	first := docStr(c, "first")
+	if first == "" {
+		first = docStr(d, "date")
+	}
+	if first == "" {
+		first = time.UnixMilli(int64(wardenNum(d["updated"]))).In(time.UTC).Format("2006-01-02")
+	}
+	day, err := time.Parse("2006-01-02", first)
+	if err != nil {
+		return nil
+	}
+	n, every := int(wardenNum(c["instalments"])), int(wardenNum(c["every_months"]))
+	if n < 1 {
+		n = 1
+	}
+	if every < 1 {
+		every = 1
+	}
+	total := wardenNum(c["amount"])
+	part := math.Floor(total/float64(n)*100) / 100
+	out := make([]wardenPayment, 0, n)
+	for k := 0; k < n; k++ {
+		amt := part
+		if k == n-1 {
+			amt = math.Round((total-part*float64(n-1))*100) / 100
+		}
+		at := time.Date(day.Year(), day.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, k*every, 0)
+		pd := at.AddDate(0, 0, day.Day()-1)
+		if pd.Month() != at.Month() {
+			pd = at.AddDate(0, 1, -1)
+		}
+		out = append(out, wardenPayment{pd, amt, k + 1, n})
+	}
+	return out
+}
+
+// how many days before each payment the cost is reminded of: remind_days,
+// or wardenPayRemindDays for one paid in parts; -1 for none
+func wardenPayRemind(c map[string]any) int {
+	if v, ok := c["remind_days"]; ok {
+		if n := int(wardenNum(v)); n > 0 {
+			return n
+		}
+		return -1
+	}
+	if wardenNum(c["instalments"]) > 1 {
+		return wardenPayRemindDays
+	}
+	return -1
+}
+
+// the cost's own, else the one the budget reads from the entry's fields
+func wardenCostOf(d Doc) map[string]any {
+	if c, _ := d["cost"].(map[string]any); c != nil {
+		return c
+	}
+	return wardenDerivedCost(d)
+}
+
+// the next payment of the entry's cost on or after now's day, with the day
+// its reminder starts; nil when none is left
+func wardenNextPayment(d Doc, now time.Time) map[string]any {
+	c := wardenCostOf(d)
+	if c == nil {
+		return nil
+	}
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	for _, p := range wardenPayments(d, c) {
+		if p.day.Before(today) {
+			continue
+		}
+		out := map[string]any{"date": p.day.Format("2006-01-02"), "amount": p.amount, "n": p.n, "of": p.of}
+		if r := wardenPayRemind(c); r > 0 {
+			out["remind_from"] = p.day.AddDate(0, 0, -r).Format("2006-01-02")
+		}
+		return out
+	}
+	return nil
 }
 
 // An entry without a cost of its own that the budget still counts: the
@@ -559,7 +735,17 @@ func wardenDerivedCost(d Doc) map[string]any {
 	for _, k := range keys {
 		if amt := wardenNum(fields[k]); amt > 0 {
 			c := map[string]any{"amount": amt, "scope": "shared", "instalments": 1, "every_months": 1, "field": k}
-			if p := docStr(fields, "payer"); p != "" {
+			// a personal one is its budget owner's, else its payer's
+			p := docStr(fields, "payer")
+			if docStr(fields, "budget_scope") == "personal" {
+				if o := docStr(fields, "budget_owner"); o != "" {
+					p = o
+				}
+				if p != "" {
+					c["scope"] = "personal"
+				}
+			}
+			if p != "" {
 				c["payer"] = p
 			}
 			return c
@@ -568,8 +754,8 @@ func wardenDerivedCost(d Doc) map[string]any {
 	return nil
 }
 
-// the type's part of an entry's answer
-func wardenEntryJSON(out map[string]any, d Doc) {
+// the type's part of an entry's answer; now dates the next payment
+func wardenEntryJSON(out map[string]any, d Doc, now time.Time) {
 	if t := docStr(d, "type"); t != "" {
 		out["type"] = t
 	}
@@ -582,7 +768,13 @@ func wardenEntryJSON(out map[string]any, d Doc) {
 	if r := wardenRemindFrom(d); r != "" {
 		out["remind_from"] = r
 	}
-	if r := wardenReminders(d); len(r) > 0 {
+	if from, by := wardenGetWindow(d); by != "" {
+		out["get_window"] = map[string]any{"from": from, "by": by}
+	}
+	if p := wardenNextPayment(d, now); p != nil {
+		out["next_payment"] = p
+	}
+	if r := wardenReminders(d, now); len(r) > 0 {
 		out["reminders"] = r
 	}
 }
@@ -621,7 +813,7 @@ func (s *wardenService) listEntryTypes(ctx context.Context, who wardenWho, a map
 	}
 	json.Unmarshal(wardenTypesJSON, &about)
 	return map[string]any{"about": about.About, "common": wardenCommon, "types": wardenTypesFor(vocab),
-		"cost": "cost {amount (euros), payer (a name), scope shared|personal (a personal cost is in its payer's own budget and still listed in the group's spending), instalments (paid in this many parts, default 1), first (the first payment's day; the entry's day by default), every_months (months between parts, default 1)}"}, nil
+		"cost": "cost {amount (euros), payer (a name), scope shared|personal (shared: the family budget; personal: the payer's own budget, still listed in the group's spending), instalments (paid in this many parts, default 1; a monthly bill such as an electricity contract is e.g. 12 parts every month), first (the first payment's day; the entry's day by default), every_months (months between parts, default 1), remind_days (days before each payment day to remind; default 3 for a cost in parts, 0 for none)}. An entry's answer carries next_payment {date, amount, n, of, remind_from} and get_window {from, by}."}, nil
 }
 
 // ----------------------------------------------------------------- budget --
@@ -646,7 +838,7 @@ func (s *wardenService) budget(ctx context.Context, sp *wardenSpace, a map[strin
 	if !ok1 || !ok2 || t.Before(f) || t.After(f.AddDate(5, 0, 0)) {
 		return nil, roomErr{"from and to are months as YYYY-MM, at most five years apart"}
 	}
-	payer := cleanName(argStr(a, "payer"))
+	payer, person := cleanName(argStr(a, "payer")), cleanName(argStr(a, "person"))
 	docs, ids, err := s.events(ctx, sp)
 	if err != nil {
 		return nil, err
@@ -657,10 +849,7 @@ func (s *wardenService) budget(ctx context.Context, sp *wardenSpace, a map[strin
 	}
 	lines := []line{}
 	for i, d := range docs {
-		c, _ := d["cost"].(map[string]any)
-		if c == nil {
-			c = wardenDerivedCost(d)
-		}
+		c := wardenCostOf(d)
 		if c == nil {
 			continue
 		}
@@ -668,42 +857,18 @@ func (s *wardenService) budget(ctx context.Context, sp *wardenSpace, a map[strin
 		if payer != "" && !strings.EqualFold(who, payer) {
 			continue
 		}
-		first := docStr(c, "first")
-		if first == "" {
-			first = docStr(d, "date")
-		}
-		if first == "" {
-			first = time.UnixMilli(int64(wardenNum(d["updated"]))).In(time.UTC).Format("2006-01-02")
-		}
-		day, err := time.Parse("2006-01-02", first)
-		if err != nil {
+		// a person's budget: their own costs and the family's shared ones
+		if person != "" && docStr(c, "scope") == "personal" && !strings.EqualFold(who, person) {
 			continue
 		}
-		n, every := int(wardenNum(c["instalments"])), int(wardenNum(c["every_months"]))
-		if n < 1 {
-			n = 1
-		}
-		if every < 1 {
-			every = 1
-		}
-		total := wardenNum(c["amount"])
-		part := math.Floor(total/float64(n)*100) / 100
-		for k := 0; k < n; k++ {
-			amt := part
-			if k == n-1 {
-				amt = math.Round((total-part*float64(n-1))*100) / 100
-			}
-			at := time.Date(day.Year(), day.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, k*every, 0)
+		for _, p := range wardenPayments(d, c) {
+			at := time.Date(p.day.Year(), p.day.Month(), 1, 0, 0, 0, 0, time.UTC)
 			if at.Before(f) || at.After(t) {
 				continue
 			}
-			pd := at.AddDate(0, 0, day.Day()-1)
-			if pd.Month() != at.Month() {
-				pd = at.AddDate(0, 1, -1)
-			}
 			lines = append(lines, line{at.Format("2006-01"), map[string]any{
 				"event_id": ids[i], "title": docStr(d, "title"), "type": wardenOr(docStr(d, "type"), "event"),
-				"date": pd.Format("2006-01-02"), "amount": amt, "payer": who, "scope": docStr(c, "scope"), "n": k + 1, "of": n,
+				"date": p.day.Format("2006-01-02"), "amount": p.amount, "payer": who, "scope": docStr(c, "scope"), "n": p.n, "of": p.of,
 			}})
 			// a cost read from the entry's fields says which
 			if f := docStr(c, "field"); f != "" {
@@ -713,14 +878,16 @@ func (s *wardenService) budget(ctx context.Context, sp *wardenSpace, a map[strin
 	}
 	sort.SliceStable(lines, func(i, j int) bool { return docStr(lines[i].m, "date") < docStr(lines[j].m, "date") })
 	type sum struct {
-		total, shared float64
-		byPayer       map[string]float64
+		total, shared, personal float64
+		byPayer                 map[string]float64
 	}
 	add := func(s *sum, m map[string]any) {
 		amt := wardenNum(m["amount"])
 		s.total += amt
 		if docStr(m, "scope") != "personal" {
 			s.shared += amt
+		} else {
+			s.personal += amt
 		}
 		if p := docStr(m, "payer"); p != "" {
 			s.byPayer[p] += amt
@@ -732,7 +899,7 @@ func (s *wardenService) budget(ctx context.Context, sp *wardenSpace, a map[strin
 		for k, v := range s.byPayer {
 			bp[k] = round(v)
 		}
-		return map[string]any{"total": round(s.total), "shared": round(s.shared), "by_payer": bp}
+		return map[string]any{"total": round(s.total), "shared": round(s.shared), "personal": round(s.personal), "by_payer": bp}
 	}
 	all := &sum{byPayer: map[string]float64{}}
 	months := []any{}
@@ -755,6 +922,9 @@ func (s *wardenService) budget(ctx context.Context, sp *wardenSpace, a map[strin
 	out["from"], out["to"], out["months"], out["currency"] = from, to, months, "EUR"
 	if payer != "" {
 		out["payer"] = payer
+	}
+	if person != "" {
+		out["person"] = person
 	}
 	return out, nil
 }
