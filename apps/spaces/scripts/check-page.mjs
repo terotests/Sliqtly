@@ -228,15 +228,18 @@ try {
       await clickId(page, bandId);
       await page.waitForTimeout(200);
       ok("a click opens it in the form", await page.evaluate(() => window.__spaces.editing && window.__spaces.editId !== ""));
-      await clickId(page, "sp-ed-cancel");
-      await page.waitForTimeout(200);
+      // Escape closes it (its Cancel sits at the foot of a page taller than
+      // the window, where a click can land before the scroll has settled)
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => !window.__spaces.editing, null, { timeout: 3000 }).catch(() => {});
       await page.evaluate((id) => { window.__spaces.focused = id; }, bandId);
+      const before = await page.evaluate(() => ({ editing: window.__spaces.editing, active: document.activeElement && document.activeElement.tagName }));
       await page.keyboard.press("Backspace");
       const deleted = await page
         .waitForFunction(() => window.__spaces.outCount() === 0 && !window.__spaces.space.events.some((e) => e.remoteId === "ev2"), null, { timeout: 5000 })
         .then(() => true, () => false);
       const del = calls.find((c) => c.op === "delete_event");
-      ok("Backspace deletes the selected event", deleted && del && del.body.event_id === "ev2", JSON.stringify(calls.map((c) => c.op)));
+      ok("Backspace deletes the selected event", deleted && del && del.body.event_id === "ev2", JSON.stringify({ calls: calls.map((c) => c.op), before }));
       ok("with Undo offered", (await texts(page)).includes("Undo"));
     }
 
