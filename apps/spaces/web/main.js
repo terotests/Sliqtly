@@ -63,6 +63,10 @@ const mirror = createA11yMirror(stage, {
   tabbable: "all",
   onActivate: (node) => pressAtCentre(node, (x, y) => { app.press(app.hitId(x, y)); after(); }),
   onFocus: (node) => { app.setFocus(node.id); syncText(); paint(); },
+  // a field being edited keeps the keyboard in the text input's own
+  // element: the mirror taking it lost the selection, so Ctrl+A then
+  // Ctrl+C copied nothing
+  canMoveFocus: () => !textInput.isActive(),
 });
 
 function paint() {

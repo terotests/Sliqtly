@@ -995,6 +995,10 @@ console.log("the assistant on a server");
   eq("a question to the clipboard", a.takeAction() + "|" + a.copyText, "copy|Peru huominen");
   a.copied(true);
   eq("said so", a.status, "Kopioitu");
+  // a server older than the page: said in words, not as "No such call."
+  a.press("sp-assist-send");
+  a.failed("No such call.");
+  ok("an older server is said plainly", texts(a).some((x) => x.includes("avustaja ei ole vielä palvelimella")) && a.assistField.value === "Peru huominen");
   for (const w of [1280, 390]) {
     a.setWidth(w, 700);
     const probs = a.a11yProblems();

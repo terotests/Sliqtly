@@ -2582,6 +2582,10 @@ class SpacesApp {
                 t = (SpWords.pick(lang "Done." "Valmis."))
             }
             if (ok == false) {
+                ; a server older than the page has no assistant yet
+                if (t == "No such call.") {
+                    t = (SpWords.pick(lang "the assistant is not on the server yet; it comes with the server's next update. What you wrote is kept below." "avustaja ei ole vielä palvelimella, se tulee palvelimen seuraavassa päivityksessä. Kirjoittamasi teksti on tallessa alla."))
+                }
                 t = ((SpWords.pick(lang "That did not go through: " "Se ei mennyt läpi: ")) + t)
                 ; what was written and the pictures are back in the field, to
                 ; send again
