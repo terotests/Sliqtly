@@ -7,7 +7,8 @@
 // pasted cells for an import, read a picture for the assistant (made
 // smaller first), and save a download. A double-click
 // opens the event under it; Backspace and Delete outside a text field go to
-// the app, which deletes the selected event.
+// the app, which deletes the selected event. It keeps the summary's clock
+// and weather current.
 //
 // The Warden page is the same app on a server: its index.html names the
 // server's path in <meta name="app-server">. The app then keeps an outbox
@@ -311,6 +312,35 @@ document.addEventListener("keydown", (ev) => {
     after();
   }
 });
+
+// The summary's clock: each new minute is drawn; a new day loads the page
+// again, so today is today (unless a text field is being edited).
+setInterval(() => {
+  const t = new Date();
+  if (t.getDate() !== now.getDate()) {
+    if (!app.focusedField()) location.reload();
+    return;
+  }
+  app.setNow(t.getHours() * 60 + t.getMinutes());
+  paint();
+}, 15000);
+
+// The weather on the summary, from Open-Meteo (no key), for Helsinki; read
+// again every half hour. Without an answer the summary has no weather card.
+const WEATHER = { place: "Helsinki", lat: 60.17, lon: 24.94 };
+async function weather() {
+  try {
+    const q = `latitude=${WEATHER.lat}&longitude=${WEATHER.lon}&current=temperature_2m,weather_code`
+      + "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1";
+    const w = await (await fetch("https://api.open-meteo.com/v1/forecast?" + q)).json();
+    const r = (v) => Math.round(Number(v) || 0);
+    app.setWeather(WEATHER.place, r(w.current.temperature_2m), r(w.daily.temperature_2m_max[0]),
+      r(w.daily.temperature_2m_min[0]), r(w.daily.precipitation_probability_max[0]), r(w.current.weather_code));
+    paint();
+  } catch { /* no weather: the card stays off */ }
+}
+weather();
+setInterval(weather, 30 * 60 * 1000);
 
 window.addEventListener("resize", paint);
 document.fonts && document.fonts.ready.then(paint);

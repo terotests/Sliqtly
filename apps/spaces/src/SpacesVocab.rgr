@@ -131,6 +131,18 @@ class SpWords {
             }
             return (SpWords.pick(lang "Place" "Paikka"))
         }
+        if (key == "together") {
+            if (pack == "family") {
+                return (SpWords.pick(lang "Whole family" "Koko perhe"))
+            }
+            if (pack == "business") {
+                return (SpWords.pick(lang "Whole team" "Koko tiimi"))
+            }
+            if (pack == "sports") {
+                return (SpWords.pick(lang "Whole club" "Koko seura"))
+            }
+            return (SpWords.pick(lang "Everyone" "Kaikki"))
+        }
         if (key == "deadlines") {
             if (pack == "family") {
                 return (SpWords.pick(lang "To remember" "Muistettavaa"))
@@ -261,6 +273,90 @@ class SpWords {
         def en:string (itemAt ([] _:string ( "Sun" "Mon" "Tue" "Wed" "Thu" "Fri" "Sat" )) wd)
         def mo:string (itemAt ([] _:string ( "Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec" )) ((itemAt p 1) - 1))
         return (en + " " + mo + " " + (to_string (itemAt p 2)))
+    }
+
+    ; "ma" / "Mon"
+    sfn wdShort:string (lang:string d:int) {
+        def wd:int (UiDate.weekday(d))
+        if (lang == "fi") {
+            return (itemAt ([] _:string ( "su" "ma" "ti" "ke" "to" "pe" "la" )) wd)
+        }
+        return (itemAt ([] _:string ( "Sun" "Mon" "Tue" "Wed" "Thu" "Fri" "Sat" )) wd)
+    }
+
+    ; "perjantai 16. lokakuuta" / "Friday, October 16"
+    sfn longDay:string (lang:string d:int) {
+        def p:[int] (SpSpace.ymdOf(d))
+        def wd:int (UiDate.weekday(d))
+        def m:int ((itemAt p 1) - 1)
+        def dn:string (to_string (itemAt p 2))
+        if (lang == "fi") {
+            def fiDay:string (itemAt ([] _:string ( "sunnuntai" "maanantai" "tiistai" "keskiviikko" "torstai" "perjantai" "lauantai" )) wd)
+            def fiMonth:string (itemAt ([] _:string ( "tammikuuta" "helmikuuta" "maaliskuuta" "huhtikuuta" "toukokuuta" "kesäkuuta" "heinäkuuta" "elokuuta" "syyskuuta" "lokakuuta" "marraskuuta" "joulukuuta" )) m)
+            return (fiDay + " " + dn + ". " + fiMonth)
+        }
+        def enDay:string (itemAt ([] _:string ( "Sunday" "Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday" )) wd)
+        def enMonth:string (itemAt ([] _:string ( "January" "February" "March" "April" "May" "June" "July" "August" "September" "October" "November" "December" )) m)
+        return (enDay + ", " + enMonth + " " + dn)
+    }
+
+    ; The ISO week number: the week of the Thursday, counted in its year.
+    sfn weekNo:int (d:int) {
+        def thu:int ((SpSpace.mondayOf(d)) + 3)
+        def p:[int] (SpSpace.ymdOf(thu))
+        def jan1:int (UiDate.toDays((itemAt p 0) 1 1))
+        return ((idiv (thu - jan1) 7) + 1)
+    }
+
+    ; A WMO weather code as a symbol and in words.
+    sfn wxIcon:string (code:int) {
+        if (code == 0) {
+            return "☀"
+        }
+        if (code <= 2) {
+            return "⛅"
+        }
+        if (code == 3) {
+            return "☁"
+        }
+        if (code < 50) {
+            return "🌫"
+        }
+        if (((code >= 71) && (code <= 77)) || ((code == 85) || (code == 86))) {
+            return "❄"
+        }
+        if (code >= 95) {
+            return "⛈"
+        }
+        return "☂"
+    }
+
+    sfn wxText:string (lang:string code:int) {
+        if (code == 0) {
+            return (SpWords.pick(lang "clear" "selkeää"))
+        }
+        if (code <= 2) {
+            return (SpWords.pick(lang "partly cloudy" "puolipilvistä"))
+        }
+        if (code == 3) {
+            return (SpWords.pick(lang "cloudy" "pilvistä"))
+        }
+        if (code < 50) {
+            return (SpWords.pick(lang "fog" "sumua"))
+        }
+        if (code < 60) {
+            return (SpWords.pick(lang "drizzle" "tihkua"))
+        }
+        if (((code >= 71) && (code <= 77)) || ((code == 85) || (code == 86))) {
+            return (SpWords.pick(lang "snow" "lunta"))
+        }
+        if (code >= 95) {
+            return (SpWords.pick(lang "thunder" "ukkosta"))
+        }
+        if (code >= 80) {
+            return (SpWords.pick(lang "showers" "sadekuuroja"))
+        }
+        return (SpWords.pick(lang "rain" "sadetta"))
     }
 
     ; "9.30" / "9:30"
