@@ -128,6 +128,7 @@ class SpRemote {
         s.vocab = (o.stringOr("vocab" s.vocab))
         s.lang = (o.stringOr("lang" s.lang))
         s.myRole = (o.stringOr("role" s.myRole))
+        s.feed = (o.stringOr("calendar_feed" s.feed))
         def m:[SpMember]
         s.members = m
         def iv:[string]

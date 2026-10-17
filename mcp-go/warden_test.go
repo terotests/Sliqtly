@@ -240,7 +240,7 @@ func TestWardenMcp(t *testing.T) {
 	for _, x := range tools {
 		names = append(names, x.(map[string]any)["name"].(string))
 	}
-	match(t, strings.Join(names, " "), "^list_spaces create_space get_space list_events list_entry_types budget import_events import_ics save_event delete_event")
+	match(t, strings.Join(names, " "), "^list_spaces create_space get_space list_events list_entry_types budget import_events import_ics calendar_feed save_event delete_event")
 
 	call := func(name string, args map[string]any) (bool, map[string]any, string) {
 		t.Helper()
@@ -312,4 +312,74 @@ func TestWardenRemoveWard(t *testing.T) {
 			eq(t, m["ward"] != "", true, "Aino stays")
 		}
 	}
+}
+
+// the space out as iCalendar: a feed to subscribe to, one entry to download
+func TestWardenFeed(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Kotona"})
+	sid := out["space_id"].(string)
+	wardenCall(t, base, "tero", "invite_member", map[string]any{"space_id": sid, "email": "anna@example.com"})
+	wardenCall(t, base, "anna", "list_spaces", nil)
+	_, out = wardenCall(t, base, "tero", "import_events", map[string]any{"space_id": sid, "events": []any{
+		map[string]any{"title": "Leevin jumppa", "date": "2026-10-21", "start": "17:00", "end": "18:00", "ward": "Leevi", "ext_id": "j",
+			"rrule": "FREQ=WEEKLY;BYDAY=WE;UNTIL=20261216", "exdates": []any{"2026-11-04"}, "who": []any{map[string]any{"name": "Tero", "role": "vie"}}},
+		map[string]any{"title": "Lapset Terolla", "date": "2026-10-30", "end_date": "2026-11-01", "notes": "Avaimet; muista, kiitos"},
+		map[string]any{"title": "Ilman päivää", "type": "need"},
+	}})
+	jumppa := out["event_ids"].([]any)[0].(string)
+
+	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
+	feed := out["space"].(map[string]any)["calendar_feed"].(string)
+	path := feed[strings.Index(feed, "/apps/warden/cal/"):]
+	_, out = wardenCall(t, base, "anna", "calendar_feed", map[string]any{"space_id": sid})
+	eq(t, []any{out["url"], strings.HasPrefix(out["webcal"].(string), "webcal://")}, []any{feed, true}, "a member gets the same address")
+
+	get := func(p, cookie string) (int, string) {
+		res, body := editorDo(t, "GET", base+p, cookie, "", "")
+		return res.StatusCode, body
+	}
+	code, ics := get(path, "")
+	eq(t, code, 200, "no sign-in for the feed")
+	for _, want := range []string{"X-WR-CALNAME:Kotona", "UID:" + jumppa + "@warden.sliqtly.com", "BEGIN:VTIMEZONE", "TZID:Europe/Helsinki",
+		"BYMONTH=10;BYDAY=-1SU", "DTSTART;TZID=Europe/Helsinki:20261021T170000", "RRULE:FREQ=WEEKLY;BYDAY=WE;UNTIL=20261216T215959Z",
+		"EXDATE;TZID=Europe/Helsinki:20261104T170000", "CATEGORIES:Leevi", `DESCRIPTION:Avaimet\; muista\, kiitos`, "DTEND;VALUE=DATE:20261102"} {
+		if !strings.Contains(ics, want) {
+			t.Errorf("feed has no %q:\n%s", want, ics)
+		}
+	}
+	eq(t, strings.Count(ics, "BEGIN:VEVENT"), 2, "the entry without a day is left out")
+
+	// read back as an import reads it: the same days and times
+	loc, _ := time.LoadLocation(wardenTZ)
+	evs, _, err := icsToEvents(ics, loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := evs[0].(map[string]any)
+	if j["title"] != "Leevin jumppa" {
+		j = evs[1].(map[string]any)
+	}
+	eq(t, []any{j["date"], j["start"], j["end"], j["exdates"]}, []any{"2026-10-21", "17:00", "18:00", []any{"2026-11-04"}})
+
+	// the time changes: the same UID, the new time
+	wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "event_id": jumppa, "start": "17:30", "end": "18:30"})
+	_, ics = get(path, "")
+	if !strings.Contains(ics, "UID:"+jumppa+"@") || !strings.Contains(ics, "Helsinki:20261021T173000") {
+		t.Errorf("moved: %s", ics)
+	}
+
+	// one entry, signed in
+	code, one := get("/apps/warden/ics/"+sid+"/"+jumppa+".ics", "anna")
+	eq(t, []any{code, strings.Count(one, "BEGIN:VEVENT"), strings.Contains(one, "UID:"+jumppa+"@")}, []any{200, 1, true}, "anna downloads one")
+	code, _ = get("/apps/warden/ics/"+sid+"/"+jumppa+".ics", "mallory")
+	eq(t, code, 404, "not mallory's")
+
+	// anna leaves: the address she had stops working
+	wardenCall(t, base, "tero", "remove_member", map[string]any{"space_id": sid, "member": "anna@example.com"})
+	code, _ = get(path, "")
+	eq(t, code, 404, "old address")
+	code, out = wardenCall(t, base, "tero", "calendar_feed", map[string]any{"space_id": sid, "reset": true})
+	eq(t, []any{code, out["url"] != feed}, []any{200, true}, "reset")
 }

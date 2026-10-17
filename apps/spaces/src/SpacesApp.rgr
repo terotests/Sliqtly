@@ -120,7 +120,8 @@ class SpacesApp {
     def sentTypes:[string]
     def sentNames:[string]
     ; what the host has to do after a press ("import", "export:<id>",
-    ; "copy": put `copyText` on the clipboard)
+    ; "copy": put `copyText` on the clipboard, "open:<url>": go to the
+    ; address, the server's own when it is relative)
     def action:string ""
     def copyText:string ""
     def status:string ""
@@ -1483,6 +1484,15 @@ class SpacesApp {
                 iv.addChild(form)
             }
             v.addChild(iv)
+        }
+        if ((strlen space.feed) > 0) {
+            def fc:EVGElement (this.card("feed" (SpWords.pick(lang "Calendar on your phone" "Kalenteri puhelimeen"))))
+            fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe and the space's events show in Apple's, Google's or Outlook's calendar, and change there when they change here. Anyone with the address sees the events." "Tilaa, niin tilan menot näkyvät Applen, Googlen tai Outlookin kalenterissa ja muuttuvat siellä, kun ne muuttuvat täällä. Jokainen, jolla on osoite, näkee menot.")))))
+            def fr:EVGElement (SpacesApp.box("sp-formrow"))
+            fr.addChild((SpacesApp.btn("sp-feed-open" "sp-action sp-action-primary" (SpWords.pick(lang "Subscribe" "Tilaa kalenteriin")))))
+            fr.addChild((SpacesApp.btn("sp-feed-copy" "sp-action" (SpWords.pick(lang "Copy the address" "Kopioi osoite")))))
+            fc.addChild(fr)
+            v.addChild(fc)
         }
         return v
     }
@@ -2935,6 +2945,9 @@ class SpacesApp {
                 if ((fe.dated()) && ((this.kindOf(fe.typeId)) != "record")) {
                     bar.addChild((SpacesApp.btn("sp-ed-showcal" "sp-link" (SpWords.ui(lang "showCal")))))
                 }
+                if ((fe.dated()) && ((strlen fe.remoteId) > 0) && ((strlen space.remoteId) > 0)) {
+                    bar.addChild((SpacesApp.btn("sp-ed-ics" "sp-link" (SpWords.pick(lang "Download .ics" "Lataa .ics")))))
+                }
             }
         }
         c.addChild(bar)
@@ -3655,6 +3668,14 @@ class SpacesApp {
             this.deleteEntry(editId editOcc)
             return true
         }
+        if (target == "sp-ed-ics") {
+            def found2@(optional):SpEvent (space.event(editId))
+            if (!null? found2) {
+                def e2:SpEvent found2
+                action = ("open:ics/" + space.remoteId + "/" + e2.remoteId + ".ics")
+            }
+            return true
+        }
         if (target == "sp-ed-showcal") {
             def found@(optional):SpEvent (space.event(editId))
             if (!null? found) {
@@ -4269,6 +4290,18 @@ class SpacesApp {
                 return true
             }
             this.queue("create_space" (SpRemote.body(([] _:string ( "name" nm "vocab" newPack "lang" lang )))) "")
+            return true
+        }
+        if (target == "sp-feed-open") {
+            def at:int (indexOf space.feed "://")
+            if (at > 0) {
+                action = ("open:webcal" + (substring space.feed at (strlen space.feed)))
+            }
+            return true
+        }
+        if (target == "sp-feed-copy") {
+            copyText = space.feed
+            action = "copy"
             return true
         }
         if (target == "sp-invite") {
