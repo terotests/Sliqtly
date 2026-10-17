@@ -1115,6 +1115,47 @@ console.log("a web address in today's card");
   }
 }
 
+console.log("a plan over several days in Tulossa");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  const end = iso(a.today + 12);
+  const short = `– ${Number(end.slice(8, 10))}.${Number(end.slice(5, 7))}.`;
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  a.answer(JSON.stringify({
+    space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] },
+    events: [
+      { event_id: "ev1", title: "Lapset Terolla", date: iso(a.today + 10), end_date: end },
+      { event_id: "ev2", title: "Hammaslääkäri", date: iso(a.today + 11), start: "09:00", end: "09:30", type: "dentist_visit" },
+      { event_id: "ev3", title: "Laivamatka", date: iso(a.today + 14), type: "trip" },
+    ],
+  }));
+  let t = texts(a);
+  ok("the last day under the first", t.includes(short), t.filter((s) => s.startsWith("–")).join(","));
+  eq("only for the plan over several days", t.filter((s) => s.startsWith("–")).length, 1);
+  // plans for no one in particular take their type group's colour
+  const dots = flat(a).map((e) => e.className || "").filter((c) => c.startsWith("sp-adot"));
+  ok("a colour by the kind of plan", dots.some((c) => c.includes("sp-c-all")) && dots.some((c) => c.includes("sp-c-g-health")) && dots.some((c) => c.includes("sp-c-g-travel")), dots.join(","));
+  ok("and the legend names them", t.includes("Terveys") && t.includes("Matkat"), t.slice(-12).join(","));
+  a.press("sp-htab-ahead");
+  ok("the Tulossa page names the kind", texts(a).includes("koko perhe · hammaslääkäri"), texts(a).slice(-12).join(","));
+  a.press("sp-htab-today");
+  eq("no stylesheet errors", a.styleErrorCount(), 0);
+  a.press("sp-htab-ahead");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 800);
+    t = texts(a);
+    ok(`${w} on the Tulossa page too`, t.includes(short));
+    const probs = a.a11yProblems();
+    ok(`${w} Tulossa lints clean`, probs.length === 0, probs.join(" | "));
+  }
+}
+
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();
