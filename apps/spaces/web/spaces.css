@@ -393,6 +393,22 @@
 .sp-wxtemp { color: var(--ink); font-size: 38px; font-weight: 800; height: 46px; line-height: 46px; }
 .sp-wxtext { display: flex; flex-direction: column; flex-wrap: nowrap; }
 .sp-wxline { color: var(--muted); font-size: 14px; height: 20px; line-height: 20px; }
+.sp-placefound { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
+.sp-wxpills { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.sp-wxpill {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sp-wxpill:hover { background-color: #ebe1d8; }
+.sp-wxpill:focus { background-color: #ebe1d8; }
+.sp-wxpill-on { background-color: #ebe1d8; }
+.sp-wxpill-tx { color: var(--muted); font-size: 12px; height: 16px; line-height: 16px; }
+.sp-wxpill-on-tx { color: var(--ink); font-weight: 600; }
 
 .sp-htabs { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 8px; margin-top: -4px; }
 .sp-htab {

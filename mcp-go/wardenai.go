@@ -29,7 +29,7 @@ const wardenAssistOp = "assist"
 
 // the MCP tools the page's assistant may call: those of one space, without
 // the owner's (members, the space's name, deleting it)
-var wardenAssistTools = []string{"list_events", "list_entry_types", "budget", "save_event", "import_events", "import_ics", "delete_event", "add_ward"}
+var wardenAssistTools = []string{"list_events", "list_entry_types", "budget", "save_event", "import_events", "import_ics", "delete_event", "add_ward", "add_place", "remove_place"}
 
 const (
 	wardenAssistText    = 20000 // characters of what the person gives

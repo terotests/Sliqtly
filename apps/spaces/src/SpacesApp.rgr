@@ -69,6 +69,19 @@ class SpCall {
     }
 }
 
+; The weather of one place, as the host read it (Open-Meteo's numbers,
+; rounded): now, today's high and low, the chance of rain and the WMO code.
+class SpWeather {
+    def place:string ""
+    def temp:int 0
+    def hi:int 0
+    def lo:int 0
+    def rain:int 0
+    def code:int 0
+    Constructor () {
+    }
+}
+
 class SpacesApp {
     def space:SpSpace (new SpSpace())
     def pack:string "demo"
@@ -79,14 +92,10 @@ class SpacesApp {
     def browserOff:int 0
     ; the summary's page: "today", "week" or "ahead"
     def homeTab:string "today"
-    ; the weather, when the host has read it (setWeather)
-    def wxSet:boolean false
-    def wxPlace:string ""
-    def wxTemp:int 0
-    def wxHi:int 0
-    def wxLo:int 0
-    def wxRain:int 0
-    def wxCode:int 0
+    ; the weather of each place the host has read (setWeather), and the
+    ; place the summary shows ("" for the first)
+    def wx:[SpWeather]
+    def wxSel:string ""
 
     def board:EcBoard (new EcBoard())
     ; the card's event ids ("o0", "o1" …) and what each one is in the space
@@ -147,6 +156,14 @@ class SpacesApp {
     def shown:[InputCtl]
     def nameField:InputCtl (new InputCtl())
     def inviteField:InputCtl (new InputCtl())
+    ; the places' search: the town written, whose place it becomes (a
+    ; ward's id, "" for the whole space), what the host is to look up
+    ; (action "places") and the towns it found
+    def placeField:InputCtl (new InputCtl())
+    def placeFor:string ""
+    def placeQuery:string ""
+    def placeLooking:boolean false
+    def found:[SpPlace]
 
     ; --- entries ----------------------------------------------------------------------
     ; the entry types (the schema the server shares)
@@ -236,19 +253,98 @@ class SpacesApp {
         }
     }
 
-    ; The weather from the host (Open-Meteo's numbers, rounded): now,
-    ; today's high and low, the chance of rain and the WMO weather code.
+    ; The weather of a place from the host (Open-Meteo's numbers, rounded):
+    ; now, today's high and low, the chance of rain and the WMO weather code.
     fn setWeather:void (place:string temp:int hi:int lo:int rain:int code:int) {
-        wxSet = true
-        wxPlace = place
-        wxTemp = temp
-        wxHi = hi
-        wxLo = lo
-        wxRain = rain
-        wxCode = code
+        def w@(optional):SpWeather (this.weatherOf(place))
+        def one (new SpWeather())
+        if (!null? w) {
+            one = (unwrap w)
+        } {
+            one.place = place
+            push wx one
+        }
+        one.temp = temp
+        one.hi = hi
+        one.lo = lo
+        one.rain = rain
+        one.code = code
         if ((tab == "home") && (editing == false)) {
             this.rebuild()
         }
+    }
+
+    fn weatherOf@(optional):SpWeather (place:string) {
+        def found@(optional):SpWeather
+        def i:int 0
+        while (i < (array_length wx)) {
+            def w:SpWeather (itemAt wx i)
+            if ((to_lowercase w.place) == (to_lowercase place)) {
+                found = w
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; The places whose weather the host is to read: [{name, lat, lon}], each
+    ; town once; Helsinki when the space has none.
+    fn weatherPlacesJson:string () {
+        def list:VlJson (VlJson.arrayValue())
+        def ps:[SpPlace] (space.weatherPlaces())
+        def i:int 0
+        while (i < (array_length ps)) {
+            def p:SpPlace (itemAt ps i)
+            def o:VlJson (VlJson.objectValue())
+            o.setMember("name" (VlJson.stringValue(p.name)))
+            o.setMember("lat" (VlJson.numberValue(p.lat)))
+            o.setMember("lon" (VlJson.numberValue(p.lon)))
+            push list.arr o
+            i = (i + 1)
+        }
+        return (SpRemote.write(list))
+    }
+
+    ; The places of the summary that have weather, in the order they are kept.
+    fn shownWeather:[SpWeather] () {
+        def out:[SpWeather]
+        def ps:[SpPlace] (space.weatherPlaces())
+        def i:int 0
+        while (i < (array_length ps)) {
+            def p:SpPlace (itemAt ps i)
+            def w@(optional):SpWeather (this.weatherOf(p.name))
+            if (!null? w) {
+                push out (unwrap w)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; What the host found for `placeQuery`: Open-Meteo's geocoding answer,
+    ; {results: [{name, latitude, longitude, admin1}]}.
+    fn placesFound:void (text:string) {
+        placeLooking = false
+        def none:[SpPlace]
+        found = none
+        def rs:VlJson ((SpRemote.parse(text)).get("results"))
+        def i:int 0
+        while (i < (rs.count())) {
+            def r:VlJson (rs.at(i))
+            def p (new SpPlace())
+            p.name = (r.stringOr("name" ""))
+            p.lat = (r.doubleOr("latitude" 0.0))
+            p.lon = (r.doubleOr("longitude" 0.0))
+            p.detail = (r.stringOr("admin1" ""))
+            if ((strlen p.name) > 0) {
+                push found p
+            }
+            i = (i + 1)
+        }
+        if ((array_length found) == 0) {
+            status = ((SpWords.pick(lang "No place in Finland is called " "Suomesta ei löytynyt paikkaa ")) + placeQuery)
+        }
+        this.rebuild()
     }
 
     ; A fresh space of the pack's demo data, in the page's language. On a
@@ -887,30 +983,69 @@ class SpacesApp {
         col.addChild((SpacesApp.tx("sp-datesub" sub)))
         h.addChild(col)
         h.addChild((SpacesApp.box("sp-grow")))
-        if wxSet {
+        if ((array_length (this.shownWeather())) > 0) {
             h.addChild((this.weatherCard()))
         }
         return h
     }
 
+    ; The weather of one place; with more, the others' names to switch to.
     fn weatherCard:EVGElement () {
+        def all:[SpWeather] (this.shownWeather())
+        def w:SpWeather (itemAt all 0)
+        def k:int 0
+        while (k < (array_length all)) {
+            def o:SpWeather (itemAt all k)
+            if ((to_lowercase o.place) == (to_lowercase wxSel)) {
+                w = o
+            }
+            k = (k + 1)
+        }
         def c:EVGElement (UiTree.div("sp-wx" "sp-wx"))
-        def t:string ((to_string wxTemp) + "°")
-        def l1:string (wxPlace + " · " + (SpWords.pick(lang "high " "ylin ")) + (to_string wxHi) + "° " + (SpWords.pick(lang "low " "alin ")) + (to_string wxLo) + "°")
-        def l2:string ((SpWords.wxText(lang wxCode)) + " · " + (SpWords.pick(lang "rain " "sade ")) + (to_string wxRain) + " %")
+        def t:string ((to_string w.temp) + "°")
+        def whose:string (space.placeWards(w.place))
+        def where:string w.place
+        if ((strlen whose) > 0) {
+            where = (w.place + " (" + whose + ")")
+        }
+        def l1:string (where + " · " + (SpWords.pick(lang "high " "ylin ")) + (to_string w.hi) + "° " + (SpWords.pick(lang "low " "alin ")) + (to_string w.lo) + "°")
+        def l2:string ((SpWords.wxText(lang w.code)) + " · " + (SpWords.pick(lang "rain " "sade ")) + (to_string w.rain) + " %")
         c.role = "region"
         c.a11yLabel = ((SpWords.pick(lang "Weather" "Sää")) + ": " + t + ", " + l1 + ", " + l2)
-        def ic:EVGElement (SpacesApp.tx("sp-wxicon" (SpWords.wxIcon(wxCode))))
+        def ic:EVGElement (SpacesApp.tx("sp-wxicon" (SpWords.wxIcon(w.code))))
         ic.a11yHidden = true
         c.addChild(ic)
         def tt:EVGElement (SpacesApp.tx("sp-wxtemp" t))
         tt.a11yHidden = true
         c.addChild(tt)
+        ; the lines are in the card's label; the switches are the tree's own
         def col:EVGElement (SpacesApp.box("sp-wxtext"))
-        col.a11yHidden = true
-        col.addChild((SpacesApp.tx("sp-wxline" l1)))
-        col.addChild((SpacesApp.tx("sp-wxline" l2)))
+        def t1:EVGElement (SpacesApp.tx("sp-wxline" l1))
+        t1.a11yHidden = true
+        col.addChild(t1)
+        def t2:EVGElement (SpacesApp.tx("sp-wxline" l2))
+        t2.a11yHidden = true
+        col.addChild(t2)
         c.addChild(col)
+        if ((array_length all) > 1) {
+            def pills:EVGElement (SpacesApp.box("sp-wxpills"))
+            pills.role = "group"
+            pills.a11yLabel = (SpWords.pick(lang "Places" "Paikkakunnat"))
+            def i:int 0
+            while (i < (array_length all)) {
+                def o2:SpWeather (itemAt all i)
+                def on:boolean (o2.place == w.place)
+                def pc:string "sp-wxpill"
+                if on {
+                    pc = "sp-wxpill sp-wxpill-on"
+                }
+                def pb:EVGElement (SpacesApp.btn(("sp-wxplace-" + (to_string i)) pc o2.place))
+                pb.a11yPressed = (SpacesApp.tri(on))
+                pills.addChild(pb)
+                i = (i + 1)
+            }
+            col.addChild(pills)
+        }
         return c
     }
 
@@ -1476,6 +1611,7 @@ class SpacesApp {
         if ((array_length space.resources) > 0) {
             v.addChild((this.wardsCard(owner)))
         }
+        v.addChild((this.placesCard()))
         if (((array_length space.invites) > 0) || owner) {
             def iv:EVGElement (this.card("invites" (SpWords.ui(lang "invited"))))
             def k:int 0
@@ -1528,6 +1664,147 @@ class SpacesApp {
             i = (i + 1)
         }
         return c
+    }
+
+    ; The towns the space and its wards usually are in, whose weather the
+    ; summary shows: any member adds one (a town in Finland, looked up by
+    ; the host) or removes one.
+    fn placesCard:EVGElement () {
+        def c:EVGElement (this.card("places" (SpWords.pick(lang "Places" "Paikkakunnat"))))
+        if ((array_length space.places) == 0) {
+            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "None yet: the summary shows the weather in Helsinki." "Ei vielä yhtään: koonti näyttää Helsingin sään.")))))
+        }
+        def i:int 0
+        while (i < (array_length space.places)) {
+            def p:SpPlace (itemAt space.places i)
+            def whose:string (space.resourceName(p.ward))
+            if ((strlen p.ward) == 0) {
+                whose = (SpWords.noun(lang pack "together"))
+            }
+            c.addChild((this.personRow(("sp-place-" + (to_string i)) p.name whose "" ("sp-unplace-" + (to_string i)))))
+            i = (i + 1)
+        }
+        def form:EVGElement (SpacesApp.box("sp-formrow"))
+        form.addChild((this.field(placeField "sp-place-name" (SpWords.pick(lang "Town" "Paikkakunta")) (SpWords.pick(lang "e.g. Kuopio" "esim. Kuopio")) "text")))
+        def pills:EVGElement (SpacesApp.box("sp-pills"))
+        pills.role = "group"
+        pills.a11yLabel = (SpWords.pick(lang "Whose" "Kenen"))
+        pills.addChild((this.placeForPill("sp-placefor-all" "" (SpWords.noun(lang pack "together")))))
+        def k:int 0
+        while (k < (array_length space.resources)) {
+            def r:SpResource (itemAt space.resources k)
+            pills.addChild((this.placeForPill(("sp-placefor-" + (to_string k)) r.id r.name)))
+            k = (k + 1)
+        }
+        form.addChild(pills)
+        def look:string (SpWords.pick(lang "Find" "Hae"))
+        if placeLooking {
+            look = (SpWords.pick(lang "Finding…" "Haetaan…"))
+        }
+        form.addChild((SpacesApp.btn("sp-place-find" "sp-action sp-action-primary" look)))
+        c.addChild(form)
+        if ((array_length found) > 0) {
+            def res:EVGElement (SpacesApp.box("sp-placefound"))
+            res.role = "group"
+            res.a11yLabel = (SpWords.pick(lang "Pick the town" "Valitse paikkakunta"))
+            def j:int 0
+            while (j < (array_length found)) {
+                def f:SpPlace (itemAt found j)
+                def label:string f.name
+                if ((strlen f.detail) > 0) {
+                    label = (f.name + " · " + f.detail)
+                }
+                res.addChild((SpacesApp.btn(("sp-placepick-" + (to_string j)) "sp-action" label)))
+                j = (j + 1)
+            }
+            c.addChild(res)
+        }
+        return c
+    }
+
+    fn placeForPill:EVGElement (id:string ward:string label:string) {
+        def on:boolean (ward == placeFor)
+        def pc:string "sp-pill"
+        if on {
+            pc = "sp-pill sp-pill-on"
+        }
+        def b:EVGElement (SpacesApp.btn(id pc label))
+        b.a11yPressed = (SpacesApp.tri(on))
+        return b
+    }
+
+    ; A press about the places: true when it was one.
+    fn pressPlaces:boolean (target:string) {
+        if (target == "sp-place-find") {
+            def q:string (trim placeField.value)
+            if ((strlen q) == 0) {
+                status = (SpWords.pick(lang "Write the town's name" "Kirjoita paikkakunnan nimi"))
+                focused = "sp-place-name"
+                return true
+            }
+            placeQuery = q
+            placeLooking = true
+            action = "places"
+            return true
+        }
+        if (target == "sp-placefor-all") {
+            placeFor = ""
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-placefor-")) {
+            def n@(optional):int (to_int (substring target 12 (strlen target)))
+            if (!null? n) {
+                def k:int (unwrap n)
+                if ((k >= 0) && (k < (array_length space.resources))) {
+                    def r:SpResource (itemAt space.resources k)
+                    placeFor = r.id
+                }
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-placepick-")) {
+            def n2@(optional):int (to_int (substring target 13 (strlen target)))
+            if (!null? n2) {
+                def k2:int (unwrap n2)
+                if ((k2 >= 0) && (k2 < (array_length found))) {
+                    def f:SpPlace (itemAt found k2)
+                    if ((space.placeAt(f.name placeFor)) >= 0) {
+                        status = (f.name + (SpWords.pick(lang " is there already" " on jo listalla")))
+                        return true
+                    }
+                    def p:SpPlace (space.addPlace(f.name f.lat f.lon placeFor))
+                    if (server && ((strlen spaceId) > 0)) {
+                        this.queue("add_place" (SpRemote.placeBody(spaceId p)) p.name)
+                    }
+                    def none:[SpPlace]
+                    found = none
+                    placeField.setValue("")
+                    status = ((SpWords.pick(lang "Added " "Lisätty ")) + p.name)
+                }
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-unplace-")) {
+            def n3@(optional):int (to_int (substring target 11 (strlen target)))
+            if (!null? n3) {
+                def k3:int (unwrap n3)
+                if ((k3 >= 0) && (k3 < (array_length space.places))) {
+                    def p3:SpPlace (itemAt space.places k3)
+                    space.dropPlace(k3)
+                    if (server && ((strlen spaceId) > 0)) {
+                        def pairs:[string] ([] _:string ( "space_id" spaceId "place" p3.name ))
+                        if ((strlen p3.ward) > 0) {
+                            push pairs "ward"
+                            push pairs p3.ward
+                        }
+                        this.queue("remove_place" (SpRemote.body(pairs)) p3.name)
+                    }
+                    status = ((SpWords.pick(lang "Removed " "Poistettu ")) + p3.name)
+                }
+            }
+            return true
+        }
+        return false
     }
 
     ; --- spaces -------------------------------------------------------------------------
@@ -1703,6 +1980,9 @@ class SpacesApp {
         }
         if (tid == "sp-invite-email") {
             return "sp-invite"
+        }
+        if (tid == "sp-place-name") {
+            return "sp-place-find"
         }
         if (tid == "sp-new-name") {
             return "sp-create"
@@ -3808,6 +4088,19 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (UiTree.beginsWith(target "sp-wxplace-")) {
+            def wn@(optional):int (to_int (substring target 11 (strlen target)))
+            def all:[SpWeather] (this.shownWeather())
+            if (!null? wn) {
+                def wk:int (unwrap wn)
+                if ((wk >= 0) && (wk < (array_length all))) {
+                    def ww:SpWeather (itemAt all wk)
+                    wxSel = ww.place
+                }
+            }
+            this.rebuild()
+            return true
+        }
         if (UiTree.beginsWith(target "sp-nav-")) {
             tab = (substring target 7 (strlen target))
             editing = false
@@ -4127,6 +4420,11 @@ class SpacesApp {
         if (c.op == "add_ward") {
             this.seedWardAdded(c.ref (o.stringOr("id" "")))
         }
+        if ((c.op == "add_place") || (c.op == "remove_place")) {
+            if ((o.stringOr("space_id" "")) == spaceId) {
+                SpRemote.readPlaces(space o)
+            }
+        }
         if (c.op == "assist") {
             this.assistAnswered(c.ref (o.stringOr("text" "")) true)
             ; what it made or changed, from the server
@@ -4197,8 +4495,8 @@ class SpacesApp {
         if (c.op == "budget") {
             budgetAsked = ""
         }
-        if (c.op == "remove_ward") {
-            ; the server kept it: so does the page
+        if (((c.op == "remove_ward") || (c.op == "add_place")) || (c.op == "remove_place")) {
+            ; the server kept what it had: so does the page
             this.openSpace(spaceId)
             tab = "members"
         }
@@ -4259,6 +4557,9 @@ class SpacesApp {
 
     ; A press that is about the server: true when it was one.
     fn pressServer:boolean (target:string) {
+        if (this.pressPlaces(target)) {
+            return true
+        }
         if (target == "sp-assist-send") {
             this.sendAssist()
             return true
