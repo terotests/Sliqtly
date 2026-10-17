@@ -39,6 +39,28 @@ const now = new Date();
 const serverMeta = document.querySelector('meta[name="app-server"]');
 const SERVER = serverMeta ? serverMeta.content : "";
 const REMEMBER = "warden.space";
+// the calendar's switches for windows to get things and payment days, per
+// person signed in on this browser
+const CAL_SHOWS = "warden.calShows.";
+let calShowsFor = "";
+function calShowsKey() { return app.account && app.account.uid ? CAL_SHOWS + app.account.uid : ""; }
+function loadCalShows() {
+  const key = calShowsKey();
+  if (!key || key === calShowsFor) return;
+  calShowsFor = key;
+  let v = null;
+  try { v = JSON.parse(localStorage.getItem(key) || "null"); } catch { /* storage off */ }
+  if (!v) return;
+  app.showGets = !!v.gets;
+  app.showPays = !!v.pays;
+  app.fillBoard();
+  app.rebuild();
+}
+function saveCalShows() {
+  const key = calShowsKey();
+  if (!key) return;
+  try { localStorage.setItem(key, JSON.stringify({ gets: app.showGets, pays: app.showPays })); } catch { /* storage off */ }
+}
 app.server = !!SERVER;
 app.lang = (navigator.language || "fi").toLowerCase().startsWith("fi") ? "fi" : "en";
 app.init(css);
@@ -63,6 +85,10 @@ const mirror = createA11yMirror(stage, {
   tabbable: "all",
   onActivate: (node) => pressAtCentre(node, (x, y) => { app.press(app.hitId(x, y)); after(); }),
   onFocus: (node) => { app.setFocus(node.id); syncText(); paint(); },
+  // a field being edited keeps the keyboard in the text input's own
+  // element: the mirror taking it lost the selection, so Ctrl+A then
+  // Ctrl+C copied nothing
+  canMoveFocus: () => !textInput.isActive(),
 });
 
 function paint() {
@@ -133,6 +159,7 @@ window.addEventListener("popstate", () => {
 // After a press: what the app left for the host to do.
 function after() {
   syncAddress(true);
+  if (calShowsFor) saveCalShows();
   const a = app.takeAction();
   if (a === "import") fileInput.click();
   else if (a === "image") pictureInput.click();
@@ -210,6 +237,7 @@ async function pump() {
       }
       if (!app.loading) openWanted();
       try { if (app.spaceId) localStorage.setItem(REMEMBER, app.spaceId); } catch { /* storage off */ }
+      loadCalShows();
       weatherIfMoved();
       paint();
     }

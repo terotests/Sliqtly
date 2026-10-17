@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -66,7 +67,8 @@ func TestWardenAssist(t *testing.T) {
 	match(t, string(tools), `"name":"import_events"`)
 	// Gemini refuses an object with no properties: list_entry_types has none
 	match(t, string(tools), `{"description":"[^"]*","name":"list_entry_types"}`)
-	if strings.Contains(string(tools), "space_id") || strings.Contains(string(tools), "invite_member") || strings.Contains(string(tools), "replace_slide") {
+	match(t, string(tools), `"name":"set_ward"`)
+	if strings.Contains(string(tools), "space_id") || strings.Contains(string(tools), `"name":"list_spaces"`) || strings.Contains(string(tools), "replace_slide") {
 		t.Errorf("tools: %s", tools)
 	}
 	contents, _ := json.Marshal(asks[0]["contents"])
@@ -87,4 +89,74 @@ func TestWardenAssist(t *testing.T) {
 	// an empty question is not sent to the model
 	code, out = wardenCall(t, base, "tero", "assist", map[string]any{"space_id": sid, "text": "  "})
 	eq(t, []any{code, out["error"], len(asks)}, []any{400, "Write something or add a picture.", 3})
+}
+
+// The page's assistant has every MCP tool of a space, as the MCP server
+// gives it: a tool added to wardenTools reaches the assistant, and one the
+// assistant does not get is named in wardenAssistLeftOut.
+func TestWardenAssistToolsAreMCP(t *testing.T) {
+	for _, name := range wardenAssistLeftOut {
+		if findWardenTool(name) == nil {
+			t.Errorf("left out %s is no MCP tool", name)
+		}
+	}
+	got := map[string]aiTool{}
+	for _, at := range wardenAssistToolList() {
+		got[at.Name] = at
+	}
+	for _, mt := range wardenTools {
+		at, ok := got[mt.name]
+		delete(got, mt.name)
+		if slices.Contains(wardenAssistLeftOut, mt.name) {
+			if ok {
+				t.Errorf("%s is left out but the assistant has it", mt.name)
+			}
+			continue
+		}
+		if !ok {
+			t.Errorf("the assistant lacks the MCP tool %s", mt.name)
+			continue
+		}
+		if at.Description != mt.desc {
+			t.Errorf("%s: the assistant's description differs", mt.name)
+		}
+		props, _ := at.Params["properties"].(map[string]any)
+		for k, v := range mt.props {
+			if k == "space_id" {
+				continue
+			}
+			av, ok := props[k]
+			if !ok {
+				t.Errorf("%s: the assistant lacks the argument %s", mt.name, k)
+				continue
+			}
+			// fields (and an event's) are typed for the model: the same kind
+			if k == "fields" || k == "events" {
+				if av.(map[string]any)["type"] != v.(map[string]any)["type"] {
+					t.Errorf("%s.%s: another type", mt.name, k)
+				}
+				continue
+			}
+			if fmt.Sprint(av) != fmt.Sprint(v) {
+				t.Errorf("%s.%s differs: %v", mt.name, k, av)
+			}
+		}
+		if len(props) != len(mt.props)-btoi(mt.props["space_id"] != nil) {
+			t.Errorf("%s: the assistant has other arguments: %v", mt.name, props)
+		}
+		req := slices.DeleteFunc(slices.Clone(mt.required), func(k string) bool { return k == "space_id" })
+		if fmt.Sprint(at.Params["required"]) != fmt.Sprint(req) {
+			t.Errorf("%s: required %v, MCP %v", mt.name, at.Params["required"], mt.required)
+		}
+	}
+	for name := range got {
+		t.Errorf("the assistant has %s, which MCP has not", name)
+	}
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

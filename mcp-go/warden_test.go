@@ -439,6 +439,52 @@ func TestWardenWardColors(t *testing.T) {
 	eq(t, code, 400, "a name another ward has")
 }
 
+// A child's clothing sizes and clothing list are the ward's, set whole with
+// set_ward (or add_ward) and given back with the space, what is missing counted.
+func TestWardenWardClothing(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+	code, out := wardenCall(t, base, "tero", "add_ward", map[string]any{"space_id": sid, "name": "Aino",
+		"sizes": []any{map[string]any{"what": "kengät", "size": "30", "next_size": "31", "next_by": "2027-03"}}})
+	eq(t, []any{code, out["sizes"]}, []any{200, []any{map[string]any{"what": "kengät", "size": "30", "next_size": "31", "next_by": "2027-03"}}}, "added with sizes")
+
+	code, out = wardenCall(t, base, "tero", "set_ward", map[string]any{"space_id": sid, "ward": "aino",
+		"clothes": []any{
+			map[string]any{"item": "talvikengät", "size": "31", "need": 1},
+			map[string]any{"item": "sukat", "need": 6, "have": 4, "note": "villasukat"},
+			map[string]any{"item": "pipo", "have": 1},
+		}})
+	eq(t, code, 200, "clothes set")
+	eq(t, out["clothes"], []any{
+		map[string]any{"item": "talvikengät", "size": "31", "need": 1.0, "have": 0.0, "missing": 1.0},
+		map[string]any{"item": "sukat", "need": 6.0, "have": 4.0, "note": "villasukat", "missing": 2.0},
+		map[string]any{"item": "pipo", "need": 1.0, "have": 1.0, "missing": 0.0},
+	})
+	eq(t, len(out["sizes"].([]any)), 1, "the sizes were left as they were")
+
+	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
+	w := out["space"].(map[string]any)["wards"].([]any)[0].(map[string]any)
+	eq(t, []any{len(w["sizes"].([]any)), len(w["clothes"].([]any))}, []any{1, 3}, "with the space")
+
+	for _, bad := range []map[string]any{
+		{"sizes": "30"},
+		{"sizes": []any{map[string]any{"size": "30"}}},
+		{"sizes": []any{map[string]any{"what": "kengät"}, map[string]any{"what": "Kengät"}}},
+		{"sizes": []any{map[string]any{"what": "kengät", "next_by": "maaliskuu"}}},
+		{"clothes": []any{map[string]any{"need": 2}}},
+		{"clothes": []any{map[string]any{"item": "sukat", "have": -1}}},
+		{"clothes": []any{map[string]any{"item": "sukat", "need": 1.5}}},
+	} {
+		bad["space_id"], bad["ward"] = sid, "Aino"
+		code, out = wardenCall(t, base, "tero", "set_ward", bad)
+		eq(t, code, 400, bad, out)
+	}
+	code, out = wardenCall(t, base, "tero", "set_ward", map[string]any{"space_id": sid, "ward": "Aino", "sizes": []any{}})
+	eq(t, []any{code, out["sizes"], len(out["clothes"].([]any))}, []any{200, nil, 3}, "[] clears the sizes")
+}
+
 func TestWardenPlaces(t *testing.T) {
 	_, base, stop := editorServer(t)
 	defer stop()
