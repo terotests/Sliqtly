@@ -83,13 +83,17 @@ type wardenService struct {
 	now func() time.Time
 	// the page's assistant (wardenai.go); nil: none
 	ai *wardenAssist
+	// the deal watcher's web search (wardenwatch.go); nil: none
+	search wardenSearcher
+	// run_watch's searches per account
+	watchLimit func(who string) string
 }
 
 func newWardenService(db DB) *wardenService {
 	if db == nil {
 		return nil
 	}
-	return &wardenService{db: db, now: time.Now}
+	return &wardenService{db: db, now: time.Now, search: newWardenSearch(), watchLimit: rateLimiter(30, 10*time.Minute)}
 }
 
 func wardenRandomID(prefix string) string {
@@ -836,6 +840,9 @@ func wardenEventJSON(id string, d Doc, now time.Time) map[string]any {
 		out["important"] = true
 	}
 	wardenEntryJSON(out, d, now)
+	if w := wardenWatchJSON(d); w != nil {
+		out["watch"] = w
+	}
 	return out
 }
 
@@ -1165,6 +1172,12 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 		return s.importICS(ctx, sp, a)
 	case "budget":
 		return s.budget(ctx, sp, a)
+	case "set_watch":
+		return s.setWatch(ctx, sp, a)
+	case "list_watches":
+		return s.listWatches(ctx, sp)
+	case "run_watch":
+		return s.runWatchOp(ctx, sp, a)
 	}
 	return nil, roomErr{"no such operation: " + op}
 }

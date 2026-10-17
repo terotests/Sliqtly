@@ -91,6 +91,10 @@ function after() {
   if (a === "import") fileInput.click();
   else if (a === "image") pictureInput.click();
   else if (a === "copy") copy(app.copyText);
+  else if (a.startsWith("open:")) {
+    const url = a.slice(5);
+    if (/^https?:\/\//.test(url)) window.open(url, "_blank", "noopener");
+  }
   else if (a.startsWith("export:")) {
     const id = a.slice(7);
     download(app.sheetFileName(id), app.sheetCsv(id), "text/csv");

@@ -316,6 +316,15 @@ class SpEvent {
     def costDropped:boolean false
     ; a deadline's first day to remind on, as the server said (-1: not said)
     def remindFrom:int -1
+    ; on a server: its deal watch (wardenwatch.go), when it has one: the
+    ; search words, whether it is on, and the latest finds (title, address
+    ; and a line of price, source and day)
+    def watched:boolean false
+    def watchQuery:string ""
+    def watchOn:boolean false
+    def findTitles:[string]
+    def findUrls:[string]
+    def findInfo:[string]
     Constructor () {
     }
 
