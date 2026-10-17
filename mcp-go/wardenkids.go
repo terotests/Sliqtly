@@ -61,6 +61,7 @@ type wardenEventAsk struct {
 	Near, From, To, Ages, Interests string
 	Avoid                           []string
 	N                               int
+	Lang                            string
 }
 
 const wardenKidAsk = `Search for upcoming events and things to do for children in and near %s, Finland, between %s and %s: shows, concerts, workshops, sports and club try-outs, library and museum events, fairs, family days.
@@ -83,6 +84,7 @@ func (g *geminiSearch) Events(ctx context.Context, a wardenEventAsk) ([]wardenEv
 	if len(a.Avoid) > 0 {
 		ask += fmt.Sprintf(wardenSearchAvoid, "- "+strings.Join(a.Avoid, "\n- "))
 	}
+	ask += wardenWhyLang(a.Lang)
 	lines, err := g.ground(ctx, ask, 8)
 	if err != nil {
 		return nil, err
@@ -246,7 +248,7 @@ func (s *wardenService) runKidWatch(ctx context.Context, sp *wardenSpace, w Doc)
 			old = append(old, f)
 		}
 	}
-	ask := wardenEventAsk{Near: wardenWatchArea(sp, Doc{}, w), From: from, To: to, Ages: wardenKidAgeText(docStrs(w, "ages")), Interests: docStr(w, "interests"), Avoid: wardenWatchAvoided(docMaps(w, "finds")), N: wardenKidHits}
+	ask := wardenEventAsk{Near: wardenWatchArea(sp, Doc{}, w), From: from, To: to, Ages: wardenKidAgeText(docStrs(w, "ages")), Interests: docStr(w, "interests"), Avoid: wardenWatchAvoided(docMaps(w, "finds")), N: wardenKidHits, Lang: wardenSpaceLang(sp)}
 	seen := docStrs(w, "seen")
 	left := map[string]int{}
 	fresh := []map[string]any{}
