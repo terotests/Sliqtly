@@ -3929,13 +3929,13 @@ class SpacesApp {
         box.addChild(lb)
         def v:string (trim c.value)
         def shown:string (this.dateShown(v))
-        def cls:string "sp-date"
+        def cls:string "sp-datebtn"
         if ((strlen v) == 0) {
             shown = (this.formHint(key))
-            cls = "sp-date sp-date-empty"
+            cls = "sp-datebtn sp-datebtn-empty"
         }
         if open {
-            cls = (cls + " sp-date-open")
+            cls = (cls + " sp-datebtn-open")
         }
         def b:EVGElement (SpacesApp.btn(("sp-date-" + (to_string i)) cls ("📅 " + shown)))
         b.a11yLabel = ((label + ", ") + shown)
