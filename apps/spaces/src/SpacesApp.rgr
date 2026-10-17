@@ -104,8 +104,15 @@ class SpacesApp {
     def picTypes:[string]
     def picNames:[string]
     def assistBusy:boolean false
-    ; what the host has to do after a press ("import", "export:<id>")
+    ; what was last sent, put back in the field when it does not go through
+    def sentText:string ""
+    def sentPics:[string]
+    def sentTypes:[string]
+    def sentNames:[string]
+    ; what the host has to do after a press ("import", "export:<id>",
+    ; "copy": put `copyText` on the clipboard)
     def action:string ""
+    def copyText:string ""
     def status:string ""
 
     ; --- a space on a server -----------------------------------------------------
@@ -1486,12 +1493,18 @@ class SpacesApp {
             if (latest && ((itemAt asked j) == "qWeek")) {
                 saveAs = "sp-write-summary"
             }
+            ; the canvas has no selection: the answer and the question are
+            ; copied with a press
+            def srow:EVGElement (SpacesApp.box("sp-row sp-copyrow"))
             if ((strlen saveAs) > 0) {
-                def srow:EVGElement (SpacesApp.box("sp-row"))
                 srow.addChild((SpacesApp.btn(saveAs "sp-action" (SpWords.pick(lang "Save as a document" "Tallenna dokumentiksi")))))
-                srow.addChild((SpacesApp.box("sp-grow")))
-                feed.addChild(srow)
             }
+            srow.addChild((SpacesApp.btn(("sp-copy-a-" + (to_string j)) "sp-chip" (SpWords.pick(lang "Copy answer" "Kopioi vastaus")))))
+            if (UiTree.beginsWith(qk "@")) {
+                srow.addChild((SpacesApp.btn(("sp-copy-q-" + (to_string j)) "sp-chip" (SpWords.pick(lang "Copy question" "Kopioi kysymys")))))
+            }
+            srow.addChild((SpacesApp.box("sp-grow")))
+            feed.addChild(srow)
             j = (j - 1)
         }
         v.addChild(feed)
@@ -1632,6 +1645,10 @@ class SpacesApp {
             }
         }
         push asked ("@" + shown)
+        sentText = text
+        sentPics = pics
+        sentTypes = picTypes
+        sentNames = picNames
         push answers (SpWords.pick(lang "Reading…" "Luetaan…"))
         this.queue("assist" (SpRemote.write(o)) (to_string ((array_length answers) - 1)))
         assistBusy = true
@@ -1659,6 +1676,14 @@ class SpacesApp {
             }
             if (ok == false) {
                 t = ((SpWords.pick(lang "That did not go through: " "Se ei mennyt läpi: ")) + t)
+                ; what was written and the pictures are back in the field, to
+                ; send again
+                if (((strlen (trim assistField.value)) == 0) && ((array_length pics) == 0)) {
+                    assistField.setValue(sentText)
+                    pics = sentPics
+                    picTypes = sentTypes
+                    picNames = sentNames
+                }
             }
             set answers n t
         }
@@ -3324,6 +3349,11 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (UiTree.beginsWith(target "sp-copy-")) {
+            this.copyRow((substring target 8 (strlen target)))
+            this.rebuild()
+            return true
+        }
         this.rebuild()
         return false
     }
@@ -3766,6 +3796,38 @@ class SpacesApp {
 
     fn sheetFileName:string (id:string) {
         return ((this.sheetName(id)) + ".csv")
+    }
+
+    ; "a-<row>" (an answer) or "q-<row>" (what was asked) to the clipboard
+    fn copyRow:void (what:string) {
+        def k@(optional):int (to_int (substring what 2 (strlen what)))
+        if (null? k) {
+            return
+        }
+        def n:int (unwrap k)
+        if ((n < 0) || (n >= (array_length answers))) {
+            return
+        }
+        def t:string (itemAt answers n)
+        if (UiTree.beginsWith(what "q-")) {
+            def qk:string (itemAt asked n)
+            if ((UiTree.beginsWith(qk "@")) == false) {
+                return
+            }
+            t = (substring qk 1 (strlen qk))
+        }
+        copyText = t
+        action = "copy"
+    }
+
+    ; the host says whether the clipboard took it
+    fn copied:void (ok:boolean) {
+        if ok {
+            status = (SpWords.pick(lang "Copied" "Kopioitu"))
+        } {
+            status = (SpWords.pick(lang "Could not copy" "Kopiointi ei onnistunut"))
+        }
+        this.rebuild()
     }
 
     fn takeAction:string () {

@@ -5,7 +5,7 @@
 // sends it the pointer, the wheel and the keys, mirrors its accessible tree
 // into DOM over the canvas, and does what a tree cannot: read a file or
 // pasted cells for an import, read a picture for the assistant (made
-// smaller first), and save a download. A double-click
+// smaller first), put text on the clipboard, and save a download. A double-click
 // opens the event under it; Backspace and Delete outside a text field go to
 // the app, which deletes the selected event.
 //
@@ -89,12 +89,34 @@ function after() {
   const a = app.takeAction();
   if (a === "import") fileInput.click();
   else if (a === "image") pictureInput.click();
+  else if (a === "copy") copy(app.copyText);
   else if (a.startsWith("export:")) {
     const id = a.slice(7);
     download(app.sheetFileName(id), app.sheetCsv(id), "text/csv");
   }
   syncText();
   pump();
+  paint();
+}
+
+// Text the app hands over goes on the clipboard; without the async
+// clipboard (an http page, an old browser) through a hidden text area.
+async function copy(text) {
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    ok = true;
+  } catch {
+    const t = document.createElement("textarea");
+    t.value = text;
+    t.style.position = "fixed";
+    t.style.opacity = "0";
+    document.body.appendChild(t);
+    t.select();
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
+    t.remove();
+  }
+  app.copied(ok);
   paint();
 }
 

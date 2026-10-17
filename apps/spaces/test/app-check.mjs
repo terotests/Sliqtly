@@ -609,6 +609,14 @@ console.log("the assistant on a server");
   ok("with the history", b2.history.length === 2 && b2.history[1].text === "Lisäsin Leon uinnin tiistaisin.", JSON.stringify(b2.history));
   a.failed("Too many questions in a short time; try again in a few minutes.");
   ok("the error in its place", texts(a).some((x) => x.startsWith("Se ei mennyt läpi")) && !a.assistBusy);
+  eq("what was written is back to send again", a.assistField.value, "Peru huominen");
+  // the canvas has no selection: a press copies an answer or a question
+  a.press("sp-copy-a-0");
+  eq("an answer to the clipboard", a.takeAction() + "|" + a.copyText, "copy|Lisäsin Leon uinnin tiistaisin.");
+  a.press("sp-copy-q-1");
+  eq("a question to the clipboard", a.takeAction() + "|" + a.copyText, "copy|Peru huominen");
+  a.copied(true);
+  eq("said so", a.status, "Kopioitu");
   for (const w of [1280, 390]) {
     a.setWidth(w, 700);
     const probs = a.a11yProblems();

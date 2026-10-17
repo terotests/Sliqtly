@@ -266,6 +266,10 @@ try {
       && asked.body.images[0].mimeType === "image/jpeg" && Buffer.from(asked.body.images[0].data, "base64")[0] === 0xff, JSON.stringify(asked && asked.body.text));
     ok("its answer is shown and the space read again", answered && calls[calls.length - 1].op === "get_space", JSON.stringify(calls.slice(-3).map((c) => c.op)));
     if (process.env.SPACES_SHOTS) await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "assistant.png") });
+    await page.evaluate(() => { window.__copied = null; navigator.clipboard.writeText = async (t) => { window.__copied = t; }; });
+    await clickId(page, "sp-copy-a-0");
+    const copied = await page.waitForFunction(() => window.__copied, null, { timeout: 3000 }).then((h) => h.jsonValue(), () => null);
+    ok("a press copies the answer", copied === "Added Leo's swimming on Tuesdays.", String(copied));
     await clickId(page, "sp-nav-calendar");
     await clickId(page, "sp-add");
     await page.waitForTimeout(200);
