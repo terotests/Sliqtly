@@ -1,7 +1,7 @@
 // node --test: a presentation recorded as display lists and played (web/recstream.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { RecEncoder, Recording, RecNav, slidesOf, packStream, unpackStream, streamHash, streamPath } from "../recstream.js";
+import { RecEncoder, Recording, RecNav, slidesOf, packStream, unpackStream, streamHash, streamPath, streamAge, FORMAT, REV } from "../recstream.js";
 
 // two slides: the first 2 s with a build step at 1 s, the second 1 s; 10 fps
 const timeline = {
@@ -177,8 +177,33 @@ test("packed as gzip and read back; the name follows the bytes", async () => {
   assert.equal(streamPath(h, ".webm"), "recordings/web-" + h + ".webm");
 });
 
-test("another format is refused", () => {
-  assert.throws(() => new Recording({ sliqrec: 1 }));
+test("another format is refused, and says whether it is older or newer", () => {
+  assert.throws(() => new Recording({ sliqrec: 1 }), (e) => e.code === "rec-older");
+  assert.throws(() => new Recording({ sliqrec: FORMAT + 1 }), (e) => e.code === "rec-newer");
+  assert.throws(() => new Recording({ md: "# not one" }), (e) => e.code === "rec-unknown");
+});
+
+test("a recording's age: what the player can play of one made by another Sliqtly", () => {
+  const slides = [{ start: 0, end: 2, steps: [1] }, { start: 2, end: 3, steps: [] }];
+  // made now: its version, played as it is
+  const s = record();
+  assert.equal(s.rev, REV);
+  assert.deepEqual(streamAge(s), { play: true, age: "" });
+  assert.equal(new Recording(s).age, "");
+  // format 1 (#489 made format 2) and one to come: not played
+  assert.deepEqual(streamAge({ sliqrec: 1, slides }), { play: false, age: "older" });
+  assert.deepEqual(streamAge({ sliqrec: FORMAT + 1, slides }), { play: false, age: "newer" });
+  for (const x of [null, "x", {}, { sliqrec: "2" }]) assert.deepEqual(streamAge(x), { play: false, age: "unknown" }, JSON.stringify(x));
+  // format 2 before its slides said where they are shown whole (#530):
+  // played, presenting stops at the slides' ends, a new export asked for
+  const before = { ...s, slides };
+  delete before.rev;
+  assert.deepEqual(streamAge(before), { play: true, age: "older" });
+  assert.equal(new Recording(before).age, "older");
+  // after #530, before `rev`: its slides say it
+  assert.deepEqual(streamAge({ ...before, slides: slides.map((x) => ({ ...x, settled: x.end })) }), { play: true, age: "" });
+  // no slides: nothing to get wrong
+  assert.deepEqual(streamAge({ sliqrec: FORMAT, slides: [] }), { play: true, age: "" });
 });
 
 test("what the light player needs goes with the frames", () => {

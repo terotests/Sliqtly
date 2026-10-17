@@ -23,6 +23,11 @@
   #note { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px;
     color: #d4d4d8; font: 16px/1.5 system-ui, sans-serif; text-align: center; }
   #note[hidden] { display: none; }
+  #older { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); max-width: min(720px, calc(100% - 32px)); box-sizing: border-box;
+    padding: 10px 16px; border-radius: 12px; background: rgba(120, 53, 15, 0.9); color: #fef3c7; font: 14px/1.4 system-ui, sans-serif;
+    text-align: center; transition: opacity .4s; }
+  #older[hidden] { display: none; }
+  body.idle #older { opacity: 0; pointer-events: none; }
   #v { position: fixed; inset: 0; width: 100%; height: 100%; background: #000; }
   #v[hidden] { display: none; }
   #bar { position: fixed; right: 16px; bottom: 16px; display: flex; gap: 8px; transition: opacity .4s; }
@@ -42,6 +47,7 @@
 <canvas id="c" aria-label="Presentation"></canvas>
 <video id="v" controls playsinline hidden></video>
 <div id="note" role="status">…</div>
+<div id="older" role="status" hidden></div>
 <div id="bar" aria-label="Presentation controls" hidden>
   <button id="pPrev" title="Previous slide (←)">◀</button>
   <button id="pNext" title="Next step (Space)">▶</button>

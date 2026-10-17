@@ -53,6 +53,7 @@ import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
 import { linkTarget, FOLLOW_MS, returnTo } from "./stagelink.js";
+import { deckSafety, safetyText } from "./decksafe.js";
 import { slideText, runAt, indexAt, withBand, bandRects, TextSelection } from "./slidetext.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
@@ -1312,6 +1313,10 @@ function beginDoc(text) {
   savedText = null;
   savedVersion = -1;
   savedCss = null;
+  // the last deck's trouble with the cloud is not this one's
+  cloudError = "";
+  cloudNoRight = "";
+  cloudWarned = false;
   for (const k of Object.keys(editedCss)) delete editedCss[k];
   chartFiles.clear();
   chartFilesRev = -1;
@@ -3381,6 +3386,7 @@ async function measureDeckFiles() {
 async function refreshFiles() {
   // the source viewer reads its code/ files again when next wanted
   app.codeFilesChanged();
+  showSafety();
   measureDeckFiles().catch(() => {});
   refreshRecent().catch(() => {});
   refreshDecks().catch(() => {});
@@ -3433,7 +3439,7 @@ async function refreshFiles() {
       ? t("Files live only in this browser (IndexedDB). Share links carry only the text and theme, not images or data files.")
       : t("This browser does not allow storage: files are kept only while this page is open.");
     // PRO (sliqtly.js): the files in the cloud, offered at the top
-    const promo = !window.sliqtly ? null : window.sliqtly.user()
+    let promo = !window.sliqtly ? null : window.sliqtly.user()
       ? { title: t("PRO is active"), text: t("Your presentations and their pictures and data are saved in the cloud as you work."), button: "" }
       : {
         title: t("Share images and data with PRO"),
@@ -3451,6 +3457,12 @@ async function refreshFiles() {
           : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
     }
     if (!doc.persisted) note = t("This presentation is not saved yet: it saves when you change it. ") + note;
+    // not kept anywhere: why, and what to do, first
+    const lost = safetyNow();
+    if (lost.text) {
+      promo = { title: lost.pill, text: lost.text, button: "", warn: true };
+      note = "";
+    }
     const clip = fileClip()?.note();
     app.setFileList(JSON.stringify({
       doc: exportName(), files: head.concat(sorted), note,
@@ -7480,26 +7492,47 @@ function cloudSoon() {
   clearTimeout(cloudTimer);
   cloudTimer = setTimeout(() => { cloudTimer = 0; cloudSync().catch(cloudTrouble); }, 2000);
 }
-// sliqtly.com's editor keeps nothing past the page: leaving it before the
-// deck is in the cloud (not saved there at all, or its last change on the
-// way) asks first.
+// Whether the open deck is kept anywhere (web/decksafe.js): sliqtly.com's
+// editor, and a browser without storage, keep nothing past the page.
+function safety() {
+  return deckSafety({
+    editing: !!vfs && !viewer, loading: !!doc.loading, kept: !!vfs?.persistent && !CLOUD_ONLY, cloudOnly: CLOUD_ONLY,
+    persisted: !!doc.persisted, signedIn: signedIn(), cloud: !!doc.cloud, noRight: cloudNoRight,
+    failed: !!cloudError, sending: !!(cloudTimer || cloudBusy), halted: !!doc.cloudHalt,
+    changed: savedText !== null && app.source() !== savedText,
+  });
+}
+function safetyNow() {
+  return safetyText(safety().reason, t, { error: cloudError, max: window.sliqtly?.license?.()?.maxDocs ?? 2 });
+}
+// the "Not saved" pill beside the editor's tabs, while it is so
+function showSafety() {
+  app.setUnsaved(safetyNow().pill);
+  needsPaint = true;
+}
+// leaving before the deck is kept (not saved anywhere, or its last change
+// on the way to the cloud) asks first
 window.addEventListener("beforeunload", (e) => {
-  if (!CLOUD_ONLY || viewer || !doc.persisted || doc.loading) return;
-  const changed = savedText !== null && app.source() !== savedText;
-  if (!doc.cloud || cloudTimer || cloudBusy || changed) e.preventDefault();
+  if (safety().warnLeave) e.preventDefault();
 });
 let cloudBusy = null;
 let cloudWarned = false;
 let cloudError = "";
-let cloudNoRight = false; // cloudError is the license's answer (sliqtly.js editRight)
+// the license's refusal (sliqtly.js editRight): "full", "expired" or
+// "not-yours", cloudError its sentence
+let cloudNoRight = "";
 function cloudTrouble(e) {
   console.warn("cloud save failed", e);
-  cloudNoRight = e?.code === "no-edit-right";
+  cloudNoRight = e?.code === "no-edit-right" ? e.why || "full" : "";
   cloudError = cloudNoRight ? e.message : String(e?.code || e?.message || e);
   refreshFiles();
+  showSafety();
   if (cloudWarned) return;
   cloudWarned = true;
-  toast(cloudNoRight ? e.message : t("Saving to the cloud failed: ") + (e?.code || e?.message || String(e)) + ". " + t("The presentation is kept in this browser."));
+  // the browser keeps it, or nothing does (the pill and the Files tab say
+  // what to do then)
+  const kept = vfs?.persistent && !CLOUD_ONLY;
+  toast(cloudNoRight ? e.message : t("Saving to the cloud failed: ") + (e?.code || e?.message || String(e)) + ". " + (kept ? t("The presentation is kept in this browser.") : t("Nothing is kept in this browser; it is tried again on the next change.")));
 }
 // The deck as the cloud keeps it, and a signature of it.
 async function cloudDeck() {
@@ -7576,7 +7609,8 @@ async function cloudSync() {
     if (entries) doc.cloudSeen = seenAfterSave(entries, doc.cloudSeen, sent);
     cloudWarned = false;
     cloudError = "";
-    cloudNoRight = false;
+    cloudNoRight = "";
+    showSafety();
     plainAddress();
     // a server's room lists it by the server's time of this save
     if (ownServer()) roomDecksAfterSave();

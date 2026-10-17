@@ -1166,6 +1166,31 @@ console.log("a plan over several days in Tulossa");
   }
 }
 
+console.log("list tabs: one line each, inside the page");
+{
+  const a = fresh("fi", "family");
+  for (const t of a.types.listedFor("family")) {
+    const e = new M.SpEvent();
+    e.id = "x" + t.id;
+    e.typeId = t.id;
+    e.title = "T " + t.id;
+    e.day = -1;
+    a.space.events.push(e);
+  }
+  a.press("sp-nav-lists");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const els = flat(a);
+    const main = els.find((e) => e.id === "sp-main");
+    const tabs = els.filter((e) => e.id && e.id.startsWith("sp-list-"));
+    ok(`${w} every list has a tab`, tabs.length === a.types.listedFor("family").length, String(tabs.length));
+    const lines = JSON.parse(a.displayListJson()).cmds.filter((c) => c.text === "kurssi" || c.text === "määräpäivä");
+    ok(`${w} a long name stays on one line`, lines.length === 0, JSON.stringify(lines.map((c) => c.text)));
+    const out = tabs.filter((e) => e.calculatedX + e.calculatedWidth > main.calculatedX + main.calculatedWidth + 0.5);
+    ok(`${w} the tabs stay inside the page`, out.length === 0, out.map((e) => e.id).join(","));
+  }
+}
+
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();

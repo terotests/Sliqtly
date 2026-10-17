@@ -264,6 +264,10 @@ async function loadPicture(p) {
   }
 }
 
+const older = document.getElementById("older");
+const OLDER = say("This recording was made with an older Sliqtly: export it again (Export ▸ Cloud HTML in the editor).",
+  "Tämä tallenne on tehty vanhemmalla Sliqtlyllä: vie se uudelleen (editorissa Vie ▸ Pilveen HTML).");
+
 function fail(text) {
   note.textContent = text;
   note.hidden = false;
@@ -299,6 +303,9 @@ async function start() {
     rec = await unpackStream(bytes);
   } catch (e) {
     console.warn(e);
+    // there, but made by another Sliqtly than this player (streamAge)
+    if (e?.code === "rec-older") return fail(OLDER);
+    if (e?.code === "rec-newer") return fail(say("This recording was made with a newer Sliqtly: reload the page.", "Tämä tallenne on tehty uudemmalla Sliqtlyllä: lataa sivu uudelleen."));
     return fail(say("This presentation is not here, or no longer shared.", "Esitystä ei löydy, tai sitä ei enää jaeta."));
   }
   gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
@@ -319,6 +326,11 @@ async function start() {
   showState();
   note.hidden = true;
   bar.hidden = false;
+  // it plays, but not all as it should: a word that stays with the bar
+  if (rec.age === "older") {
+    older.textContent = OLDER + " " + say("Until then, each slide plays on through its pause before it stops.", "Siihen asti kukin dia toistuu taukonsa loppuun ennen kuin se pysähtyy.");
+    older.hidden = false;
+  }
   wake();
   window.__play = { nav, act };
   if ((s.plays || []).length) await startRecPlays(s).catch((e) => console.warn("programs on slides", e));
