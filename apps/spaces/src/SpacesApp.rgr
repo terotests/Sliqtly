@@ -59,12 +59,14 @@ Import "pkg:evg/EVGHitTest.rgr"
 
 ; One call for the host to make: POST <op> with `body`. `ref` is what the
 ; answer is about (an event's or a ward's id here), `rev` the event's change
-; count when its body was taken.
+; count when its body was taken. A quiet get_space reads the space again
+; for a change made elsewhere and keeps the page as it is.
 class SpCall {
     def op:string ""
     def body:string "{}"
     def ref:string ""
     def rev:int 0
+    def quiet:boolean false
     Constructor () {
     }
 }
@@ -122,7 +124,8 @@ class SpacesApp {
     def sentTypes:[string]
     def sentNames:[string]
     ; what the host has to do after a press ("import", "export:<id>",
-    ; "copy": put `copyText` on the clipboard)
+    ; "copy": put `copyText` on the clipboard, "open:<url>": open an offer
+    ; in a new tab)
     def action:string ""
     def copyText:string ""
     def status:string ""
@@ -137,6 +140,10 @@ class SpacesApp {
     def prefer:string ""
     def loading:boolean false
     def outbox:[SpCall]
+    ; when the space last changed on the server, as the page has it, and
+    ; whether it changed elsewhere since (read again once the page is idle)
+    def changed:string ""
+    def stale:boolean false
     ; the demo data on its way to the server, and how many wards are left
     ; to add before its events go
     def seed@(optional):SpSpace
@@ -147,12 +154,20 @@ class SpacesApp {
     def shown:[InputCtl]
     def nameField:InputCtl (new InputCtl())
     def inviteField:InputCtl (new InputCtl())
+    def wardField:InputCtl (new InputCtl())
 
     ; --- entries ----------------------------------------------------------------------
     ; the entry types (the schema the server shares)
     def types:SpTypes (SpTypes.builtin())
     ; the Add menu is open
     def addOpen:boolean false
+    ; in it: the types to pick by hand shown (on a server the assistant comes
+    ; first), what is searched for, the group picked, and the assistant's
+    ; answer asked from it (-1 for none)
+    def addManual:boolean false
+    def typeSearch:InputCtl (new InputCtl())
+    def addGroup:string ""
+    def addAsked:int -1
     ; the form: open, on which event ("" for a new one), of which type, and
     ; the day of a repeating event's occurrence it was opened from (-1)
     def editing:boolean false
@@ -263,6 +278,7 @@ class SpacesApp {
         space.types = types
         editing = false
         addOpen = false
+        addAsked = -1
         sheetSel = ""
         docSel = ""
         def none:[string]
@@ -595,16 +611,39 @@ class SpacesApp {
         return bar
     }
 
+    fn tabNames:[string] () {
+        if server {
+            return ([] _:string ( "home" "calendar" "lists" "budget" "members" "spaces" "sheets" "docs" "assistant" ))
+        }
+        return ([] _:string ( "home" "calendar" "lists" "budget" "sheets" "docs" "assistant" ))
+    }
+
+    ; The host's address names the tab (#calendar); Back and Forward come
+    ; here. False for a name that is no tab.
+    fn goTab:boolean (name:string) {
+        def tabs:[string] (this.tabNames())
+        def i:int 0
+        while (i < (array_length tabs)) {
+            if ((itemAt tabs i) == name) {
+                if (name != tab) {
+                    this.press(("sp-nav-" + name))
+                }
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     fn nav:EVGElement () {
         def nav:EVGElement (SpacesApp.box("sp-nav"))
         if (this.narrow()) {
             nav = (SpacesApp.box("sp-nav sp-nav-row"))
         }
         nav.role = "navigation"
-        def tabs:[string] ([] _:string ( "home" "calendar" "lists" "budget" "sheets" "docs" "assistant" ))
+        def tabs:[string] (this.tabNames())
         def glyphs:[string] ([] _:string ( "◎" "▦" "☰" "€" "▤" "▧" "✦" ))
         if server {
-            tabs = ([] _:string ( "home" "calendar" "lists" "budget" "members" "spaces" "sheets" "docs" "assistant" ))
             glyphs = ([] _:string ( "◎" "▦" "☰" "€" "◈" "▣" "▤" "▧" "✦" ))
         }
         def i:int 0
@@ -1477,9 +1516,7 @@ class SpacesApp {
             i = (i + 1)
         }
         v.addChild(c)
-        if ((array_length space.resources) > 0) {
-            v.addChild((this.wardsCard(owner)))
-        }
+        v.addChild((this.wardsCard(owner)))
         if (((array_length space.invites) > 0) || owner) {
             def iv:EVGElement (this.card("invites" (SpWords.ui(lang "invited"))))
             def k:int 0
@@ -1531,6 +1568,10 @@ class SpacesApp {
             }
             i = (i + 1)
         }
+        def form:EVGElement (SpacesApp.box("sp-formrow"))
+        form.addChild((this.field(wardField "sp-ward-name" (SpWords.pick(lang "Name" "Nimi")) (SpWords.noun(lang pack "resource")) "text")))
+        form.addChild((SpacesApp.btn("sp-addward" "sp-action sp-action-primary" (SpWords.ui(lang "addOne")))))
+        c.addChild(form)
         return c
     }
 
@@ -1711,8 +1752,14 @@ class SpacesApp {
         if (tid == "sp-new-name") {
             return "sp-create"
         }
+        if (tid == "sp-ward-name") {
+            return "sp-addward"
+        }
         if (tid == "sp-assist-text") {
             return "sp-assist-send"
+        }
+        if (tid == "sp-addsearch") {
+            return "sp-addfirst"
         }
         return ""
     }
@@ -2126,7 +2173,9 @@ class SpacesApp {
             nm = (SpWords.pick(lang "Picture" "Kuva"))
         }
         push picNames (SpacesApp.clip(nm 24))
-        tab = "assistant"
+        if (addOpen == false) {
+            tab = "assistant"
+        }
         this.rebuild()
     }
 
@@ -2209,6 +2258,9 @@ class SpacesApp {
         sentNames = picNames
         push answers (SpWords.pick(lang "Reading…" "Luetaan…"))
         this.queue("assist" (SpRemote.write(o)) (to_string ((array_length answers) - 1)))
+        if addOpen {
+            addAsked = ((array_length answers) - 1)
+        }
         assistBusy = true
         assistField.setValue("")
         def none:[string]
@@ -2286,39 +2338,173 @@ class SpacesApp {
         return bar
     }
 
-    ; The Add menu: the types of the space's words, by group, each under its
-    ; name when the pack has several.
+    ; Opening the Add menu starts it over: on a server the assistant is first
+    ; and its field is focused, the types to pick by hand stay folded.
+    fn toggleAdd:void () {
+        addOpen = (addOpen == false)
+        if (addOpen == false) {
+            focused = ""
+            return
+        }
+        addManual = false
+        addGroup = ""
+        addAsked = -1
+        typeSearch.setValue("")
+        if ((this.narrow()) == false) {
+            if (this.addAssists()) {
+                focused = "sp-assist-text"
+            } {
+                focused = "sp-addsearch"
+            }
+        }
+    }
+
+    ; The assistant can make the entries: a space on a server.
+    fn addAssists:boolean () {
+        return (server && ((strlen spaceId) > 0))
+    }
+
+    ; The Add menu. On a server the assistant comes first: what is written or
+    ; pictured becomes entries. Below it, folded, the types to pick by hand;
+    ; without a server only those.
     fn addMenu:EVGElement () {
         def menu:EVGElement (UiTree.div("sp-addmenu" "sp-addmenu"))
-        menu.role = "menu"
+        menu.role = "group"
         menu.a11yLabel = (SpWords.ui(lang "add"))
-        def list:[SpType] (types.forPack(pack))
-        def groups:[string] (SpTypes.groups())
-        def g:int 0
-        while (g < (array_length groups)) {
-            def gid:string (itemAt groups g)
-            def row:EVGElement (SpacesApp.box("sp-addgroup"))
-            def n:int 0
-            def i:int 0
-            while (i < (array_length list)) {
-                def t:SpType (itemAt list i)
-                if ((t.group == gid) || (((g == 0) && ((SpacesApp.knownGroup(t.group)) == false)))) {
-                    def it:EVGElement (SpacesApp.btn(("sp-addtype-" + t.id) "sp-chip" (t.name.text(lang))))
-                    it.role = "menuitem"
-                    row.addChild(it)
-                    n = (n + 1)
-                }
-                i = (i + 1)
+        if (this.addAssists()) {
+            def lead:EVGElement (SpacesApp.tx("sp-addgroup-name" (SpWords.pick(lang "Tell the assistant: write or paste a letter, a timetable or an invitation, or add a picture, and it makes the entries" "Kerro avustajalle: kirjoita tai liitä tiedote, aikataulu tai kutsu, tai lisää kuva, niin se tekee merkinnät"))))
+            UiTree.inline(lead "width" (SpacesApp.px(((this.mainW()) - 40.0))))
+            menu.addChild(lead)
+            menu.addChild((this.assistInput()))
+            if ((addAsked >= 0) && (addAsked < (array_length answers))) {
+                def w:double ((this.mainW()) - 60.0)
+                def a:EVGElement (this.markdown("sp-add-answer" (itemAt answers addAsked) w))
+                UiTree.addClass(a "sp-bubble-a")
+                menu.addChild(a)
             }
-            if (n > 0) {
-                if ((array_length list) > 12) {
-                    menu.addChild((SpacesApp.tx("sp-addgroup-name" (SpWords.groupName(lang gid)))))
-                }
-                menu.addChild(row)
+            def mark:string "▸ "
+            if addManual {
+                mark = "▾ "
             }
-            g = (g + 1)
+            def mb:EVGElement (SpacesApp.btn("sp-add-manual" "sp-chip" (mark + (SpWords.pick(lang "Add by hand" "Lisää käsin")))))
+            mb.a11yLabel = (SpWords.pick(lang "Add by hand" "Lisää käsin"))
+            mb.a11yExpanded = (SpacesApp.tri(addManual))
+            def mrow:EVGElement (SpacesApp.box("sp-row"))
+            mrow.addChild(mb)
+            menu.addChild(mrow)
+            if (addManual == false) {
+                return menu
+            }
         }
+        menu.addChild((this.typePicker()))
         return menu
+    }
+
+    ; A type's group as the menu groups it: an unknown one with the first.
+    sfn groupOf:string (t:SpType) {
+        if (SpacesApp.knownGroup(t.group)) {
+            return t.group
+        }
+        def all:[string] (SpTypes.groups())
+        return (itemAt all 0)
+    }
+
+    ; The types the search or the group picked shows. A pack of a few types
+    ; shows them all; of many, none until something is searched or picked.
+    fn addMatches:[SpType] () {
+        def res:[SpType]
+        def list:[SpType] (types.forPack(pack))
+        def q:string (to_lowercase (trim typeSearch.value))
+        def many:boolean ((array_length list) > 12)
+        if (many && (((strlen q) == 0) && ((strlen addGroup) == 0))) {
+            return res
+        }
+        def i:int 0
+        while (i < (array_length list)) {
+            def t:SpType (itemAt list i)
+            def g:string (SpacesApp.groupOf(t))
+            def ok:boolean true
+            if ((strlen q) > 0) {
+                def hay:string (to_lowercase ((t.name.en) + " " + (t.name.fi) + " " + (SpWords.groupName(lang g))))
+                ok = ((indexOf hay q) >= 0)
+            } {
+                if ((strlen addGroup) > 0) {
+                    ok = (g == addGroup)
+                }
+            }
+            if ok {
+                push res t
+            }
+            i = (i + 1)
+        }
+        return res
+    }
+
+    ; Picking a type by hand: a search, the groups to browse, and the types
+    ; found. Enter in the search opens the first.
+    fn typePicker:EVGElement () {
+        def box:EVGElement (SpacesApp.box("sp-addpick"))
+        def fr:EVGElement (this.field(typeSearch "sp-addsearch" (SpWords.pick(lang "Search for a type" "Hae tyyppiä")) (SpWords.pick(lang "E.g. invitation, doctor, bill" "Esim. kutsu, lääkäri, lasku")) "text"))
+        if ((this.narrow()) == false) {
+            UiTree.inline(fr "width" "320px")
+        }
+        box.addChild(fr)
+        def list:[SpType] (types.forPack(pack))
+        def q:string (trim typeSearch.value)
+        def many:boolean ((array_length list) > 12)
+        if (many && ((strlen q) == 0)) {
+            def grow:EVGElement (SpacesApp.box("sp-addgroup"))
+            grow.role = "group"
+            grow.a11yLabel = (SpWords.pick(lang "Groups" "Ryhmät"))
+            def groups:[string] (SpTypes.groups())
+            def g:int 0
+            while (g < (array_length groups)) {
+                def gid:string (itemAt groups g)
+                def n:int 0
+                def i:int 0
+                while (i < (array_length list)) {
+                    def t:SpType (itemAt list i)
+                    if ((SpacesApp.groupOf(t)) == gid) {
+                        n = (n + 1)
+                    }
+                    i = (i + 1)
+                }
+                if (n > 0) {
+                    def on:boolean (gid == addGroup)
+                    def cls:string "sp-chip"
+                    if on {
+                        cls = "sp-chip sp-chip-on"
+                    }
+                    def gb:EVGElement (SpacesApp.btn(("sp-addgrp-" + gid) cls (SpWords.groupName(lang gid))))
+                    gb.a11yPressed = (SpacesApp.tri(on))
+                    grow.addChild(gb)
+                }
+                g = (g + 1)
+            }
+            box.addChild(grow)
+        }
+        def hits:[SpType] (this.addMatches())
+        if ((array_length hits) == 0) {
+            def msg:string (SpWords.pick(lang "Nothing found" "Ei osumia"))
+            if ((strlen q) == 0) {
+                msg = ((SpWords.pick(lang "Search or pick a group: " "Hae tai valitse ryhmä: ")) + (to_string (array_length list)) + (SpWords.pick(lang " types" " tyyppiä")))
+            }
+            box.addChild((SpacesApp.tx("sp-cardsub" msg)))
+            return box
+        }
+        def row:EVGElement (SpacesApp.box("sp-addgroup"))
+        row.role = "menu"
+        row.a11yLabel = (SpWords.ui(lang "add"))
+        def k:int 0
+        while (k < (array_length hits)) {
+            def t2:SpType (itemAt hits k)
+            def it:EVGElement (SpacesApp.btn(("sp-addtype-" + t2.id) "sp-chip" (t2.name.text(lang))))
+            it.role = "menuitem"
+            row.addChild(it)
+            k = (k + 1)
+        }
+        box.addChild(row)
+        return box
     }
 
     sfn knownGroup:boolean (g:string) {
@@ -2518,7 +2704,14 @@ class SpacesApp {
                 if (f.picked()) {
                     this.addPick(("f:" + f.key) (e.fieldText(f.key)))
                 } {
-                    this.addText(("f:" + f.key) (e.fieldText(f.key)))
+                    def ft:string (e.fieldText(f.key))
+                    if (f.type == "weektimes") {
+                        def wk:SpWeek (SpWeek.read(ft))
+                        if wk.ok {
+                            ft = (wk.shown(lang))
+                        }
+                    }
+                    this.addText(("f:" + f.key) ft)
                 }
                 i = (i + 1)
             }
@@ -2729,6 +2922,9 @@ class SpacesApp {
         if (key == "who") {
             return (SpWords.ui(lang "whoHint"))
         }
+        if (type == "weektimes") {
+            return (SpWords.pick(lang "Mon 8:15–13:00; Tue 9:00–14:15" "ma 8.15–13.00; ti 9.00–14.15"))
+        }
         if (((type == "money") || (key == "cost:amount")) || ((SpacesApp.commonType(key)) == "money")) {
             return "0,00 €"
         }
@@ -2838,7 +3034,7 @@ class SpacesApp {
         def f@(optional):SpField (this.editField(key))
         if (!null? f) {
             def ff:SpField f
-            if ((ff.type == "longtext") || (ff.type == "text")) {
+            if (((ff.type == "longtext") || (ff.type == "text")) || (ff.type == "weektimes")) {
                 wide = true
             }
         }
@@ -3042,6 +3238,7 @@ class SpacesApp {
             this.addFields(cost "cost:")
             c.addChild(cost)
         }
+        this.addWatch(c)
         def bar:EVGElement (SpacesApp.box("sp-formrow"))
         bar.addChild((SpacesApp.btn("sp-ed-save" "sp-action sp-action-primary" (SpWords.ui(lang "save")))))
         bar.addChild((SpacesApp.btn("sp-ed-cancel" "sp-action" (SpWords.ui(lang "cancel")))))
@@ -3061,6 +3258,58 @@ class SpacesApp {
         c.addChild(bar)
         v.addChild(c)
         return v
+    }
+
+    ; An entry's deal watch (set by the assistant or over MCP): what it looks
+    ; for and its latest finds, each opening the offer in a new tab.
+    fn addWatch:void (c:EVGElement) {
+        if ((strlen editId) == 0) {
+            return
+        }
+        def found@(optional):SpEvent (space.event(editId))
+        if (null? found) {
+            return
+        }
+        def e:SpEvent found
+        if (e.watched == false) {
+            return
+        }
+        c.addChild((SpacesApp.tx("sp-formhead" (SpWords.pick(lang "Offer watch" "Tarjousvahti")))))
+        def state:string (SpWords.pick(lang "on, daily" "päällä"))
+        if (e.watchOn == false) {
+            state = (SpWords.pick(lang "off" "pois päältä"))
+        }
+        c.addChild((SpacesApp.tx("sp-meta" ("“" + e.watchQuery + "” · " + state))))
+        if ((array_length e.findUrls) == 0) {
+            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "No finds yet." "Ei löytöjä vielä.")))))
+            return
+        }
+        def i:int 0
+        while (i < (array_length e.findUrls)) {
+            def t:string (itemAt e.findTitles i)
+            def info:string (itemAt e.findInfo i)
+            def b:EVGElement (SpacesApp.btn(("sp-find-" + (to_string i)) "sp-link" (t + " · " + info)))
+            b.role = "link"
+            c.addChild(b)
+            i = (i + 1)
+        }
+    }
+
+    ; a find of the entry being edited, opened in a new tab by the host
+    fn openFind:void (what:string) {
+        def k@(optional):int (to_int what)
+        if (null? k) {
+            return
+        }
+        def n:int (unwrap k)
+        def found@(optional):SpEvent (space.event(editId))
+        if (null? found) {
+            return
+        }
+        def e:SpEvent found
+        if ((n >= 0) && (n < (array_length e.findUrls))) {
+            action = ("open:" + (itemAt e.findUrls n))
+        }
     }
 
     fn typeFieldKeys:[string] () {
@@ -3307,6 +3556,23 @@ class SpacesApp {
             e.setField((itemAt fkeys k) (itemAt fvals k) (itemAt fkinds k))
             k = (k + 1)
         }
+        ; times per weekday: it repeats on those days, and its own time is
+        ; its first day's (what the server keeps too)
+        def week:SpWeek (space.weekOf(e))
+        if (week.ok && (e.dated())) {
+            e.rule.freq = "weekly"
+            e.rule.byDay = (week.days())
+            def wd:int (UiDate.weekday(e.day))
+            def n:int 0
+            while ((n < 7) && ((week.on(((wd + n) % 7))) == false)) {
+                n = (n + 1)
+            }
+            if (n < 7) {
+                e.startMin = (itemAt week.starts ((wd + n) % 7))
+                e.endMin = (itemAt week.ends ((wd + n) % 7))
+                e.endDay = e.day
+            }
+        }
         if withCost {
             e.setCost(cost)
         } {
@@ -3492,6 +3758,12 @@ class SpacesApp {
             while (i < (array_length tt.fields)) {
                 def f:SpField (itemAt tt.fields i)
                 def v:string (e.fieldText(f.key))
+                if ((f.type == "weektimes") && ((strlen v) > 0)) {
+                    def wk2:SpWeek (SpWeek.read(v))
+                    if wk2.ok {
+                        push parts (wk2.shown(lang))
+                    }
+                }
                 if (((strlen v) > 0) && ((f.type == "choice") || ((f.type == "person") || (f.type == "phone")))) {
                     if (f.type == "choice") {
                         push parts (f.optionLabel(lang v))
@@ -3684,11 +3956,25 @@ class SpacesApp {
             }
             def pb:EVGElement (SpacesApp.btn(("sp-bud-payer-" + (to_string i)) pc name))
             pb.a11yPressed = (SpacesApp.tri(on))
+            def pe:string (space.emailOf(name))
+            if ((strlen pe) > 0) {
+                pb.a11yLabel = (name + ", " + pe)
+            }
             pills.addChild(pb)
             i = (i + 1)
         }
         bar.addChild(pills)
         v.addChild(bar)
+        ; the chosen person's email under the pills, where a touch screen
+        ; shows no tooltip
+        if (allOn == false) {
+            def be:string (space.emailOf(budgetPayer))
+            if ((strlen be) > 0) {
+                def who:EVGElement (SpacesApp.tx("sp-meta" (budgetPayer + " · " + be)))
+                who.id = "sp-bud-email"
+                v.addChild(who)
+            }
+        }
 
         def sum:EVGElement (this.card("budget-sum" (SpWords.ui(lang "total"))))
         sum.addChild((this.moneyRow("sp-bud-total" (SpWords.ui(lang "total")) b.total true)))
@@ -3797,7 +4083,31 @@ class SpacesApp {
     ; it was one.
     fn pressEntries:boolean (target:string) {
         if (target == "sp-add") {
-            addOpen = (addOpen == false)
+            this.toggleAdd()
+            return true
+        }
+        if (target == "sp-add-manual") {
+            addManual = (addManual == false)
+            if addManual {
+                focused = "sp-addsearch"
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-addgrp-")) {
+            def gid:string (substring target 10 (strlen target))
+            if (gid == addGroup) {
+                addGroup = ""
+            } {
+                addGroup = gid
+            }
+            return true
+        }
+        if (target == "sp-addfirst") {
+            def hits:[SpType] (this.addMatches())
+            if ((array_length hits) > 0) {
+                def first:SpType (itemAt hits 0)
+                this.openNew(first.id)
+            }
             return true
         }
         if (UiTree.beginsWith(target "sp-addtype-")) {
@@ -4096,6 +4406,10 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (UiTree.beginsWith(target "sp-find-")) {
+            this.openFind((substring target 8 (strlen target)))
+            return true
+        }
         if (UiTree.beginsWith(target "sp-copy-")) {
             this.copyRow((substring target 8 (strlen target)))
             this.rebuild()
@@ -4208,6 +4522,58 @@ class SpacesApp {
         this.queue("get_space" (SpRemote.body(([] _:string ( "space_id" id )))) id)
     }
 
+    ; Live changes: the host asks every few seconds (`poll`) whether the
+    ; space changed on the server, when nothing of the page's own is on its
+    ; way. A change made elsewhere (an assistant through Warden's MCP server,
+    ; another member's page) reads the space again, once the page is idle:
+    ; no form open and nothing left to save. False: nothing was asked.
+    fn poll:boolean () {
+        if (((server == false) || ((strlen spaceId) == 0)) || loading) {
+            return false
+        }
+        if ((array_length outbox) > 0) {
+            return false
+        }
+        if (stale && (this.idle())) {
+            this.reload()
+            return true
+        }
+        this.queue("changes" (SpRemote.body(([] _:string ( "space_id" spaceId )))) spaceId)
+        return true
+    }
+
+    fn idle:boolean () {
+        if ((editing || addOpen) || (!null? seed)) {
+            return false
+        }
+        return ((array_length (space.dirtyEvents())) == 0)
+    }
+
+    fn reload:void () {
+        stale = false
+        def c:SpCall (this.queue("get_space" (SpRemote.body(([] _:string ( "space_id" spaceId )))) spaceId))
+        c.quiet = true
+    }
+
+    ; The space read again for a change made elsewhere: the tab, the sheet
+    ; or document open and the page's own sheets and documents stay.
+    fn refreshSpace:void (sp:VlJson events:VlJson) {
+        def keepTab:string tab
+        def keepSheets:[SpSheet] space.sheets
+        def keepDocs:[SpDoc] space.docs
+        def keepSheet:string sheetSel
+        def keepDoc:string docSel
+        this.showSpace(sp events)
+        space.sheets = keepSheets
+        space.docs = keepDocs
+        tab = keepTab
+        sheetSel = keepSheet
+        docSel = keepDoc
+        if (tab == "budget") {
+            this.askBudget()
+        }
+    }
+
     ; The server's answer to the first call.
     fn answer:void (text:string) {
         if ((array_length outbox) == 0) {
@@ -4215,6 +4581,20 @@ class SpacesApp {
         }
         def c:SpCall (this.takeFirst())
         def o:VlJson (SpRemote.parse(text))
+        if (c.op == "changes") {
+            def at:string (o.stringOr("changed" ""))
+            if ((c.ref == spaceId) && (at != changed)) {
+                changed = at
+                if ((o.boolOr("mine" false)) == false) {
+                    stale = true
+                }
+            }
+            if (stale && (this.idle())) {
+                this.reload()
+            }
+            ; nothing on the page changed yet
+            return
+        }
         if (c.op == "list_spaces") {
             account = (SpRemote.account(text))
             def pick:string ""
@@ -4234,7 +4614,17 @@ class SpacesApp {
         }
         if (c.op == "get_space") {
             if (c.ref == spaceId) {
-                this.showSpace((o.get("space")) (o.get("events")))
+                changed = (o.stringOr("changed" ""))
+                if (c.quiet == false) {
+                    this.showSpace((o.get("space")) (o.get("events")))
+                } {
+                    if (this.idle()) {
+                        this.refreshSpace((o.get("space")) (o.get("events")))
+                    } {
+                        ; edited meanwhile: read again once it is saved
+                        stale = true
+                    }
+                }
             }
         }
         if (c.op == "create_space") {
@@ -4284,7 +4674,15 @@ class SpacesApp {
             }
         }
         if (c.op == "add_ward") {
-            this.seedWardAdded(c.ref (o.stringOr("id" "")))
+            if (UiTree.beginsWith(c.ref "wnew-")) {
+                ; one added on the Members page takes the server's id
+                def sid:string (o.stringOr("id" ""))
+                if ((strlen sid) > 0) {
+                    space.renameWard(c.ref sid)
+                }
+            } {
+                this.seedWardAdded(c.ref (o.stringOr("id" "")))
+            }
         }
         if (c.op == "assist") {
             this.assistAnswered(c.ref (o.stringOr("text" "")) true)
@@ -4340,6 +4738,10 @@ class SpacesApp {
             return
         }
         def c:SpCall (this.takeFirst())
+        if (c.op == "changes") {
+            ; asked again in a moment
+            return
+        }
         status = message
         loading = false
         if (c.op == "delete_event") {
@@ -4363,6 +4765,10 @@ class SpacesApp {
         }
         if (c.op == "assist") {
             this.assistAnswered(c.ref message false)
+        }
+        if ((c.op == "add_ward") && (UiTree.beginsWith(c.ref "wnew-"))) {
+            ; the server did not take it: nor does the page
+            space.removeWard(c.ref)
         }
         if ((c.op == "add_ward") || (c.op == "import_events")) {
             ; the demo data stops where it failed
@@ -4474,6 +4880,27 @@ class SpacesApp {
                     this.queue("remove_member" (SpRemote.body(([] _:string ( "space_id" spaceId "member" who )))) who)
                 }
             }
+            return true
+        }
+        if (target == "sp-addward") {
+            def wn:string (trim wardField.value)
+            if ((strlen wn) == 0) {
+                status = (SpWords.pick(lang "Give it a name" "Anna nimi"))
+                focused = "sp-ward-name"
+                return true
+            }
+            if ((strlen (space.resourceFor(wn))) > 0) {
+                status = ((SpWords.pick(lang "Already there: " "On jo: ")) + wn)
+                return true
+            }
+            def pal2:[string] (SpSpace.palette())
+            def nw:SpResource (space.addResource((space.nextId("wnew-")) wn (itemAt pal2 ((array_length space.resources) % (array_length pal2)))))
+            if (server && ((strlen spaceId) > 0)) {
+                this.queue("add_ward" (SpRemote.body(([] _:string ( "space_id" spaceId "name" nw.name "color" nw.color )))) nw.id)
+            }
+            wardField.setValue("")
+            status = ((SpWords.pick(lang "Added " "Lisätty ")) + wn)
+            this.fillBoard()
             return true
         }
         if (target == "sp-unward-no") {
@@ -4745,6 +5172,33 @@ class SpacesApp {
         }
         if ((strlen id) > 0) {
             return "pointer"
+        }
+        return ""
+    }
+
+    ; The tooltip of what is at (x, y): a person's email on the budget's
+    ; person filter and on the members page, "" for none.
+    fn tipAt:string (x:double y:double) {
+        def id:string (this.hitId(x y))
+        if (UiTree.beginsWith(id "sp-bud-payer-")) {
+            def pn@(optional):int (to_int (substring id 13 (strlen id)))
+            if (!null? pn) {
+                def payers:[string] (space.payers())
+                def pk:int (unwrap pn)
+                if ((pk >= 0) && (pk < (array_length payers))) {
+                    return (space.emailOf((itemAt payers pk)))
+                }
+            }
+        }
+        if (UiTree.beginsWith(id "sp-member-")) {
+            def mn@(optional):int (to_int (substring id 10 (strlen id)))
+            if (!null? mn) {
+                def mk:int (unwrap mn)
+                if ((mk >= 0) && (mk < (array_length space.members))) {
+                    def m:SpMember (itemAt space.members mk)
+                    return m.email
+                }
+            }
         }
         return ""
     }

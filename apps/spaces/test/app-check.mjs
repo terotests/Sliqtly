@@ -294,6 +294,20 @@ console.log("a space on a server");
   a.answer(JSON.stringify({ event_id: "ev3" }));
   eq("and then nothing is left", a.outCount(), 0);
 
+  // a person's email: the tooltip on the budget's filter and the members
+  // page, and under the filter once a person is picked
+  a.press("sp-nav-budget");
+  const juho = a.space.payers().indexOf("Juho");
+  const centre = (id) => { const e = byId(a, id); return [e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2]; };
+  eq("the filter's tooltip is the email", a.tipAt(...centre("sp-bud-payer-" + juho)), "juho@example.com");
+  a.press("sp-bud-payer-" + juho);
+  ok("the picked person's email is shown", texts(a).includes("Juho · juho@example.com"));
+  a.press("sp-bud-all");
+  ok("and not for everyone", !texts(a).some((s) => s.includes("juho@example.com")));
+  while (a.outOp() === "budget") a.answer(JSON.stringify({ months: [] }));
+  a.press("sp-nav-members");
+  eq("a member's tooltip is the email", a.tipAt(...centre("sp-member-1")), "juho@example.com");
+
   // members: invite with the text field, typed key by key
   a.press("sp-nav-members");
   t = texts(a);
@@ -337,6 +351,26 @@ console.log("a space on a server");
   a.press("sp-nav-members");
   t = texts(a);
   ok("the wards are listed", t.includes("Aino") && t.includes("Dependants"));
+  // a ward added on the Members page
+  a.press("sp-ward-name");
+  for (const ch of "Leevi") a.keyWith(ch, false, false);
+  a.keyWith("Enter", false, false);
+  eq("Enter adds it", a.outOp(), "add_ward");
+  eq("by that name", JSON.parse(a.outBody()).name, "Leevi");
+  eq("on the page at once", a.space.resources.length, 2);
+  ok("with a colour", a.space.resources[1].color.length > 0);
+  a.answer(JSON.stringify({ id: "w2", name: "Leevi", color: a.space.resources[1].color }));
+  eq("it takes the server's id", a.space.resources[1].id, "w2");
+  a.press("sp-ward-name");
+  for (const ch of "aino") a.keyWith(ch, false, false);
+  a.press("sp-addward");
+  eq("a name it has already is not added", a.outCount(), 0);
+  a.wardField.setValue("");
+  a.press("sp-unward-1");
+  a.press("sp-unward-yes");
+  a.answer(JSON.stringify(spaceOf()));
+  eq("and it can go again", a.space.resources.length, 1);
+
   a.press("sp-wardcolor-0");
   eq("Colour gives the next one", a.space.resources[0].color, "cyan");
   eq("and saves it", a.outOp(), "set_ward");
@@ -457,12 +491,36 @@ console.log("entries: the form, the Add menu, deleting and Undo");
   }
   a.setWidth(1280, 700);
 
-  // the Add menu offers the pack's types
+  // the Add menu: without a server, a search over the pack's types and its
+  // groups to browse, not the whole long list
   a.press("sp-nav-calendar");
   a.press("sp-add");
   t = texts(a);
-  ok("the Add menu lists the family types", t.includes("Birthday invitation") && t.includes("Childcare shift") && t.includes("Thing") && !t.includes("Party invitation"), t.slice(-40).join(","));
-  ok("by group", t.includes("Health") && t.includes("Doctor's visit") && t.includes("Change to the usual"));
+  ok("the Add menu searches the types", byId(a, "sp-addsearch") && a.focused === "sp-addsearch" && t.includes("Health") && !t.includes("Doctor's visit"), t.slice(-40).join(","));
+  a.press("sp-addgrp-health");
+  t = texts(a);
+  ok("a group shows its types", t.includes("Doctor's visit") && !t.includes("Birthday invitation"));
+  a.press("sp-addgrp-health");
+  a.typeSearch.setValue("invit");
+  a.rebuild();
+  t = texts(a);
+  ok("the search finds the family types", t.includes("Birthday invitation") && !t.includes("Party invitation") && !t.includes("Doctor's visit"), t.slice(-40).join(","));
+  a.typeSearch.setValue("kutsu");
+  a.rebuild();
+  ok("in Finnish too", texts(a).includes("Birthday invitation"));
+  a.typeSearch.setValue("zzz");
+  a.rebuild();
+  ok("nothing found is said", texts(a).includes("Nothing found"));
+  a.typeSearch.setValue("thing");
+  a.rebuild();
+  ok("a thing", texts(a).includes("Thing"));
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const probs = a.a11yProblems();
+    ok(`${w} the Add menu lints clean`, probs.length === 0, probs.join(" | "));
+  }
+  a.setWidth(1280, 700);
+  a.typeSearch.setValue("");
   a.board.cursor = a.today + 2;
   a.press("sp-addtype-birthday_invitation");
   ok("a new invitation", a.editing && a.editId === "" && a.editType === "birthday_invitation");
@@ -728,6 +786,38 @@ console.log("a reminder ticked off on the summary");
   ok("and it leaves the list", !byId(a, "sp-tick-" + fee.id));
 }
 
+console.log("an entry's offer watch");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  a.answer(JSON.stringify({
+    space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] },
+    events: [
+      { event_id: "ev1", title: "Lasten sängyt", date: "", type: "item", fields: { state: "missing" },
+        watch: { query: "lasten sänky 90x200", active: true, sources: ["tori"], every_days: 1, finds: [
+          { title: "Lasten sänky", url: "https://www.tori.fi/recommerce/forsale/item/111", price: 80, source: "Tori", found: "2026-10-07" },
+          { title: "Huono", url: "javascript:alert(1)", source: "Tori", found: "2026-10-07" },
+        ] } },
+    ],
+  }));
+  const bed = a.space.events[0];
+  eq("one safe find read", bed.findUrls.length, 1);
+  a.press("sp-nav-lists");
+  a.press("sp-list-item");
+  a.press("sp-entry-" + bed.id);
+  const t = texts(a);
+  ok("the form shows the watch and its find", t.includes("Tarjousvahti") && t.includes("Lasten sänky · 80 € · Tori · 7.10."), t.join(","));
+  a.press("sp-find-0");
+  eq("a find opens in a new tab", a.takeAction(), "open:https://www.tori.fi/recommerce/forsale/item/111");
+  const probs = a.a11yProblems();
+  ok("the watch lints clean", probs.length === 0, probs.join(" | "));
+}
+
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();
@@ -786,6 +876,85 @@ console.log("the assistant on a server");
     const probs = a.a11yProblems();
     ok(`${w} the assistant lints clean`, probs.length === 0, probs.join(" | "));
   }
+  a.setWidth(1280, 700);
+  // on a server Add opens the assistant first; the types by hand are folded
+  a.press("sp-nav-calendar");
+  a.press("sp-add");
+  ok("Add opens the assistant", byId(a, "sp-assist-send") && a.focused === "sp-assist-text" && !byId(a, "sp-addsearch"));
+  a.addImage("kirje.jpg", "image/jpeg", "QUJD");
+  eq("a picture stays in the Add menu", a.tab, "calendar");
+  a.assistField.setValue("Eelin hammaslääkäri ensi tiistaina klo 9");
+  a.press("sp-assist-send");
+  eq("sent from the Add menu", a.outOp(), "assist");
+  a.answer(JSON.stringify({ space_id: "sp1", text: "Lisäsin hammaslääkärin.", changed: true, event_ids: ["e2"], calls: [] }));
+  ok("its answer in the menu", texts(a).includes("Lisäsin hammaslääkärin.") && a.tab === "calendar" && a.addOpen);
+  a.press("sp-add-manual");
+  ok("by hand: the search", byId(a, "sp-addsearch") && a.focused === "sp-addsearch");
+  a.typeSearch.setValue("hammas");
+  a.keyWith("Enter", false, false);
+  ok("Enter opens the first found", a.editing && a.editType !== "" && !a.addOpen, a.editType);
+  a.press("sp-ed-cancel");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    a.press("sp-add");
+    const probs = a.a11yProblems();
+    ok(`${w} the Add menu with the assistant lints clean`, probs.length === 0, probs.join(" | "));
+    a.press("sp-add");
+  }
+}
+
+console.log("changes made elsewhere, and the tab in the address");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "en";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  const space = { space_id: "sp1", name: "Home", vocab: "family", lang: "en", role: "owner", members: [], invites: [], wards: [{ id: "w1", name: "Aino", color: "blue" }] };
+  const ev = (id, title) => ({ event_id: id, title, date: iso(a.today), start: "12:00", end: "13:00", ward: "w1" });
+  eq("nothing to ask before a space is open", a.poll(), false);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1" }, spaces: [{ space_id: "sp1", name: "Home" }] }));
+  a.answer(JSON.stringify({ space, events: [ev("e1", "Dentist")], changed: "100" }));
+  eq("the space's stamp", a.changed, "100");
+  a.importSheet("Shopping", "milk\tbread");
+  a.press("sp-nav-calendar");
+  ok("a poll asks", a.poll() && a.outOp() === "changes" && JSON.parse(a.outBody()).space_id === "sp1");
+  eq("one at a time", a.poll(), false);
+  a.answer(JSON.stringify({ changed: "100", mine: false }));
+  eq("unchanged: nothing more", a.outCount(), 0);
+  a.poll();
+  a.answer(JSON.stringify({ changed: "150", mine: true }));
+  ok("the page's own change is no news", a.outCount() === 0 && a.changed === "150");
+  a.poll();
+  a.answer(JSON.stringify({ changed: "200", mine: false }));
+  ok("one made elsewhere reads the space again", a.outOp() === "get_space" && a.outbox[0].quiet);
+  a.answer(JSON.stringify({ space, events: [ev("e1", "Dentist"), ev("e2", "Swimming")], changed: "200" }));
+  eq("the new event is there", a.space.events.length, 2);
+  eq("the tab stays", a.tab, "calendar");
+  eq("and the page's own sheet", a.space.sheets.length, 1);
+
+  // a form open: the change waits until it is closed
+  a.poll();
+  a.answer(JSON.stringify({ changed: "300", mine: false }));
+  a.editing = true;
+  a.answer(JSON.stringify({ space, events: [ev("e1", "Dentist")], changed: "300" }));
+  ok("not while a form is open", a.space.events.length === 2 && a.stale);
+  eq("nor asked", a.poll(), true);
+  eq("(the poll asks only whether it changed)", a.outOp(), "changes");
+  a.answer(JSON.stringify({ changed: "300", mine: false }));
+  a.editing = false;
+  ok("closed, it is read again", a.poll() && a.outOp() === "get_space");
+  a.answer(JSON.stringify({ space, events: [ev("e1", "Dentist")], changed: "300" }));
+  ok("and shown", a.space.events.length === 1 && !a.stale);
+  a.poll();
+  a.failed("The space could not be reached");
+  eq("a failed poll says nothing", a.status, "");
+
+  // the address names the tab
+  ok("a tab by name", a.goTab("budget") && a.tab === "budget");
+  ok("not a tab", !a.goTab("nowhere") && a.tab === "budget");
 }
 
 console.log(`passed=${passed} failed=${failed}`);

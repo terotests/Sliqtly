@@ -40,6 +40,15 @@ const (
 // calls per account in ten minutes: the page's and an assistant's together
 var wardenLimit = rateLimiter(600, 10*time.Minute)
 
+// The open page asks every few seconds whether its space changed (an
+// assistant wrote to it through the MCP server, or another member did):
+// POST api/changes {space_id} answers {changed, mine}. It has a limit of its
+// own, so asking does not use up the calls that change things. The page
+// names itself in X-Warden-Client, so a change it made itself is "mine".
+const wardenChangesOp = "changes"
+
+var wardenChangesLimit = rateLimiter(400, 10*time.Minute)
+
 // ------------------------------------------------------------------ tools --
 
 var wardenEventProps = map[string]any{
@@ -59,7 +68,7 @@ var wardenEventProps = map[string]any{
 	"important": map[string]any{"type": "boolean", "description": "Marks an event that must not be missed"},
 	"source":    strProp("Where it came from, e.g. \"Google Calendar\" or \"school\""),
 	"ext_id":    strProp("The event's id where it came from (an iCalendar UID): importing it again changes it instead of adding it twice"),
-	"type":      strProp("The entry's type, from list_entry_types: event (the default) or e.g. birthday_invitation, activity, activity_occurrence, registration, school_event, school_exception_day, doctor_visit, trip, bill, purchase, need, gift_idea, repair, home_task, reminder, schedule_exception, contact_task, custom_family_event. A record type (purchase, need, gift_idea, item, contact…) needs no date; each type says what it requires. item is only a thing the group has: something to buy is a need or purchase, a job a home_task, a registration or course a registration, a booking a reservation"),
+	"type":      strProp("The entry's type, from list_entry_types: event (the default) or e.g. birthday_invitation, activity, activity_occurrence, registration, school_event, school_timetable, school_exception_day, doctor_visit, trip, bill, purchase, need, gift_idea, repair, home_task, reminder, schedule_exception, contact_task, custom_family_event. A record type (purchase, need, gift_idea, item, contact…) needs no date; each type says what it requires. item is only a thing the group has: something to buy is a need or purchase, a job a home_task, a registration or course a registration, a booking a reservation"),
 	"fields":    map[string]any{"type": "object", "description": "The type's own fields and the common ones (status, people, responsible, due, get_from and get_by: the days between which something is to be got or bought, tags, tasks, links, estimated_cost, actual_cost, payer, budget_scope…), e.g. a birthday_invitation's {birthday_child, rsvp: \"going\", rsvp_by, takes, gift_idea}; a list field takes an array of texts; given fields are merged into those the entry has, a field set to null is removed"},
 	"cost": map[string]any{"type": "object", "description": "What it costs, for the space's budget; null removes it",
 		"properties": map[string]any{
@@ -153,6 +162,24 @@ var wardenTools = []roomTool{
 		desc:     "Owner only: delete a space and all its events. confirm_name must be the space's name.",
 		props:    map[string]any{"space_id": spaceIDProp, "confirm_name": strProp("The space's name, exactly")},
 		required: []string{"space_id", "confirm_name"}},
+	{name: "set_watch", title: "Watch for offers",
+		desc: "Have Warden look for offers of an entry (a thing still to get, a need, a planned purchase, any entry) on second-hand sites and the web, once a day by default. New finds are kept on the entry (list_watches, the entry's watch) and the space gets a reminder of them. Only the fields given change; active: false stops the watch.",
+		props: map[string]any{"space_id": spaceIDProp, "event_id": strProp("The entry to watch for"),
+			"query":      strProp("Search words, e.g. \"lasten sänky 90x200\"; the entry's title when left out"),
+			"max_price":  map[string]any{"type": "number", "description": "Leave out offers that cost more, euros (0 or null: no limit). An offer whose price is not seen is kept."},
+			"sources":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Where to look: tori (Tori.fi), vinted (Vinted.fi), huuto (Huuto.net), web (the whole web). Default tori, vinted, huuto."},
+			"exclude":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Words that leave an offer out, e.g. \"ostetaan\", \"rikki\""},
+			"every_days": map[string]any{"type": "integer", "description": "Days between searches, 1 to 30 (default 1)"},
+			"active":     map[string]any{"type": "boolean", "description": "false stops the watch (it is kept with its finds); true by default"}},
+		required: []string{"space_id", "event_id"}},
+	{name: "list_watches", title: "List offer watches", readOnly: true,
+		desc:     "The space's entries that are watched for offers: each watch's search words, price limit, sources, when it last ran and its latest finds (title, url, price, source, the day found).",
+		props:    map[string]any{"space_id": spaceIDProp},
+		required: []string{"space_id"}},
+	{name: "run_watch", title: "Look for offers now",
+		desc:     "Run an entry's watch now instead of waiting for the daily run: the new finds are answered, kept on the entry and put in a reminder.",
+		props:    map[string]any{"space_id": spaceIDProp, "event_id": strProp("The watched entry")},
+		required: []string{"space_id", "event_id"}},
 }
 
 func findWardenTool(name string) *roomTool {
@@ -164,7 +191,7 @@ func findWardenTool(name string) *roomTool {
 	return nil
 }
 
-const wardenInstructions = "Warden keeps a group's shared calendar: its spaces, the wards the group is responsible for (children, pets, a car, clients, players), their events and who takes care of what. Call list_spaces first. To bring the important events of the user's own calendar or of a schedule into a space, use import_events (or import_ics for an .ics file) with each event's source id as ext_id, the ward it concerns and who is responsible; times are the space's local time. Every entry has a type (birthday invitations, hobbies and their sessions, school events and exception days, doctor's visits, trips and bookings, bills, purchases and needs, gift ideas, repairs, home tasks, reminders, changes to the usual routine and more): list_entry_types lists them with the fields common to all, each type's own fields, what it requires, which money fields go to the budget and which dates make reminders. save_event saves one with its type, fields and cost, and budget sums the costs. Tell the user the page: "
+const wardenInstructions = "Warden keeps a group's shared calendar: its spaces, the wards the group is responsible for (children, pets, a car, clients, players), their events and who takes care of what. Call list_spaces first. To bring the important events of the user's own calendar or of a schedule into a space, use import_events (or import_ics for an .ics file) with each event's source id as ext_id, the ward it concerns and who is responsible; times are the space's local time. Every entry has a type (birthday invitations, hobbies and their sessions, school events and exception days, doctor's visits, trips and bookings, bills, purchases and needs, gift ideas, repairs, home tasks, reminders, changes to the usual routine and more): list_entry_types lists them with the fields common to all, each type's own fields, what it requires, which money fields go to the budget and which dates make reminders. save_event saves one with its type, fields and cost, and budget sums the costs. set_watch has Warden look for offers of an entry (a thing to get) on Tori, Vinted, Huuto.net or the web once a day; list_watches shows the finds. Tell the user the page: "
 
 // ------------------------------------------------------------------- page --
 
@@ -208,6 +235,8 @@ func serveWarden(env *Env, w http.ResponseWriter, r *http.Request) bool {
 		serveWardenMcp(env, w, r)
 	case p == wardenPath+"/login":
 		serveWardenLogin(env, w, r)
+	case p == wardenPath+"/api/run_watches":
+		serveWardenWatchRun(env, w, r)
 	case strings.HasPrefix(p, wardenPath+"/api/"):
 		serveWardenAPI(env, w, r, strings.TrimPrefix(p, wardenPath+"/api/"))
 	default:
@@ -234,7 +263,7 @@ func serveWardenLogin(env *Env, w http.ResponseWriter, r *http.Request) {
 
 func serveWardenAPI(env *Env, w http.ResponseWriter, r *http.Request, op string) {
 	g := env.EditorGate
-	if g == nil || (op != "list_spaces" && op != "create_space" && op != wardenAssistOp && findWardenTool(op) == nil) {
+	if g == nil || (op != "list_spaces" && op != "create_space" && op != wardenAssistOp && op != wardenChangesOp && findWardenTool(op) == nil) {
 		editorJSON(w, 404, map[string]string{"error": "No such call."})
 		return
 	}
@@ -247,7 +276,11 @@ func serveWardenAPI(env *Env, w http.ResponseWriter, r *http.Request, op string)
 		editorJSON(w, 401, map[string]string{"error": "Sign in again.", "code": "signed-out"})
 		return
 	}
-	if why := wardenLimit(t.UID); why != "" {
+	limit := wardenLimit
+	if op == wardenChangesOp {
+		limit = wardenChangesLimit
+	}
+	if why := limit(t.UID); why != "" {
 		editorJSON(w, 429, map[string]string{"error": "Too many requests; try again in a few minutes."})
 		return
 	}
@@ -261,7 +294,11 @@ func serveWardenAPI(env *Env, w http.ResponseWriter, r *http.Request, op string)
 		editorJSON(w, 400, map[string]string{"error": "A JSON object is expected."})
 		return
 	}
-	out, err := env.warden.call(r.Context(), wardenWhoOf(t), op, a, true)
+	who := wardenWhoOf(t)
+	if c := r.Header.Get("X-Warden-Client"); wardenIDRe.MatchString(c) {
+		who.client = c
+	}
+	out, err := env.warden.call(r.Context(), who, op, a, true)
 	var re roomErr
 	switch {
 	case errors.As(err, &re):

@@ -497,6 +497,57 @@ class SpacesCheck {
         this.eq((SpWho.listText(who)) "Takes: Mia, Picks up: Juho, Leena" "and written the same")
     }
 
+    fn timetable:void () {
+        ; what is typed as times per weekday
+        def err:[string]
+        this.eq((SpTypes.normalize("weektimes" "ma 8.15-13, ti 9-14.15" 2026 err)) "MO 08:15-13:00; TU 09:00-14:15" "a timetable in Finnish")
+        def w1:SpWeek (SpWeek.read("Mon, Wed 8:00-12:00; Tue 9–14"))
+        this.eq((w1.toText()) "MO 08:00-12:00; TU 09:00-14:00; WE 08:00-12:00" "days without a time take the next one")
+        def w2:SpWeek (SpWeek.read("ma–to klo 8.15–14\npe 8-12"))
+        this.eq((w2.shown("fi")) "ma 8.15–14.00; ti 8.15–14.00; ke 8.15–14.00; to 8.15–14.00; pe 8.00–12.00" "a range of days, shown in Finnish")
+        def w3:SpWeek (SpWeek.read((w2.shown("fi"))))
+        this.eq((w3.toText()) (w2.toText()) "and read back")
+        def w4:SpWeek (SpWeek.read((w2.shown("en"))))
+        this.eq((w4.toText()) (w2.toText()) "in English too")
+        def bad1:SpWeek (SpWeek.read("ma 8-12, ma 9-13"))
+        this.ok((bad1.ok == false) "a day twice")
+        def bad2:SpWeek (SpWeek.read("ma 12-8"))
+        this.ok((bad2.ok == false) "an end before the start")
+        def bad3:SpWeek (SpWeek.read("ma, ke"))
+        this.ok((bad3.ok == false) "days without a time")
+        def bad4:SpWeek (SpWeek.read("xx 8-12"))
+        this.ok((bad4.ok == false) "not a weekday")
+
+        ; Leo's school days, each at its own times, skipping his autumn
+        ; holiday but not Aino's, nor a training day the school is open
+        def s (new SpSpace())
+        s.types = (SpTypes.builtin())
+        def mon:int (UiDate.toDays(2026 10 19))
+        def sch:SpEvent (s.addEvent("Koulu" (mon - 70) -1 -1 "leo"))
+        sch.typeId = "school_timetable"
+        sch.setField("times" "MO 08:15-13:00; TU 09:00-14:15; FR 08:00-12:00" "string")
+        sch.rule.freq = "weekly"
+        sch.rule.until = (mon + 200)
+        def hol:SpEvent (s.addAllDay("Syysloma" (mon + 7) (mon + 11) "leo"))
+        hol.typeId = "school_exception_day"
+        def other:SpEvent (s.addAllDay("Ainon loma" mon (mon + 4) "aino"))
+        other.typeId = "school_exception_day"
+        def open:SpEvent (s.addAllDay("Koulutuspäivä" (mon + 1) (mon + 1) ""))
+        open.typeId = "school_exception_day"
+        open.setField("school_open" "true" "bool")
+        def occ:[SpOccur] (s.occurrences(mon (mon + 20)))
+        def got:[string]
+        def i:int 0
+        while (i < (array_length occ)) {
+            def o:SpOccur (itemAt occ i)
+            if (o.title == "Koulu") {
+                push got ((UiDate.isoOfDays(o.day)) + " " + (SpSpace.timeText(o.startMin)) + "-" + (SpSpace.timeText(o.endMin)))
+            }
+            i = (i + 1)
+        }
+        this.eq((join got ", ") "2026-10-19 08:15-13:00, 2026-10-20 09:00-14:15, 2026-10-23 08:00-12:00, 2026-11-02 08:15-13:00, 2026-11-03 09:00-14:15, 2026-11-06 08:00-12:00" "each day its own times, the holiday week skipped")
+    }
+
     fn entries:void () {
         def s (new SpSpace())
         s.types = (SpTypes.builtin())
@@ -718,6 +769,7 @@ class SpacesCheck {
         c.remote()
         c.types()
         c.entries()
+        c.timetable()
         c.entriesRemote()
         c.budget()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")

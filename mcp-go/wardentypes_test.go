@@ -330,3 +330,42 @@ func TestWardenListedAs(t *testing.T) {
 		}
 	}
 }
+
+func TestWardenWeekTimes(t *testing.T) {
+	for in, want := range map[string]string{
+		"ma 8.15-13, ti 9-14.15":                 "MO 08:15-13:00; TU 09:00-14:15",
+		"MO,WE 08:00-12:00; TU 9:00–14:00":       "MO 08:00-12:00; TU 09:00-14:00; WE 08:00-12:00",
+		"ma-ke 8-12; ke 9-13":                    "",
+		"pe klo 8.00–12.00\nma–to 8:15 - 14:00":  "MO 08:15-14:00; TU 08:15-14:00; WE 08:15-14:00; TH 08:15-14:00; FR 08:00-12:00",
+		"Monday 8:15-13:00, Tuesday 9:00-14:15":  "MO 08:15-13:00; TU 09:00-14:15",
+		"ke 10-9":                                "",
+		"ma 8-12, ma 9-13":                       "",
+		"ma, ke":                                 "",
+		"maanantaisin 8-12; keskiviikko 8.30-14": "MO 08:00-12:00; WE 08:30-14:00",
+	} {
+		w, err := wardenWeekTimes(in)
+		got := ""
+		if err == nil {
+			got = w.String()
+		}
+		eq(t, got, want, in)
+	}
+}
+
+func TestWardenSchoolTimetable(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+
+	// the weekdays' times make the rule; the first day's times are its own
+	code, out := wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "school_timetable", "title": "Koulu", "date": "2026-08-12",
+		"ward": "Leo", "rrule": "FREQ=WEEKLY;UNTIL=20270531", "fields": map[string]any{"times": "ma 8.15-13, ti 9-14.15, ke-pe 8:15-14"}})
+	eq(t, code, 200, "timetable: "+wardenErrOf(out))
+	eq(t, []any{out["rrule"], out["start"], out["end"], out["fields"].(map[string]any)["times"]},
+		[]any{"FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=20270531", "08:15", "14:00", "MO 08:15-13:00; TU 09:00-14:15; WE 08:15-14:00; TH 08:15-14:00; FR 08:15-14:00"}, "a Wednesday's times")
+	code, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "school_timetable", "title": "Koulu", "date": "2026-08-12", "ward": "Leo"})
+	eq(t, []any{code, out["error"]}, []any{400, "a school_timetable needs fields.times"})
+	code, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "school_timetable", "title": "Koulu", "date": "2026-08-12", "ward": "Leo", "fields": map[string]any{"times": "ma 8-12, xx 9-13"}})
+	eq(t, code, 400, "a weekday it does not know: "+wardenErrOf(out))
+}
