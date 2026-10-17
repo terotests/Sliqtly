@@ -156,6 +156,7 @@ class SpacesApp {
     def shown:[InputCtl]
     def nameField:InputCtl (new InputCtl())
     def inviteField:InputCtl (new InputCtl())
+    def wardField:InputCtl (new InputCtl())
     ; the places' search: the town written, whose place it becomes (a
     ; ward's id, "" for the whole space), what the host is to look up
     ; (action "places") and the towns it found
@@ -1612,9 +1613,7 @@ class SpacesApp {
             i = (i + 1)
         }
         v.addChild(c)
-        if ((array_length space.resources) > 0) {
-            v.addChild((this.wardsCard(owner)))
-        }
+        v.addChild((this.wardsCard(owner)))
         v.addChild((this.placesCard()))
         if (((array_length space.invites) > 0) || owner) {
             def iv:EVGElement (this.card("invites" (SpWords.ui(lang "invited"))))
@@ -1667,6 +1666,10 @@ class SpacesApp {
             }
             i = (i + 1)
         }
+        def form:EVGElement (SpacesApp.box("sp-formrow"))
+        form.addChild((this.field(wardField "sp-ward-name" (SpWords.pick(lang "Name" "Nimi")) (SpWords.noun(lang pack "resource")) "text")))
+        form.addChild((SpacesApp.btn("sp-addward" "sp-action sp-action-primary" (SpWords.ui(lang "addOne")))))
+        c.addChild(form)
         return c
     }
 
@@ -1990,6 +1993,9 @@ class SpacesApp {
         }
         if (tid == "sp-new-name") {
             return "sp-create"
+        }
+        if (tid == "sp-ward-name") {
+            return "sp-addward"
         }
         if (tid == "sp-assist-text") {
             return "sp-assist-send"
@@ -4577,7 +4583,15 @@ class SpacesApp {
             }
         }
         if (c.op == "add_ward") {
-            this.seedWardAdded(c.ref (o.stringOr("id" "")))
+            if (UiTree.beginsWith(c.ref "wnew-")) {
+                ; one added on the Members page takes the server's id
+                def sid:string (o.stringOr("id" ""))
+                if ((strlen sid) > 0) {
+                    space.renameWard(c.ref sid)
+                }
+            } {
+                this.seedWardAdded(c.ref (o.stringOr("id" "")))
+            }
         }
         if ((c.op == "add_place") || (c.op == "remove_place")) {
             if ((o.stringOr("space_id" "")) == spaceId) {
@@ -4661,6 +4675,10 @@ class SpacesApp {
         }
         if (c.op == "assist") {
             this.assistAnswered(c.ref message false)
+        }
+        if ((c.op == "add_ward") && (UiTree.beginsWith(c.ref "wnew-"))) {
+            ; the server did not take it: nor does the page
+            space.removeWard(c.ref)
         }
         if ((c.op == "add_ward") || (c.op == "import_events")) {
             ; the demo data stops where it failed
@@ -4775,6 +4793,27 @@ class SpacesApp {
                     this.queue("remove_member" (SpRemote.body(([] _:string ( "space_id" spaceId "member" who )))) who)
                 }
             }
+            return true
+        }
+        if (target == "sp-addward") {
+            def wn:string (trim wardField.value)
+            if ((strlen wn) == 0) {
+                status = (SpWords.pick(lang "Give it a name" "Anna nimi"))
+                focused = "sp-ward-name"
+                return true
+            }
+            if ((strlen (space.resourceFor(wn))) > 0) {
+                status = ((SpWords.pick(lang "Already there: " "On jo: ")) + wn)
+                return true
+            }
+            def pal2:[string] (SpSpace.palette())
+            def nw:SpResource (space.addResource((space.nextId("wnew-")) wn (itemAt pal2 ((array_length space.resources) % (array_length pal2)))))
+            if (server && ((strlen spaceId) > 0)) {
+                this.queue("add_ward" (SpRemote.body(([] _:string ( "space_id" spaceId "name" nw.name "color" nw.color )))) nw.id)
+            }
+            wardField.setValue("")
+            status = ((SpWords.pick(lang "Added " "Lisätty ")) + wn)
+            this.fillBoard()
             return true
         }
         if (target == "sp-unward-no") {
