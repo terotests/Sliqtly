@@ -224,13 +224,20 @@ try {
     ok("once", calls.filter((c) => c.op === "invite_member").length === 1, JSON.stringify(calls.map((c) => c.op)));
     ok("a typed invite reaches the API", invited && inv && inv.body.email === "leena@example.com" && inv.body.space_id === "sp1", JSON.stringify(inv));
     // a ward's clothing: opened, a row typed in, the lists to the API
-    await clickId(page, "sp-wardclothes-0");
-    await page.waitForTimeout(200);
-    await clickId(page, "sp-cloth-item");
+    // each press waits for what it opens: the page is taller than the window
+    // and a click can land before the scroll and the layout have settled
+    for (let k = 0; k < 3 && !(await page.evaluate(() => window.__spaces.clothesOpen !== "")); k++) {
+      await clickId(page, "sp-wardclothes-0");
+      await page.waitForTimeout(200);
+    }
+    for (let k = 0; k < 3 && (await page.evaluate(() => window.__spaces.focusedField())) !== "sp-cloth-item"; k++) {
+      await clickId(page, "sp-cloth-item");
+      await page.waitForTimeout(150);
+    }
     await page.keyboard.type("mittens");
     await page.keyboard.press("Enter");
     const clothed = await page
-      .waitForFunction(() => window.__spaces.space.resources[0].clothes.length === 3, null, { timeout: 5000 })
+      .waitForFunction(() => window.__spaces.space.resources[0].clothes.length === 3 && window.__spaces.outCount() === 0, null, { timeout: 5000 })
       .then(() => true, () => false);
     const sw = calls.filter((c) => c.op === "set_ward").pop();
     ok("a clothing row typed on the Members page reaches the API", clothed && sw && sw.body.clothes.length === 3 && sw.body.clothes[2].item === "mittens" && sw.body.sizes.length === 2, JSON.stringify(sw));
