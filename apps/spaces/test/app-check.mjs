@@ -1020,6 +1020,42 @@ console.log("an entry's offer watch");
   ok("the watch lints clean", probs.length === 0, probs.join(" | "));
 }
 
+console.log("a web address in today's card");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  const url = "https://ilmaistapahtumat.fi/tapahtuma/tampere:6a9fd2f180aad500079c9608";
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  a.answer(JSON.stringify({
+    space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] },
+    events: [{ event_id: "ev1", title: "Lasten galleria", date: iso(a.today), start: "23:00", end: "23:30",
+      notes: "Hinta: ilmainen. Näyttely keskustassa. " + url + " Koodi:abcdefghijklmnopqrstuvwxyzabcdefghijklmnop" }],
+  }));
+  const t = texts(a);
+  ok("the address is not written out", !t.some((s) => s.includes("https://")), t.filter((s) => s.includes("http")).join(","));
+  ok("a link with its site instead", !!byId(a, "sp-turl-0") && t.includes("ilmaistapahtumat.fi ↗"));
+  ok("a word too long to wrap is cut", t.some((s) => s.includes("Koodi:abcdefghijklmnopqrstuvwxyzab…")), t.filter((s) => s.includes("Koodi")).join(","));
+  a.press("sp-turl-0");
+  eq("a press opens it", a.takeAction(), "open:" + url);
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 800);
+    const probs = a.a11yProblems();
+    ok(`${w} the card with its link lints clean`, probs.length === 0, probs.join(" | "));
+    const card = byId(a, "sp-item-0");
+    const inside = [];
+    const walk = (el) => { inside.push(el); for (let i = 0; i < el.getChildCount(); i++) walk(el.getChild(i)); };
+    walk(card);
+    inside.push(byId(a, "sp-turl-0"));
+    const over = inside.filter((e) => e.calculatedX + e.calculatedWidth > card.calculatedX + card.calculatedWidth + 0.5);
+    ok(`${w} everything stays inside the card`, over.length === 0, over.map((e) => `${e.id || e.className} ${e.calculatedX}+${e.calculatedWidth}`).join(", ") + ` card ${card.calculatedX}+${card.calculatedWidth}`);
+  }
+}
+
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();

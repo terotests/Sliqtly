@@ -505,6 +505,9 @@
 .sp-ttime-allday { font-size: 13px; font-weight: 600; line-height: 18px; margin-top: 6px; }
 .sp-ttitle { color: var(--ink); font-size: 18px; font-weight: 700; height: auto; line-height: 24px; }
 .sp-tmeta { color: var(--muted); font-size: 14px; height: auto; line-height: 20px; }
+.sp-tbox { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; }
+.sp-tlinks { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; padding-left: 108px; }
+.sp-tlink { height: 30px; padding: 0 12px; }
 .sp-tdetail { color: var(--accent); font-size: 14px; height: auto; line-height: 20px; margin-top: 2px; }
 
 .sp-wrow {

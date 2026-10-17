@@ -114,6 +114,8 @@ class SpacesApp {
     def itemOccs:[string]
     ; what each Muista box copies, by its number
     def remindTexts:[string]
+    ; the links in today's cards, by their number
+    def linkUrls:[string]
     def sheetSel:string ""
     def docSel:string ""
     ; the assistant's conversation: question keys and answers; a question
@@ -814,6 +816,8 @@ class SpacesApp {
         itemOccs = noOccs
         def noTexts:[string]
         remindTexts = noTexts
+        def noUrls:[string]
+        linkUrls = noUrls
         def v:EVGElement (SpacesApp.box("sp-view"))
         v.addChild((this.dashHead()))
         v.addChild((this.homeTabs()))
@@ -1221,6 +1225,7 @@ class SpacesApp {
     }
 
     fn todayCard:EVGElement (o:SpOccur now:boolean w:double) {
+        def urls:[string]
         def n:int (this.rowOf(o))
         def past:boolean (((o.allDay()) == false) && ((this.endOf(o)) <= nowMin))
         def cls:string "sp-tcard"
@@ -1273,15 +1278,75 @@ class SpacesApp {
             }
             def e@(optional):SpEvent (space.event(o.eventId))
             if (!null? e) {
-                if ((strlen (trim e.notes)) > 0) {
-                    push parts (trim e.notes)
+                ; a web address is shown as a link below the card, and a word
+                ; too long to wrap is cut short
+                def kept:[string]
+                def words:[string] (strsplit (trim e.notes) " ")
+                def k:int 0
+                while (k < (array_length words)) {
+                    def wd:string (itemAt words k)
+                    if ((SpRemote.starts(wd "https://")) || (SpRemote.starts(wd "http://"))) {
+                        push urls wd
+                    } {
+                        if ((strlen wd) > 36) {
+                            wd = ((substring wd 0 34) + "…")
+                        }
+                        if ((strlen wd) > 0) {
+                            push kept wd
+                        }
+                    }
+                    k = (k + 1)
+                }
+                if ((array_length kept) > 0) {
+                    push parts (join kept " ")
                 }
             }
             col.addChild((SpacesApp.tx("sp-tdetail" (join parts " · "))))
         }
         UiTree.inline(col "width" (SpacesApp.px((w - 110.0))))
         row.addChild(col)
-        return row
+        if ((array_length urls) == 0) {
+            return row
+        }
+        def box:EVGElement (SpacesApp.box("sp-tbox"))
+        box.addChild(row)
+        def links:EVGElement (SpacesApp.box("sp-tlinks"))
+        def j:int 0
+        while (j < (array_length urls)) {
+            def u:string (itemAt urls j)
+            def li:int (array_length linkUrls)
+            push linkUrls u
+            def host:string (SpacesApp.linkHost(u))
+            def lb:EVGElement (SpacesApp.btn(("sp-turl-" + (to_string li)) "sp-chip sp-tlink" (host + " ↗")))
+            lb.a11yLabel = ((SpWords.pick(lang "Open link: " "Avaa linkki: ")) + host)
+            links.addChild(lb)
+            j = (j + 1)
+        }
+        box.addChild(links)
+        return box
+    }
+
+    ; "https://www.example.fi/a/b" → "example.fi"
+    sfn linkHost:string (u:string) {
+        def rest:string u
+        def at:int (indexOf rest "://")
+        if (at >= 0) {
+            rest = (substring rest (at + 3) (strlen rest))
+        }
+        def slash:int (indexOf rest "/")
+        if (slash > 0) {
+            rest = (substring rest 0 slash)
+        }
+        if (SpRemote.starts(rest "www.")) {
+            rest = (substring rest 4 (strlen rest))
+        }
+        if ((strlen rest) > 30) {
+            rest = ((substring rest 0 28) + "…")
+        }
+        if ((strlen rest) == 0) {
+            return "Linkki"
+        }
+        return rest
     }
 
     ; --- this week and what comes after ---
@@ -5314,6 +5379,17 @@ class SpacesApp {
         }
         if (UiTree.beginsWith(target "sp-find-")) {
             this.openFind((substring target 8 (strlen target)))
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-turl-")) {
+            def ui@(optional):int (to_int (substring target 8 (strlen target)))
+            if (!null? ui) {
+                def un:int (unwrap ui)
+                if ((un >= 0) && (un < (array_length linkUrls))) {
+                    action = ("open:" + (itemAt linkUrls un))
+                }
+            }
+            this.rebuild()
             return true
         }
         if (UiTree.beginsWith(target "sp-copy-")) {
