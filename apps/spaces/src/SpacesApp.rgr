@@ -1156,6 +1156,17 @@ class SpacesApp {
     fn todayCol:EVGElement (w:double) {
         def c:EVGElement (this.section("today" (SpWords.ui(lang "today"))))
         def r:SpRange (space.range("today" today today))
+        ; windows to get things in and payment days are under Remember
+        def own:[SpOccur]
+        def j:int 0
+        while (j < (array_length r.items)) {
+            def oj:SpOccur (itemAt r.items j)
+            if (oj.derived == false) {
+                push own oj
+            }
+            j = (j + 1)
+        }
+        r.items = own
         if ((array_length r.items) == 0) {
             c.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "Nothing planned today" "Ei menoja tänään")))))
             return c

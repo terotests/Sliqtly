@@ -1087,11 +1087,7 @@ class SpSpace {
                 def gf:int (itemAt w 0)
                 def gb:int (itemAt w 1)
                 if ((gb >= from) && (gf <= to)) {
-                    def word:string "Hanki: "
-                    if en {
-                        word = "Get: "
-                    }
-                    def o:SpOccur (this.derivedOcc(e (e.id + "#get") (word + e.title) gf gb))
+                    def o:SpOccur (this.derivedOcc(e (e.id + "#get") e.title gf gb))
                     o.important = ((today >= gf) && (today <= gb))
                     push out o
                 }
