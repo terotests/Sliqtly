@@ -14,7 +14,7 @@
 ;   Event  {event_id, title, date, end_date?, start?, end?, ward?, place?,
 ;           notes?, color?, rrule?, exdates?:[date], who?:[{name,role}],
 ;           important?, source?, ext_id?, type?, fields?:{key: value},
-;           cost?:{amount, payer, scope, instalments, first, every_months},
+;           cost?:{amount, payer, scope, instalments, first, every_months, remind_days},
 ;           remind_from?}
 ;   A record's date may be empty. On a save, `fields` is merged into what
 ;   the server has (a key set to null is removed) and `cost` replaces it
@@ -356,6 +356,7 @@ class SpRemote {
             cost.instalments = (c.intOr("instalments" 1))
             cost.everyMonths = (c.intOr("every_months" 1))
             cost.first = (SpText.dayOf((c.stringOr("first" "")) (itemAt (SpSpace.ymdOf(s.today)) 0)))
+            cost.remindDays = (c.intOr("remind_days" -1))
             e.setCost(cost)
         }
         e.remindFrom = (SpText.dayOf((o.stringOr("remind_from" "")) (itemAt (SpSpace.ymdOf(s.today)) 0)))
@@ -455,6 +456,9 @@ class SpRemote {
                 co.setMember("first" (SpRemote.str((SpSpace.dateText(c.first)))))
             }
             co.setMember("every_months" (VlJson.intValue(c.everyMonths)))
+            if (c.remindDays >= 0) {
+                co.setMember("remind_days" (VlJson.intValue(c.remindDays)))
+            }
             o.setMember("cost" co)
         } {
             if e.costDropped {
@@ -496,14 +500,14 @@ class SpRemote {
         return (SpRemote.body(([] _:string ( "space_id" spaceId "event_id" remoteId ))))
     }
 
-    ; budget: months "YYYY-MM", every payer's ("") or one payer's
+    ; budget: months "YYYY-MM", the whole group's ("") or one person's
     sfn budgetBody:string (spaceId:string from:string to:string payer:string) {
         def o:VlJson (VlJson.objectValue())
         o.setMember("space_id" (SpRemote.str(spaceId)))
         o.setMember("from" (SpRemote.str(from)))
         o.setMember("to" (SpRemote.str(to)))
         if ((strlen payer) > 0) {
-            o.setMember("payer" (SpRemote.str(payer)))
+            o.setMember("person" (SpRemote.str(payer)))
         }
         return (SpRemote.write(o))
     }

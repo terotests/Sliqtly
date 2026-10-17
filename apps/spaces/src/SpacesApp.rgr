@@ -321,6 +321,7 @@ class SpacesApp {
 
     ; The card's events: every occurrence from three months back to six ahead.
     fn fillBoard:void () {
+        space.wordsLang = lang
         def keep:[CalEvent]
         board.model.events = keep
         def b:[string]
@@ -369,6 +370,9 @@ class SpacesApp {
                         status = (SpWords.pick(lang "Moved " "Siirretty ") + ce.title)
                     } {
                         status = (SpWords.pick(lang "Rows from a sheet are changed in the sheet" "Taulukon rivit muutetaan taulukossa"))
+                        if ((indexOf (itemAt occIds k) "#") > 0) {
+                            status = (SpWords.pick(lang "Change the days in the entry" "Muuta päivät merkinnästä"))
+                        }
                     }
                     changed = true
                 }
@@ -1968,12 +1972,35 @@ class SpacesApp {
         def v:EVGElement (SpacesApp.box("sp-view"))
         v.addChild((this.heading((SpWords.ui(lang "calendar")) (SpWords.pick(lang "Drag to move, drag an empty slot to add. Double-click or Enter opens an event, Backspace deletes it." "Siirrä vetämällä, lisää vetämällä tyhjään kohtaan. Kaksoisnapsautus tai Enter avaa tapahtuman, askelpalautin poistaa sen.")))))
         v.addChild((this.addBar()))
+        v.addChild((this.calShows()))
         board.cardW = (this.mainW())
         board.narrow = (this.narrow())
         board.focused = focused
         board.hovered = hovered
         v.addChild((board.card()))
         return v
+    }
+
+    ; What the calendar shows besides the entries' own days: the windows to
+    ; get things in and the payment days, each a switch.
+    fn calShows:EVGElement () {
+        def row:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        row.addChild((this.showSwitch("sp-cal-gets" (SpWords.ui(lang "showGets")) space.showGets)))
+        row.addChild((this.showSwitch("sp-cal-pays" (SpWords.ui(lang "showPays")) space.showPays)))
+        return row
+    }
+
+    fn showSwitch:EVGElement (id:string label:string on:boolean) {
+        def cls:string "sp-tab"
+        def mark:string "○ "
+        if on {
+            cls = "sp-tab sp-tab-on"
+            mark = "✓ "
+        }
+        def b:EVGElement (SpacesApp.btn(id cls (mark + label)))
+        b.a11yLabel = label
+        b.a11yPressed = (SpacesApp.tri(on))
+        return b
     }
 
     ; --- the sheets -----------------------------------------------------------------
@@ -2759,7 +2786,7 @@ class SpacesApp {
             def inst:string ""
             def first:string ""
             def every:string ""
-            def scope:string "personal"
+            def remind:string ""
             if e.hasCost {
                 amount = (SpTypes.numText(e.cost.amount))
                 payer = e.cost.payer
@@ -2768,15 +2795,78 @@ class SpacesApp {
                     first = (UiDate.isoOfDays(e.cost.first))
                 }
                 every = (to_string e.cost.everyMonths)
-                scope = e.cost.scope
+                if (e.cost.remindDays >= 0) {
+                    remind = (to_string e.cost.remindDays)
+                }
             }
             this.addText("cost:amount" amount)
             this.addText("cost:payer" payer)
-            this.addPick("cost:scope" scope)
             this.addText("cost:instalments" inst)
             this.addText("cost:first" first)
             this.addText("cost:every" every)
+            this.addText("cost:remind" remind)
         }
+        ; when to get it, and what it is reckoned to cost and did, in whose
+        ; budget (the common fields)
+        this.addText("get:from" (e.fieldText("get_from")))
+        this.addText("get:by" (e.fieldText("get_by")))
+        this.addText("budget:min" (e.fieldText("estimated_cost_min")))
+        this.addText("budget:max" (e.fieldText("estimated_cost_max")))
+        this.addText("budget:actual" (e.fieldText("actual_cost")))
+        def scope:string (e.fieldText("budget_scope"))
+        if (((strlen scope) == 0) && e.hasCost) {
+            scope = e.cost.scope
+        }
+        if (scope != "personal") {
+            scope = "shared"
+        }
+        this.addPick("budget:scope" scope)
+        def owner:string (e.fieldText("budget_owner"))
+        if ((((strlen owner) == 0) && e.hasCost) && (scope == "personal")) {
+            owner = e.cost.payer
+        }
+        this.addText("budget:owner" owner)
+    }
+
+    ; The common fields the form's get: and budget: keys keep, and the kind
+    ; of value each is.
+    sfn commonKeys:[string] () {
+        return ([] _:string ( "get:from" "get:by" "budget:min" "budget:max" "budget:actual" "budget:scope" "budget:owner" ))
+    }
+
+    sfn commonField:string (key:string) {
+        if (key == "get:from") {
+            return "get_from"
+        }
+        if (key == "get:by") {
+            return "get_by"
+        }
+        if (key == "budget:min") {
+            return "estimated_cost_min"
+        }
+        if (key == "budget:max") {
+            return "estimated_cost_max"
+        }
+        if (key == "budget:actual") {
+            return "actual_cost"
+        }
+        if (key == "budget:scope") {
+            return "budget_scope"
+        }
+        return "budget_owner"
+    }
+
+    sfn commonType:string (key:string) {
+        if (UiTree.beginsWith(key "get:")) {
+            return "date"
+        }
+        if (((key == "budget:min") || (key == "budget:max")) || (key == "budget:actual")) {
+            return "money"
+        }
+        if (key == "budget:scope") {
+            return "choice"
+        }
+        return "person"
     }
 
     fn formText:string (key:string) {
@@ -2879,7 +2969,7 @@ class SpacesApp {
             def ff:SpField f
             type = ff.type
         }
-        if ((((key == "date") || (key == "end_date")) || ((key == "until") || (key == "cost:first"))) || (type == "date")) {
+        if (((((key == "date") || (key == "end_date")) || ((key == "until") || (key == "cost:first"))) || (type == "date")) || (UiTree.beginsWith(key "get:"))) {
             return (SpWords.pick(lang "YYYY-MM-DD" "pp.kk.vvvv"))
         }
         if (((key == "start") || (key == "end")) || (type == "time")) {
@@ -2888,8 +2978,11 @@ class SpacesApp {
         if (key == "who") {
             return (SpWords.ui(lang "whoHint"))
         }
-        if ((type == "money") || (key == "cost:amount")) {
+        if (((type == "money") || (key == "cost:amount")) || ((SpacesApp.commonType(key)) == "money")) {
             return "0,00 €"
+        }
+        if (key == "cost:remind") {
+            return "3"
         }
         if (key == "cost:instalments") {
             return "1"
@@ -2918,6 +3011,9 @@ class SpacesApp {
         }
         if (key == "cost:scope") {
             return ([] _:string ( "personal" "shared" ))
+        }
+        if (key == "budget:scope") {
+            return ([] _:string ( "shared" "personal" ))
         }
         def f@(optional):SpField (this.editField(key))
         if (!null? f) {
@@ -2962,7 +3058,7 @@ class SpacesApp {
         if (key == "ward") {
             return (space.resourceName(v))
         }
-        if ((key == "repeat") || (key == "cost:scope")) {
+        if (((key == "repeat") || (key == "cost:scope")) || (key == "budget:scope")) {
             return (SpWords.ui(lang v))
         }
         def f@(optional):SpField (this.editField(key))
@@ -3096,7 +3192,7 @@ class SpacesApp {
             def key:string (itemAt keys j)
             def mine:boolean false
             if (prefix == "") {
-                mine = (((UiTree.beginsWith(key "f:")) == false) && ((UiTree.beginsWith(key "cost:")) == false))
+                mine = ((((UiTree.beginsWith(key "f:")) == false) && ((UiTree.beginsWith(key "cost:")) == false)) && (((UiTree.beginsWith(key "get:")) == false) && ((UiTree.beginsWith(key "budget:")) == false)))
             } {
                 mine = (UiTree.beginsWith(key prefix))
             }
@@ -3138,7 +3234,7 @@ class SpacesApp {
             }
         }
         push out "notes"
-        def cost:[string] ([] _:string ( "cost:amount" "cost:payer" "cost:scope" "cost:instalments" "cost:first" "cost:every" ))
+        def cost:[string] ([] _:string ( "cost:amount" "cost:payer" "cost:instalments" "cost:first" "cost:every" "cost:remind" "get:from" "get:by" "budget:min" "budget:max" "budget:actual" "budget:scope" "budget:owner" ))
         def c:int 0
         while (c < (array_length cost)) {
             def ck:string (itemAt cost c)
@@ -3181,6 +3277,14 @@ class SpacesApp {
             this.addFields(more "f:")
             c.addChild(more)
         }
+        c.addChild((SpacesApp.tx("sp-formhead" (SpWords.ui(lang "getHead")))))
+        def gets:EVGElement (SpacesApp.box("sp-form"))
+        this.addFields(gets "get:")
+        c.addChild(gets)
+        c.addChild((SpacesApp.tx("sp-formhead" (SpWords.ui(lang "budgetHead")))))
+        def budget:EVGElement (SpacesApp.box("sp-form"))
+        this.addFields(budget "budget:")
+        c.addChild(budget)
         if formCost {
             c.addChild((SpacesApp.tx("sp-formhead" (SpWords.ui(lang "cost")))))
             def cost:EVGElement (SpacesApp.box("sp-form"))
@@ -3314,6 +3418,37 @@ class SpacesApp {
                 i = (i + 1)
             }
         }
+        ; the common fields of the get: and budget: keys
+        def ck:[string] (SpacesApp.commonKeys())
+        def ci:int 0
+        while (ci < (array_length ck)) {
+            def cKey:string (itemAt ck ci)
+            def ct:string (SpacesApp.commonType(cKey))
+            def cv:string ""
+            if (ct == "choice") {
+                ; the family's budget is what an entry is in unless said
+                if ((this.pickOf(cKey)) == "personal") {
+                    cv = "personal"
+                }
+            } {
+                def cerr:[string]
+                cv = (SpTypes.normalize(ct (this.formText(cKey)) year cerr))
+                if ((array_length cerr) > 0) {
+                    push bad (this.formLabel(cKey))
+                }
+            }
+            push fkeys (SpacesApp.commonField(cKey))
+            push fvals cv
+            push fkinds (SpTypes.kindOfField(ct))
+            ci = (ci + 1)
+        }
+        def gf:string (this.formText("get:from"))
+        def gb:string (this.formText("get:by"))
+        if (((strlen gf) > 0) && ((strlen gb) > 0)) {
+            if ((SpTypes.dayOf(gf year)) > (SpTypes.dayOf(gb year))) {
+                push bad (this.formLabel("get:from"))
+            }
+        }
         ; the cost: an empty amount is no cost
         def cost (new SpCost())
         def withCost:boolean false
@@ -3328,9 +3463,23 @@ class SpacesApp {
                 }
             }
             cost.payer = (this.formText("cost:payer"))
-            cost.scope = (this.pickOf("cost:scope"))
-            if ((strlen cost.scope) == 0) {
+            cost.scope = "shared"
+            if ((this.pickOf("budget:scope")) == "personal") {
                 cost.scope = "personal"
+                ; an own budget is its owner's, who then pays it
+                if ((strlen cost.payer) == 0) {
+                    cost.payer = (this.formText("budget:owner"))
+                }
+                if (withCost && ((strlen cost.payer) == 0)) {
+                    push bad (this.formLabel("budget:owner"))
+                }
+            }
+            def remindText:string (this.formText("cost:remind"))
+            if ((strlen remindText) > 0) {
+                cost.remindDays = (SpText.number(remindText))
+                if ((cost.remindDays < 0) || (cost.remindDays > 60)) {
+                    push bad (this.formLabel("cost:remind"))
+                }
             }
             def instText:string (this.formText("cost:instalments"))
             if ((strlen instText) > 0) {
@@ -4075,6 +4224,16 @@ class SpacesApp {
         if (UiTree.beginsWith(target "sp-lang-")) {
             lang = (substring target 8 (strlen target))
             this.load()
+            return true
+        }
+        if ((target == "sp-cal-gets") || (target == "sp-cal-pays")) {
+            if (target == "sp-cal-gets") {
+                space.showGets = (space.showGets == false)
+            } {
+                space.showPays = (space.showPays == false)
+            }
+            this.fillBoard()
+            this.rebuild()
             return true
         }
         if (UiTree.beginsWith(target "sp-item-")) {
