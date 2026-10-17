@@ -118,6 +118,13 @@ With the meta tag the page
   or a fit under 50). Ohita asks why (wrong thing, too far, too dear, not
   interesting); ratings go to the server as `rate_find`, and later searches
   are told of the hidden ones.
+- on a server, **Vahdit** in the menu: both watches in numbers (watches
+  on, searches in the log, latest search, new finds, liked and skipped;
+  the events watch's town, events to come and those added), each offer
+  watch with its words, sources and how often, and the search history
+  newest first (the latest 30 of each watch): when in the space's time,
+  scheduled or who ran it, what it searched and where, results and new
+  ones, what was left out and why, and errors.
 
 The app keeps the calls in an outbox (`outOp`, `outBody`); `web/main.js`
 sends them one at a time and hands each reply to `answer` or `failed`.

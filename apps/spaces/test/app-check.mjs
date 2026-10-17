@@ -1316,6 +1316,34 @@ console.log("the events watch on the members page");
   ok("then its age groups there", !!byId(a, "sp-kage-teen") && !!byId(a, "sp-kw-run"));
 }
 
+console.log("the watches page");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] };
+  const watch = { query: "Lasten sänky", active: true, every_days: 1, sources: ["tori", "vinted"],
+    finds: [{ id: "f1", title: "Sänky", url: "https://www.tori.fi/a/1", source: "Tori", rating: "like" }, { id: "f2", title: "Pinnasänky", url: "https://www.tori.fi/a/2", source: "Tori" }],
+    runs: [{ at: "2026-10-17T05:15:00Z", local: "2026-10-17 08:15", by: "auto", query: "Lasten sänky", near: "Tampere", sources: ["tori", "vinted"], results: 7, new: 2, left_out: { seen: 3, too_expensive: 1 } },
+      { at: "2026-10-16T05:15:00Z", results: 4, new: 0, errors: ["Vinted: timeout"] }] };
+  const event_watch = { active: true, area: "Tampere", ages: ["small"], finds: [],
+    runs: [{ at: "2026-10-17T09:00:00Z", local: "2026-10-17 12:00", by: "Mia", near: "Tampere", results: 5, new: 3 }] };
+  a.answer(JSON.stringify({ space, events: [{ event_id: "e1", title: "Sänky Leolle", type: "item", watch }], event_watch }));
+  ok("in the menu", !!byId(a, "sp-nav-watches") && texts(a).includes("Vahdit"));
+  a.press("sp-nav-watches");
+  const t = texts(a);
+  ok("the numbers", t.includes("1 / 1") && t.includes("17.10. 08:15") && t.includes("17.10. 12:00") && t.includes("Päällä"), t.join("|"));
+  ok("each watch", t.includes("”Lasten sänky” · Tori, Vinted · päivittäin") && t.includes("2 löytöä"), t.join("|"));
+  ok("every search, newest first", t.indexOf("Tapahtumavahti", t.indexOf("Hakuhistoria")) < t.indexOf("Sänky Leolle", t.indexOf("Hakuhistoria")), t.join("|"));
+  ok("what came of it", t.includes("7 tulosta, 2 uutta · pois jätetty: 3 jo nähty, 1 liian kallis") && t.includes("ajastettu") && t.includes("Virheet: Vinted: timeout") && t.includes("16.10. 05:15 UTC"), t.join("|"));
+  a.press("sp-runs-kids");
+  ok("only the events watch's", !texts(a).includes("Virheet: Vinted: timeout") && texts(a).includes("5 tulosta, 3 uutta"));
+}
+
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();

@@ -162,6 +162,7 @@ class SpWords {
         if (key == "sheets") { return (SpWords.pick(lang "Sheets" "Taulukot")) }
         if (key == "docs") { return (SpWords.pick(lang "Documents" "Dokumentit")) }
         if (key == "assistant") { return (SpWords.pick(lang "Assistant" "Avustaja")) }
+        if (key == "watches") { return (SpWords.pick(lang "Watches" "Vahdit")) }
         if (key == "today") { return (SpWords.pick(lang "Today" "Tänään")) }
         if (key == "week") { return (SpWords.pick(lang "Later this week" "Myöhemmin tällä viikolla")) }
         if (key == "next") { return (SpWords.pick(lang "Next week" "Ensi viikolla")) }
