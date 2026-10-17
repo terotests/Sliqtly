@@ -337,6 +337,26 @@ console.log("a space on a server");
   a.press("sp-nav-members");
   t = texts(a);
   ok("the wards are listed", t.includes("Aino") && t.includes("Dependants"));
+  // a ward added on the Members page
+  a.press("sp-ward-name");
+  for (const ch of "Leevi") a.keyWith(ch, false, false);
+  a.keyWith("Enter", false, false);
+  eq("Enter adds it", a.outOp(), "add_ward");
+  eq("by that name", JSON.parse(a.outBody()).name, "Leevi");
+  eq("on the page at once", a.space.resources.length, 2);
+  ok("with a colour", a.space.resources[1].color.length > 0);
+  a.answer(JSON.stringify({ id: "w2", name: "Leevi", color: a.space.resources[1].color }));
+  eq("it takes the server's id", a.space.resources[1].id, "w2");
+  a.press("sp-ward-name");
+  for (const ch of "aino") a.keyWith(ch, false, false);
+  a.press("sp-addward");
+  eq("a name it has already is not added", a.outCount(), 0);
+  a.wardField.setValue("");
+  a.press("sp-unward-1");
+  a.press("sp-unward-yes");
+  a.answer(JSON.stringify(spaceOf()));
+  eq("and it can go again", a.space.resources.length, 1);
+
   a.press("sp-wardcolor-0");
   eq("Colour gives the next one", a.space.resources[0].color, "cyan");
   eq("and saves it", a.outOp(), "set_ward");
