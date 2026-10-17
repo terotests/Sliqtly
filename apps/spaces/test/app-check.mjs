@@ -350,6 +350,23 @@ console.log("a space on a server");
   a.answer(JSON.stringify(spaceOf({ members: [{ uid: "u1", name: "Mia", email: "mia@example.com", role: "owner" }] })));
   eq("one member left", a.space.members.length, 1);
   eq("and the events are kept", a.space.events.length, 3);
+
+  // the calendar feed: subscribe on a phone, or copy the address
+  a.press("sp-invite-email");
+  for (const ch of "leo@example.com") a.keyWith(ch, false, false);
+  a.keyWith("Enter", false, false);
+  a.answer(JSON.stringify(spaceOf({ members: [{ uid: "u1", name: "Mia", email: "mia@example.com", role: "owner" }], invites: ["leo@example.com"], calendar_feed: "https://sliqtly.com/apps/warden/cal/abc123.ics" })));
+  ok("the feed's card", texts(a).includes("Calendar on your phone"));
+  a.press("sp-feed-open");
+  eq("subscribe opens the webcal address", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics");
+  a.press("sp-feed-copy");
+  eq("copy puts the https address on the clipboard", a.takeAction() + " " + a.copyText, "copy https://sliqtly.com/apps/warden/cal/abc123.ics");
+  a.press("sp-feed-pays");
+  a.press("sp-feed-copy");
+  eq("without the payment days", a.takeAction() + " " + a.copyText, "copy https://sliqtly.com/apps/warden/cal/abc123.ics?pay=0");
+  a.press("sp-feed-gets");
+  a.press("sp-feed-open");
+  eq("nor the windows to get things in", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0");
   for (const w of [1280, 390]) {
     a.setWidth(w, 700);
     for (const v of ["members", "spaces"]) {

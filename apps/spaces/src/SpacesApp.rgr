@@ -141,10 +141,15 @@ class SpacesApp {
     def sentTypes:[string]
     def sentNames:[string]
     ; what the host has to do after a press ("import", "export:<id>",
-    ; "copy": put `copyText` on the clipboard, "open:<url>": open an offer
-    ; in a new tab)
+    ; "copy": put `copyText` on the clipboard, "open:<url>": an http(s)
+    ; address (an offer) in a new tab, another (webcal) here, a relative one
+    ; the server's own)
     def action:string ""
     def copyText:string ""
+    ; what the calendar feed's address asks for besides the entries: the
+    ; windows to get things in and the payment days
+    def feedGets:boolean true
+    def feedPays:boolean true
     def status:string ""
 
     ; --- a space on a server -----------------------------------------------------
@@ -1932,6 +1937,19 @@ class SpacesApp {
                 iv.addChild(form)
             }
             v.addChild(iv)
+        }
+        if ((strlen space.feed) > 0) {
+            def fc:EVGElement (this.card("feed" (SpWords.pick(lang "Calendar on your phone" "Kalenteri puhelimeen"))))
+            fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe and the space's events show in Apple's, Google's or Outlook's calendar, and change there when they change here. Anyone with the address sees the events." "Tilaa, niin tilan menot näkyvät Applen, Googlen tai Outlookin kalenterissa ja muuttuvat siellä, kun ne muuttuvat täällä. Jokainen, jolla on osoite, näkee menot.")))))
+            def sw:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+            sw.addChild((this.showSwitch("sp-feed-gets" (SpWords.ui(lang "showGets")) feedGets)))
+            sw.addChild((this.showSwitch("sp-feed-pays" (SpWords.ui(lang "showPays")) feedPays)))
+            fc.addChild(sw)
+            def fr:EVGElement (SpacesApp.box("sp-formrow"))
+            fr.addChild((SpacesApp.btn("sp-feed-open" "sp-action sp-action-primary" (SpWords.pick(lang "Subscribe" "Tilaa kalenteriin")))))
+            fr.addChild((SpacesApp.btn("sp-feed-copy" "sp-action" (SpWords.pick(lang "Copy the address" "Kopioi osoite")))))
+            fc.addChild(fr)
+            v.addChild(fc)
         }
         return v
     }
@@ -4228,6 +4246,9 @@ class SpacesApp {
                 if ((fe.dated()) && ((this.kindOf(fe.typeId)) != "record")) {
                     bar.addChild((SpacesApp.btn("sp-ed-showcal" "sp-link" (SpWords.ui(lang "showCal")))))
                 }
+                if ((fe.dated()) && ((strlen fe.remoteId) > 0) && ((strlen space.remoteId) > 0)) {
+                    bar.addChild((SpacesApp.btn("sp-ed-ics" "sp-link" (SpWords.pick(lang "Download .ics" "Lataa .ics")))))
+                }
             }
         }
         c.addChild(bar)
@@ -5226,6 +5247,14 @@ class SpacesApp {
             this.deleteEntry(editId editOcc)
             return true
         }
+        if (target == "sp-ed-ics") {
+            def found2@(optional):SpEvent (space.event(editId))
+            if (!null? found2) {
+                def e2:SpEvent found2
+                action = ("open:ics/" + space.remoteId + "/" + e2.remoteId + ".ics")
+            }
+            return true
+        }
         if (target == "sp-ed-showcal") {
             def found@(optional):SpEvent (space.event(editId))
             if (!null? found) {
@@ -6014,6 +6043,29 @@ class SpacesApp {
             this.queue("create_space" (SpRemote.body(([] _:string ( "name" nm "vocab" newPack "lang" lang )))) "")
             return true
         }
+        if (target == "sp-feed-gets") {
+            feedGets = (feedGets == false)
+            this.rebuild()
+            return true
+        }
+        if (target == "sp-feed-pays") {
+            feedPays = (feedPays == false)
+            this.rebuild()
+            return true
+        }
+        if (target == "sp-feed-open") {
+            def u:string (this.feedAddress())
+            def at:int (indexOf u "://")
+            if (at > 0) {
+                action = ("open:webcal" + (substring u at (strlen u)))
+            }
+            return true
+        }
+        if (target == "sp-feed-copy") {
+            copyText = (this.feedAddress())
+            action = "copy"
+            return true
+        }
         if (target == "sp-invite") {
             def email:string (trim inviteField.value)
             if ((indexOf email "@") <= 0) {
@@ -6209,6 +6261,21 @@ class SpacesApp {
         }
         copyText = t
         action = "copy"
+    }
+
+    ; the calendar feed's address, without what the switches leave out
+    fn feedAddress:string () {
+        def q:[string]
+        if (feedGets == false) {
+            push q "get=0"
+        }
+        if (feedPays == false) {
+            push q "pay=0"
+        }
+        if ((array_length q) == 0) {
+            return space.feed
+        }
+        return (space.feed + "?" + (join q "&"))
     }
 
     ; the host says whether the clipboard took it

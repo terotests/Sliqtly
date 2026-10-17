@@ -1059,6 +1059,8 @@ class SpSpace {
     def members:[SpMember]
     def invites:[string]
     def myRole:string "owner"
+    ; the address its calendar app subscribes to (wardenfeed.go), "" off a server
+    def feed:string ""
     def resources:[SpResource]
     ; the usual places of the space and of its wards
     def places:[SpPlace]

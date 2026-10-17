@@ -86,6 +86,8 @@ type wardenService struct {
 	now func() time.Time
 	// the page's assistant (wardenai.go); nil: none
 	ai *wardenAssist
+	// the site's address, for the calendar feed's (wardenfeed.go)
+	base string
 	// the deal watcher's web search (wardenwatch.go); nil: none
 	search wardenSearcher
 	// run_watch's searches per account
@@ -436,6 +438,10 @@ func (s *wardenService) removeMember(ctx context.Context, sp *wardenSpace, a map
 	case uid != "":
 		sp.doc["members"] = anys(slices.DeleteFunc(docStrs(sp.doc, "members"), func(e string) bool { return e == uid }))
 		delete(people, uid)
+		// the calendar feed's address they had stops working
+		if docStr(sp.doc, "feed") != "" {
+			sp.doc["feed"] = wardenRandomID("")
+		}
 	default:
 		inv := docStrs(sp.doc, "invites")
 		left := slices.DeleteFunc(slices.Clone(inv), func(e string) bool { return e == strings.ToLower(m) })
@@ -1095,7 +1101,11 @@ func (s *wardenService) getSpace(ctx context.Context, sp *wardenSpace) (any, err
 	for i, d := range docs {
 		evs = append(evs, wardenEventJSON(ids[i], d, s.now()))
 	}
-	return map[string]any{"space": sp.json(), "events": evs, "changed": wardenChanged(sp.doc)}, nil
+	space := sp.json()
+	if space["calendar_feed"], err = s.feedURL(ctx, sp, false); err != nil {
+		return nil, err
+	}
+	return map[string]any{"space": space, "events": evs, "changed": wardenChanged(sp.doc)}, nil
 }
 
 // list_events: the events that may happen between from and to (repeating
@@ -1415,6 +1425,8 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.importEvents(ctx, sp, l, nil)
 	case "import_ics":
 		return s.importICS(ctx, sp, a)
+	case "calendar_feed":
+		return s.calendarFeed(ctx, sp, a)
 	case "budget":
 		return s.budget(ctx, sp, a)
 	case "set_watch":

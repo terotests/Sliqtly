@@ -11,6 +11,8 @@
 //	                              signed in with the site's OAuth (the
 //	                              tokens /mcp's sign-in gives, for this
 //	                              resource)
+//	GET  /apps/warden/cal/<token>.ics, /apps/warden/ics/<space>/<event>.ics
+//	                              the calendar out as iCalendar (wardenfeed.go)
 //	GET  /.well-known/oauth-protected-resource/apps/warden/mcp   RFC 9728
 //
 // The page itself is static (Hosting, /apps/warden/).
@@ -146,6 +148,10 @@ var wardenTools = []roomTool{
 		desc:     "Bring the events of an iCalendar (.ics) text into a space. Times with a zone are turned into the space's own; UIDs keep a second import from duplicating; cancelled events are left out.",
 		props:    map[string]any{"space_id": spaceIDProp, "ics": strProp("The iCalendar text, BEGIN:VCALENDAR … END:VCALENDAR"), "ward": strProp("A ward's id or name for all of them"), "important": map[string]any{"type": "boolean", "description": "Mark all of them important"}, "source": strProp("Where they came from")},
 		required: []string{"space_id", "ics"}},
+	{name: "calendar_feed", title: "Calendar feed",
+		desc:     "The address of the space's calendar as an iCalendar feed: subscribe to it in Apple Calendar on an iPhone or a Mac (webcal), Google Calendar or Outlook and the space's events stay there, changed when they change here. The address is the space's secret; reset (the owner) makes a new one and the old stops working.",
+		props:    map[string]any{"space_id": spaceIDProp, "reset": map[string]any{"type": "boolean", "description": "Make a new address; the old stops working"}},
+		required: []string{"space_id"}},
 	{name: "save_event", title: "Save an event",
 		desc:     "Make one entry (an event or a typed entry, see list_entry_types), or change one: give event_id to change it (only the fields given change). From a photo or a text the user gives (an invitation card, a school letter, a receipt), read the details and save them with the fitting type.",
 		props:    wardenWith(wardenEventProps, map[string]any{"space_id": spaceIDProp, "event_id": strProp("The event to change; leave out to make a new one")}),
@@ -268,6 +274,10 @@ func serveWarden(env *Env, w http.ResponseWriter, r *http.Request) bool {
 		serveWardenWatchRun(env, w, r)
 	case strings.HasPrefix(p, wardenPath+"/api/"):
 		serveWardenAPI(env, w, r, strings.TrimPrefix(p, wardenPath+"/api/"))
+	case strings.HasPrefix(p, wardenFeedPath):
+		serveWardenFeed(env, w, r, p)
+	case strings.HasPrefix(p, wardenPath+"/ics/"):
+		serveWardenEventICS(env, w, r, p)
 	default:
 		// the page and its files are Hosting's
 		http.NotFound(w, r)
