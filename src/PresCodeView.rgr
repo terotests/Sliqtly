@@ -265,6 +265,14 @@ class PresCodeView {
         return false
     }
 
+    ; Let go at `now`: as `up`, and a press held long enough is a hold even
+    ; when no frame came between (a slow machine draws less often than
+    ; `holdMs`, and the frames' `tick` saw it only before the half second).
+    fn upAt:string (now:double canComment:boolean) {
+        this.tick(now canComment)
+        return this.up()
+    }
+
     ; Let go: "comment" when a hold ends (the rows are `holdFrom()`..
     ; `holdLast()`), "click" for a press that neither moved nor was held,
     ; "drag" otherwise.

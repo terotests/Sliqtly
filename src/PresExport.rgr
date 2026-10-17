@@ -203,6 +203,7 @@ class PresExport {
         }
         def known:[string] (this.stillPaths())
         def missing:[string]
+        def pageOf:[int] (this.pdfPageOfSlide())
         deck.still = true
         def i:int 0
         while (i < (deck.slideCount())) {
@@ -234,11 +235,70 @@ class PresExport {
             if (bleed > 0.0) {
                 PresExport.bleedEdges(pageEl)
             }
+            this.pdfLinks(pageEl i pageOf)
+            def slide:PresSlide (deck.slideAt(i))
+            def st:string (trim slide.title)
+            if ((strlen st) > 0) {
+                renderer.addBookmark(st (itemAt pageOf i))
+            }
             section.addChild(pageEl)
             i = (i + 1)
         }
         deck.still = false
         return (renderer.render(root))
+    }
+
+    ; The page of the PDF each slide is on (0 = first), -1 for a slide that
+    ; is not exported: with `only` the picked slides are numbered from 1.
+    fn pdfPageOfSlide:[int] () {
+        def out:[int]
+        def next:int 0
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            if (((array_length only) > 0) && ((PresExport.has(only i)) == false)) {
+                push out -1
+            } {
+                push out next
+                next = (next + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Slide i's links as the PDF's own (the renderer writes an element's
+    ; `href` as a link annotation over its box): the areas the stage follows
+    ; (PresStageClick.areas, a line's run of one link as one area). A link
+    ; to a slide of this deck goes to that slide's page (`#page=N`, the
+    ; renderer's GoTo), and is left out when that slide is not exported;
+    ; another `#…` names nothing in the file and is left out too.
+    fn pdfLinks:void (pageEl:EVGElement i:int pageOf:[int]) {
+        def d:PresDeck (unwrap deck)
+        for (PresStageClick.areas(d i)) a:PresLinkArea k {
+            def href:string a.href
+            if (a.slide >= 0) {
+                def to:int (itemAt pageOf a.slide)
+                if (to < 0) {
+                    continue
+                }
+                href = ("#page=" + (to_string (to + 1)))
+            } {
+                if ((substring href 0 1) == "#") {
+                    continue
+                }
+            }
+            def box:EVGElement (EVGListToElements.boxAt(a.x a.y a.w a.h))
+            box.href = href
+            pageEl.addChild(box)
+        }
+    }
+
+    ; The title (the front matter's, else the first heading) and the
+    ; front matter's `author`, for the file's document information.
+    fn pdfInfo:void (renderer:EVGPDFRenderer) {
+        def doc:MdNode deck.md.edit.doc
+        def meta:MdMeta (MdFrontMatter.of(doc))
+        renderer.setDocumentInfo((PresDocx.titleOf(doc)) (trim (meta.get("author" ""))))
     }
 
     ; A PDF renderer for pages `pw` × `ph`, with the effects the host
@@ -248,6 +308,7 @@ class PresExport {
         def renderer (new EVGPDFRenderer())
         renderer.init(renderer)
         renderer.setPageSize(pw ph)
+        this.pdfInfo(renderer)
         def si:int 0
         while (si < (array_length stillIdx)) {
             def ib (new ImageBuffer())

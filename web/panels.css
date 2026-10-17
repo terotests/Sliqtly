@@ -190,6 +190,10 @@
 }
 .pf-promo-title { font-size: 14px; font-weight: 700; color: #3730a3; }
 .pf-promo-text { font-size: 12px; color: #312e81; }
+/* the deck kept nowhere (web/decksafe.js): why, and what to do */
+.pf-warn { background-color: #fef2f2; border-color: #fca5a5; }
+.pf-warn-title { font-size: 14px; font-weight: 700; color: #b91c1c; }
+.pf-warn-text { font-size: 12px; color: #7f1d1d; }
 .pf-promo-row { display: flex; flex-direction: row; padding-top: 2px; }
 .theme-pn .pf-promo-btn { background-color: #a34a24; border-color: #a34a24; }
 .theme-pn .pf-promo-btn:hover { background-color: #8a3d1d; border-color: #8a3d1d; }
