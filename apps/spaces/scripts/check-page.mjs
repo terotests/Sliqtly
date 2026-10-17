@@ -342,6 +342,15 @@ try {
       .then(() => true, () => false);
     ok("the budget is read from the API", budget, JSON.stringify(calls.map((c) => c.op)));
 
+    if (process.env.SPACES_SHOTS) {
+      await clickId(page, "sp-nav-lists");
+      await page.waitForTimeout(200);
+      await clickId(page, "sp-add");
+      await page.waitForTimeout(200);
+      await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "lists.png") });
+      await clickId(page, "sp-add");
+    }
+
     // the assistant: a picture and a line of text
     await clickId(page, "sp-nav-assistant");
     await page.waitForTimeout(200);
