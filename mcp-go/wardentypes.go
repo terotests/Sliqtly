@@ -62,6 +62,9 @@ type wardenType struct {
 	Reminders []wardenReminder `json:"reminders"`
 	// the type's own window to get something in
 	Get *wardenGet `json:"get,omitempty"`
+	// the common fields the page's form shows for every entry, named here
+	// too so a client reading one type sees them (wardenFormCommon)
+	Also []string `json:"also_fields,omitempty"`
 	// kept for entries already made; new ones take ReplacedBy
 	Legacy     bool   `json:"legacy,omitempty"`
 	ReplacedBy string `json:"replaced_by,omitempty"`
@@ -102,8 +105,15 @@ var wardenTypes, wardenCommon = func() ([]wardenType, []wardenField) {
 	if err := json.Unmarshal(wardenTypesJSON, &f); err != nil {
 		panic("assets/warden-types.json: " + err.Error())
 	}
+	for i := range f.Types {
+		f.Types[i].Also = wardenFormCommon
+	}
 	return f.Types, f.Common
 }()
+
+// the common fields the page's entry form shows besides a type's own (its
+// Hankinta and Budjetti sections, apps/spaces/src/SpacesApp.rgr commonField)
+var wardenFormCommon = []string{"get_from", "get_by", "get_what", "estimated_cost_min", "estimated_cost_max", "estimated_cost", "actual_cost", "budget_scope", "budget_owner", "status"}
 
 var wardenFieldTypes = []string{"text", "longtext", "date", "time", "number", "money", "bool", "choice", "ward", "person", "people", "list", "phone", "email", "url", "months"}
 
