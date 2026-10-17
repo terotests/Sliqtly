@@ -676,7 +676,7 @@ class SpacesCheck {
         def tb:string (SpRemote.saveBody("sp1" thing))
         this.ok(((indexOf tb "\"date\":\"\"") > 0) "an undated record is saved without a date")
         this.eq((SpRemote.deleteBody("sp1" "ev2")) "{\"space_id\":\"sp1\",\"event_id\":\"ev2\"}" "delete_event")
-        this.eq((SpRemote.budgetBody("sp1" "2026-10" "2027-03" "Mia")) "{\"space_id\":\"sp1\",\"from\":\"2026-10\",\"to\":\"2027-03\",\"payer\":\"Mia\"}" "budget")
+        this.eq((SpRemote.budgetBody("sp1" "2026-10" "2027-03" "Mia")) "{\"space_id\":\"sp1\",\"from\":\"2026-10\",\"to\":\"2027-03\",\"person\":\"Mia\"}" "budget")
     }
 
     fn budget:void () {
@@ -712,7 +712,26 @@ class SpacesCheck {
         this.eq(nov.month "2026-11" "November")
         this.eqi((array_length nov.lines) 2 "has an instalment and the gift")
         def mine:SpBudget (SpBudget.compute(s (SpBudget.monthOf("2026-10")) (SpBudget.monthOf("2026-12")) "Juho"))
-        this.ok((mine.total == 15.5) "one payer's own budget")
+        this.ok(((mine.total > 115.49) && (mine.total < 115.51)) "Juho's budget: his own gift and the family's hobby")
+        def hers:SpBudget (SpBudget.compute(s (SpBudget.monthOf("2026-10")) (SpBudget.monthOf("2026-12")) "Mia"))
+        this.ok(((hers.total > 99.99) && (hers.total < 100.01)) "Mia's: not Juho's own gift")
+        ; the hobby's payment days are on the calendar, the first reminded of
+        def all:[SpOccur] (s.occurrences(s.today (s.today + 45)))
+        def pays:[SpOccur]
+        def pi:int 0
+        while (pi < (array_length all)) {
+            def po:SpOccur (itemAt all pi)
+            if po.derived {
+                push pays po
+            }
+            pi = (pi + 1)
+        }
+        this.eqi((array_length pays) 2 "two payment days in the next six weeks")
+        def p0:SpOccur (itemAt pays 0)
+        this.ok(((p0.derived && (p0.important == false)) && (p0.title == "Maksu: Uintikausi 33.33 €")) ("the first, ten days ahead, not yet reminded of: " + p0.title))
+        s.showPays = false
+        this.eqi((array_length (s.occurrences(s.today (s.today + 45)))) 1 "hidden: the gift's own day is left")
+        s.showPays = true
         def every:SpCost hobby.cost
         every.everyMonths = 2
         def two:[SpBudgetLine] (SpBudget.instalments(hobby s.today))

@@ -5,6 +5,7 @@ package main
 import (
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestWardenTypesSchema(t *testing.T) {
@@ -59,6 +60,22 @@ func TestWardenTypesSchema(t *testing.T) {
 		for _, r := range ty.Reminders {
 			if f, ok := ty.field(r.Field); r.Field != "date" && (!ok || f.Type != "date") {
 				t.Fatalf("%s: reminder field %s is not a date", ty.ID, r.Field)
+			}
+		}
+		if g := ty.Get; g != nil {
+			if f, ok := ty.field(g.By); g.By != "date" && (!ok || f.Type != "date") {
+				t.Fatalf("%s: gets by %s, which is not a date", ty.ID, g.By)
+			}
+			for _, c := range append(slices.Clone(g.Done), func() []wardenCond {
+				if g.When != nil {
+					return []wardenCond{*g.When}
+				}
+				return nil
+			}()...) {
+				f, ok := ty.field(c.Field)
+				if !ok || (c.Is != "" && !slices.Contains(f.Options, c.Is)) {
+					t.Fatalf("%s: get condition on %s=%s", ty.ID, c.Field, c.Is)
+				}
 			}
 		}
 		if ty.Group == "" {
@@ -220,6 +237,68 @@ func TestWardenLegacyType(t *testing.T) {
 	if _, err := sp.entryType("invitation", "invitation"); err != nil {
 		t.Fatal("an invitation made before stays one")
 	}
+}
+
+func TestWardenGetAndPay(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+
+	// a window to get a gift in, before the party; it is reminded from its first day
+	code, out := wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "title": "Mummon synttärit", "date": "2026-12-12",
+		"fields": map[string]any{"get_from": "2026-11-20", "get_by": "2026-12-10", "get_what": "lahja; kortti"}})
+	eq(t, code, 200, "window: "+wardenErrOf(out))
+	eq(t, out["get_window"], map[string]any{"from": "2026-11-20", "by": "2026-12-10"}, "the window")
+	eq(t, out["reminders"], []any{map[string]any{"field": "get_by", "date": "2026-12-10", "day": "2026-11-20"}}, "reminded from its first day")
+	code, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "title": "x", "date": "2026-12-12",
+		"fields": map[string]any{"get_from": "2026-12-11", "get_by": "2026-12-10"}})
+	eq(t, code, 400, "a window backwards: "+wardenErrOf(out))
+
+	// a missing thing is got by its day, in the two weeks before; not once it is in order
+	_, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "item", "title": "Lasten sängyt", "date": "2026-10-30",
+		"fields": map[string]any{"category": "home", "state": "missing"}})
+	eq(t, out["get_window"], map[string]any{"from": "2026-10-16", "by": "2026-10-30"}, "a missing thing")
+	_, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "event_id": out["event_id"], "fields": map[string]any{"state": "ok"}})
+	eq(t, out["get_window"], nil, "in order: nothing to get")
+	// a need by needed_by, until it is bought
+	_, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "need", "title": "Talvikengät",
+		"fields": map[string]any{"needed_by": "2026-11-15", "state": "searching"}})
+	eq(t, out["get_window"], map[string]any{"from": "2026-11-01", "by": "2026-11-15"}, "a need")
+	_, out = wardenCall(t, base, "tero", "list_events", map[string]any{"space_id": sid, "from": "2026-11-21", "to": "2026-11-30"})
+	listed := []any{}
+	for _, e := range out["events"].([]any) {
+		listed = append(listed, e.(map[string]any)["title"])
+	}
+	eq(t, listed, []any{"Talvikengät", "Mummon synttärit"}, "the party for its window, and the need (a record, listed always)")
+
+	// family or own budget per entry; a person's budget is their own and the family's
+	wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "stock", "title": "Yhteinen varasto", "fields": map[string]any{"actual_cost": 40, "payer": "Mia"}, "date": ""})
+	wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "title": "Sähkösopimus", "date": "2026-11-05",
+		"cost": map[string]any{"amount": 600, "payer": "Tero", "scope": "personal", "instalments": 12}})
+	wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "title": "Patja", "date": "2026-11-08",
+		"fields": map[string]any{"actual_cost": 300, "budget_scope": "personal", "budget_owner": "Mia"}})
+	_, out = wardenCall(t, base, "tero", "budget", map[string]any{"space_id": sid, "from": "2026-11", "to": "2026-11", "person": "Tero"})
+	nov := out["months"].([]any)[0].(map[string]any)
+	titles := []any{}
+	for _, l := range nov["lines"].([]any) {
+		titles = append(titles, l.(map[string]any)["title"])
+	}
+	eq(t, titles, []any{"Sähkösopimus"}, "Tero's November: his electricity, not Mia's mattress")
+	_, out = wardenCall(t, base, "tero", "budget", map[string]any{"space_id": sid, "from": "2026-11", "to": "2026-11", "person": "Mia"})
+	eq(t, []any{out["total"], out["personal"], out["by_payer"]}, []any{300.0, 300.0, map[string]any{"Mia": 300.0}}, "Mia's: her mattress")
+}
+
+func TestWardenNextPayment(t *testing.T) {
+	d := Doc{"title": "Sähkösopimus", "date": "2026-01-31", "cost": map[string]any{"amount": 120.0, "scope": "shared", "instalments": 12.0, "every_months": 1.0}}
+	now := time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
+	eq(t, wardenNextPayment(d, now), map[string]any{"date": "2026-10-31", "amount": 10.0, "n": 10, "of": 12, "remind_from": "2026-10-28"}, "October's, three days ahead")
+	eq(t, wardenReminders(d, now), []any{map[string]any{"field": "cost", "date": "2026-10-31", "day": "2026-10-28"}}, "its reminder")
+	d["cost"].(map[string]any)["remind_days"] = 0.0
+	eq(t, wardenNextPayment(d, now)["remind_from"], nil, "0: no reminder")
+	eq(t, wardenNextPayment(d, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)), map[string]any(nil), "all paid")
+	one := Doc{"date": "2026-11-02", "cost": map[string]any{"amount": 50.0, "instalments": 1.0}}
+	eq(t, wardenNextPayment(one, now), map[string]any{"date": "2026-11-02", "amount": 50.0, "n": 1, "of": 1}, "one payment: no reminder unless asked")
 }
 
 func TestWardenWeekTimes(t *testing.T) {
