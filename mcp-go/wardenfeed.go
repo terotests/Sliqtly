@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
@@ -85,7 +86,7 @@ func serveWardenFeed(env *Env, w http.ResponseWriter, r *http.Request, p string)
 		http.Error(w, "The calendar could not be reached", http.StatusServiceUnavailable)
 		return
 	}
-	wardenICSOut(w, "", env.warden.icsCalendar(sp, evs, eids, true))
+	wardenICSOut(w, "", env.warden.icsCalendar(sp, evs, eids, evs, true))
 }
 
 func serveWardenEventICS(env *Env, w http.ResponseWriter, r *http.Request, p string) {
@@ -111,7 +112,12 @@ func serveWardenEventICS(env *Env, w http.ResponseWriter, r *http.Request, p str
 		http.NotFound(w, r)
 		return
 	}
-	wardenICSOut(w, docStr(d, "title"), env.warden.icsCalendar(sp, []Doc{d}, []string{id}, false))
+	all, _, err := env.warden.events(r.Context(), sp)
+	if err != nil {
+		http.Error(w, "The calendar could not be reached", http.StatusServiceUnavailable)
+		return
+	}
+	wardenICSOut(w, docStr(d, "title"), env.warden.icsCalendar(sp, []Doc{d}, []string{id}, all, false))
 }
 
 // a file name of the title's letters and digits
@@ -137,9 +143,10 @@ func wardenICSOut(w http.ResponseWriter, title, text string) {
 
 // ------------------------------------------------------------- iCalendar --
 
-// the space's dated entries as one VCALENDAR; feed: a calendar to subscribe
-// to (its name, how often to read it again)
-func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, feed bool) string {
+// the space's dated entries as one VCALENDAR; all: the space's entries, for
+// the days a timetable skips; feed: a calendar to subscribe to (its name,
+// how often to read it again)
+func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, all []Doc, feed bool) string {
 	tz, _ := sp.json()["time_zone"].(string)
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
@@ -170,87 +177,212 @@ func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, f
 	}
 	stamp := s.now().UTC().Format("20060102T150405Z")
 	for i, d := range docs {
-		day := docStr(d, "date")
-		if day == "" {
+		if docStr(d, "date") == "" {
 			continue
 		}
-		dt, _ := time.Parse("2006-01-02", day)
-		line("BEGIN:VEVENT")
-		line("UID:" + ids[i] + "@warden.sliqtly.com")
-		line("DTSTAMP:" + stamp)
-		if u, ok := d["updated"].(int64); ok {
-			line("LAST-MODIFIED:" + time.UnixMilli(u).UTC().Format("20060102T150405Z"))
-		} else if f, ok := d["updated"].(float64); ok {
-			line("LAST-MODIFIED:" + time.UnixMilli(int64(f)).UTC().Format("20060102T150405Z"))
-		}
-		start := docStr(d, "start")
-		timed := start != ""
-		if timed {
-			end := docStr(d, "end")
-			if end == "" {
-				end = wardenPlusHour(start)
+		for _, o := range icsOccurrences(d, all) {
+			line("BEGIN:VEVENT")
+			line("UID:" + ids[i] + o.uid + "@warden.sliqtly.com")
+			line("DTSTAMP:" + stamp)
+			if u, ok := d["updated"].(int64); ok {
+				line("LAST-MODIFIED:" + time.UnixMilli(u).UTC().Format("20060102T150405Z"))
+			} else if f, ok := d["updated"].(float64); ok {
+				line("LAST-MODIFIED:" + time.UnixMilli(int64(f)).UTC().Format("20060102T150405Z"))
 			}
-			line("DTSTART;TZID=" + tz + ":" + dt.Format("20060102") + "T" + strings.ReplaceAll(start, ":", "") + "00")
-			line("DTEND;TZID=" + tz + ":" + dt.Format("20060102") + "T" + strings.ReplaceAll(end, ":", "") + "00")
-		} else {
-			last := dt
-			if e := docStr(d, "end_date"); e != "" {
-				if t, err := time.Parse("2006-01-02", e); err == nil && t.After(dt) {
-					last = t
-				}
-			}
-			line("DTSTART;VALUE=DATE:" + dt.Format("20060102"))
-			line("DTEND;VALUE=DATE:" + last.AddDate(0, 0, 1).Format("20060102"))
+			icsWhenLines(line, o, tz, loc)
+			icsAbout(line, d, wards, s.base)
+			line("END:VEVENT")
 		}
-		if r := docStr(d, "rrule"); r != "" {
-			line("RRULE:" + icsUntil(r, timed, loc))
-			for _, x := range docStrs(d, "exdates") {
-				xd, err := time.Parse("2006-01-02", x)
-				if err != nil {
-					continue
-				}
-				if timed {
-					line("EXDATE;TZID=" + tz + ":" + xd.Format("20060102") + "T" + strings.ReplaceAll(start, ":", "") + "00")
-				} else {
-					line("EXDATE;VALUE=DATE:" + xd.Format("20060102"))
-				}
-			}
-		}
-		line("SUMMARY:" + icsEsc(docStr(d, "title")))
-		if p := docStr(d, "place"); p != "" {
-			line("LOCATION:" + icsEsc(p))
-		}
-		notes := []string{}
-		if wn := wards[docStr(d, "ward")]; wn != "" {
-			line("CATEGORIES:" + icsEsc(wn))
-			notes = append(notes, wn)
-		}
-		for _, m := range docMaps(d, "who") {
-			n := docStr(m, "name")
-			if r := docStr(m, "role"); r != "" {
-				n += " (" + r + ")"
-			}
-			notes = append(notes, n)
-		}
-		if n := docStr(d, "notes"); n != "" {
-			notes = append(notes, n)
-		}
-		if len(notes) > 0 {
-			line("DESCRIPTION:" + icsEsc(strings.Join(notes, "\n")))
-		}
-		if s.base != "" {
-			line("URL:" + s.base + wardenPath + "/")
-		}
-		if f, _ := d["fields"].(map[string]any); docStr(f, "status") == "cancelled" {
-			line("STATUS:CANCELLED")
-		}
-		if b, _ := d["important"].(bool); b {
-			line("PRIORITY:1")
-		}
-		line("END:VEVENT")
 	}
 	line("END:VCALENDAR")
 	return b.String()
+}
+
+// one VEVENT's days: an entry is one, a timetable with different times on
+// different weekdays one for each set of times (its UID the entry's and the
+// times)
+type icsOcc struct {
+	uid, day, start, end, lastDay, rrule string
+	exdates                              []string
+}
+
+func icsOccurrences(d Doc, all []Doc) []icsOcc {
+	o := icsOcc{day: docStr(d, "date"), start: docStr(d, "start"), end: docStr(d, "end"), lastDay: docStr(d, "end_date"), rrule: docStr(d, "rrule"),
+		exdates: append(docStrs(d, "exdates"), icsSkipped(d, all)...)}
+	if o.start != "" && o.end == "" {
+		o.end = wardenPlusHour(o.start)
+	}
+	w, ok := icsWeek(d)
+	if !ok {
+		return []icsOcc{o}
+	}
+	until := ""
+	for _, p := range strings.Split(o.rrule, ";") {
+		if strings.HasPrefix(p, "UNTIL=") {
+			until = ";" + p
+		}
+	}
+	first, _ := time.Parse("2006-01-02", o.day)
+	// the weekdays of each start and end, in the order they first come
+	groups, days := []string{}, map[string][]int{}
+	for i, x := range w {
+		if x.on {
+			k := x.start + "-" + x.end
+			if days[k] == nil {
+				groups = append(groups, k)
+			}
+			days[k] = append(days[k], i)
+		}
+	}
+	out := []icsOcc{}
+	for _, k := range groups {
+		g := o
+		g.start, g.end, _ = strings.Cut(k, "-")
+		if len(groups) > 1 {
+			g.uid = "-" + strings.NewReplacer(":", "", "-", "").Replace(k)
+		}
+		codes := []string{}
+		on := map[int]bool{}
+		for _, i := range days[k] {
+			codes = append(codes, wardenDayCodes[i])
+			on[i] = true
+		}
+		g.rrule = "FREQ=WEEKLY;BYDAY=" + strings.Join(codes, ",") + until
+		// the first of these weekdays from the entry's day on
+		dt := first
+		for !on[(int(dt.Weekday())+6)%7] {
+			dt = dt.AddDate(0, 0, 1)
+		}
+		g.day = dt.Format("2006-01-02")
+		g.exdates = nil
+		for _, x := range o.exdates {
+			if xd, err := time.Parse("2006-01-02", x); err == nil && on[(int(xd.Weekday())+6)%7] {
+				g.exdates = append(g.exdates, x)
+			}
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+// the times per weekday of an entry whose type has them
+func icsWeek(d Doc) (wardenWeek, bool) {
+	t := wardenTypeOf(docStr(d, "type"))
+	if t == nil {
+		return wardenWeek{}, false
+	}
+	fields, _ := d["fields"].(map[string]any)
+	for _, f := range t.Fields {
+		if s, _ := fields[f.Key].(string); f.Type == "weektimes" && s != "" {
+			w, err := wardenWeekTimes(s)
+			return w, err == nil
+		}
+	}
+	return wardenWeek{}, false
+}
+
+// the days a repeating entry skips because its type does (a school day on
+// a holiday or an exception day of the same ward, or of none, unless that
+// day says school is open), as the page has them
+func icsSkipped(d Doc, all []Doc) []string {
+	t := wardenTypeOf(docStr(d, "type"))
+	if t == nil || len(t.Skips) == 0 || docStr(d, "rrule") == "" {
+		return nil
+	}
+	out := []string{}
+	for _, x := range all {
+		f, _ := x["fields"].(map[string]any)
+		if open, _ := f["school_open"].(bool); open || !slices.Contains(t.Skips, docStr(x, "type")) {
+			continue
+		}
+		if w := docStr(x, "ward"); w != "" && w != docStr(d, "ward") {
+			continue
+		}
+		from, err := time.Parse("2006-01-02", docStr(x, "date"))
+		if err != nil {
+			continue
+		}
+		to := from
+		if e, err := time.Parse("2006-01-02", docStr(x, "end_date")); err == nil && e.After(from) {
+			to = e
+		}
+		for day := from; !day.After(to); day = day.AddDate(0, 0, 1) {
+			out = append(out, day.Format("2006-01-02"))
+		}
+	}
+	return out
+}
+
+// DTSTART, DTEND, RRULE and EXDATE in the space's zone, or as days
+func icsWhenLines(line func(string), o icsOcc, tz string, loc *time.Location) {
+	dt, _ := time.Parse("2006-01-02", o.day)
+	timed := o.start != ""
+	at := func(d time.Time, hm string) string {
+		return ";TZID=" + tz + ":" + d.Format("20060102") + "T" + strings.ReplaceAll(hm, ":", "") + "00"
+	}
+	if timed {
+		line("DTSTART" + at(dt, o.start))
+		line("DTEND" + at(dt, o.end))
+	} else {
+		last := dt
+		if t, err := time.Parse("2006-01-02", o.lastDay); err == nil && t.After(dt) {
+			last = t
+		}
+		line("DTSTART;VALUE=DATE:" + dt.Format("20060102"))
+		line("DTEND;VALUE=DATE:" + last.AddDate(0, 0, 1).Format("20060102"))
+	}
+	if o.rrule == "" {
+		return
+	}
+	line("RRULE:" + icsUntil(o.rrule, timed, loc))
+	seen := map[string]bool{}
+	for _, x := range o.exdates {
+		xd, err := time.Parse("2006-01-02", x)
+		if err != nil || seen[x] {
+			continue
+		}
+		seen[x] = true
+		if timed {
+			line("EXDATE" + at(xd, o.start))
+		} else {
+			line("EXDATE;VALUE=DATE:" + xd.Format("20060102"))
+		}
+	}
+}
+
+// what the event is, where, whose and who takes care of it
+func icsAbout(line func(string), d Doc, wards map[string]string, base string) {
+	line("SUMMARY:" + icsEsc(docStr(d, "title")))
+	if p := docStr(d, "place"); p != "" {
+		line("LOCATION:" + icsEsc(p))
+	}
+	notes := []string{}
+	if wn := wards[docStr(d, "ward")]; wn != "" {
+		line("CATEGORIES:" + icsEsc(wn))
+		notes = append(notes, wn)
+	}
+	for _, m := range docMaps(d, "who") {
+		n := docStr(m, "name")
+		if r := docStr(m, "role"); r != "" {
+			n += " (" + r + ")"
+		}
+		notes = append(notes, n)
+	}
+	if n := docStr(d, "notes"); n != "" {
+		notes = append(notes, n)
+	}
+	if len(notes) > 0 {
+		line("DESCRIPTION:" + icsEsc(strings.Join(notes, "\n")))
+	}
+	if base != "" {
+		line("URL:" + base + wardenPath + "/")
+	}
+	if f, _ := d["fields"].(map[string]any); docStr(f, "status") == "cancelled" {
+		line("STATUS:CANCELLED")
+	}
+	if b, _ := d["important"].(bool); b {
+		line("PRIORITY:1")
+	}
 }
 
 // an RRULE's UNTIL day as iCalendar has it with a timed start: the end of
