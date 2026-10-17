@@ -12,7 +12,8 @@
 // a purchase for the one asked to buy, or a budget settlement in the books,
 // which the budget lists apart from the costs (wardentypes.go).
 //
-//	ask_question     the asker: kind, to whom, the day, the times, the amount…
+//	ask_question     the asker: kind, to whom (or everyone else), the day,
+//	                 the times, the amount…; with event_id, an open one anew
 //	answer_question  the one asked: yes, no, an option or a suggestion
 //	list_questions   the open and answered questions, to and by the caller
 
@@ -31,6 +32,22 @@ import (
 
 // the kinds of question, as the type's ask field has them
 var wardenAskKinds = []string{"free", "care_time", "take_kids", "buy", "event", "suggest", "payment", "school", "hobby"}
+
+// ask_to_uid of a question asked of everyone else in the space
+const wardenAll = "*"
+
+// "", all, everyone, kaikki…: the question is for every other member
+func wardenAskAll(to string) bool {
+	return slices.Contains([]string{"", "*", "all", "everyone", "everyone else", "others", "kaikki", "kaikki muut", "muut"}, strings.ToLower(strings.TrimSpace(to)))
+}
+
+// en or fi by the space's language
+func (sp *wardenSpace) lang2(en, fi string) string {
+	if sp.lang() == "fi" {
+		return fi
+	}
+	return en
+}
 
 // the member a name, an address or a uid names; "" when none does
 func (sp *wardenSpace) memberUID(v string) string {
@@ -172,12 +189,31 @@ func (s *wardenService) askQuestion(ctx context.Context, sp *wardenSpace, a map[
 	if !slices.Contains(wardenAskKinds, kind) {
 		return nil, roomErr{"kind is one of " + strings.Join(wardenAskKinds, ", ")}
 	}
-	to := strings.TrimSpace(argStr(a, "to"))
-	if to == "" {
-		return nil, roomErr{"to: the member asked, by name or address"}
+	// an open question of the caller's own is asked again in new words
+	id := argStr(a, "event_id")
+	var was map[string]any
+	if id != "" {
+		d, err := s.event(ctx, sp, id)
+		if err != nil {
+			return nil, err
+		}
+		if docStr(d, "type") != "question" {
+			return nil, roomErr{"event_id is not a question"}
+		}
+		was, _ = d["fields"].(map[string]any)
+		if docStr(was, "asked_by_uid") != sp.who.uid {
+			return nil, roomErr{"only " + docStr(was, "asked_by") + " changes this question"}
+		}
+		if docStr(was, "answer") != "" {
+			return nil, roomErr{"it has been answered already: " + docStr(was, "answer")}
+		}
 	}
+	to := strings.TrimSpace(argStr(a, "to"))
 	f := map[string]any{"ask": kind, "asked_by": sp.nameOf(sp.who.uid), "asked_by_uid": sp.who.uid, "status": "planned"}
-	if uid := sp.memberUID(to); uid != "" {
+	if wardenAskAll(to) {
+		// everyone else in the space: the first to answer does
+		f["ask_to"], f["ask_to_uid"] = sp.lang2("Everyone else", "Kaikki muut"), wardenAll
+	} else if uid := sp.memberUID(to); uid != "" {
 		if uid == sp.who.uid {
 			return nil, roomErr{"to: ask another member, not yourself"}
 		}
@@ -242,8 +278,17 @@ func (s *wardenService) askQuestion(ctx context.Context, sp *wardenSpace, a map[
 	}
 	args := map[string]any{"title": title, "type": "question", "fields": f}
 	for _, k := range []string{"ward", "place", "notes"} {
-		if v := argStr(a, k); v != "" {
+		if v := argStr(a, k); v != "" || id != "" {
 			args[k] = v
+		}
+	}
+	if id != "" {
+		args["event_id"] = id
+		// what the new words leave out goes
+		for k := range was {
+			if _, ok := f[k]; !ok && !strings.HasPrefix(k, "answer") {
+				f[k] = nil
+			}
 		}
 	}
 	out, err := s.saveEvent(ctx, sp, args)
@@ -296,7 +341,11 @@ func (s *wardenService) answerQuestion(ctx context.Context, sp *wardenSpace, a m
 	if docStr(f, "answer") != "" {
 		return nil, roomErr{"it has been answered already: " + docStr(f, "answer")}
 	}
-	if uid := docStr(f, "ask_to_uid"); uid != "" && uid != sp.who.uid {
+	if uid := docStr(f, "ask_to_uid"); uid == wardenAll {
+		if docStr(f, "asked_by_uid") == sp.who.uid {
+			return nil, roomErr{"the others answer this question, not the one who asked"}
+		}
+	} else if uid != "" && uid != sp.who.uid {
 		return nil, roomErr{"only " + docStr(f, "ask_to") + " answers this question"}
 	}
 	kind := wardenOr(docStr(f, "ask"), "free")
@@ -332,6 +381,10 @@ func (s *wardenService) answerQuestion(ctx context.Context, sp *wardenSpace, a m
 	}
 	for k, v := range upd {
 		merged[k] = v
+	}
+	if docStr(f, "ask_to_uid") == wardenAll {
+		// asked of everyone: the one who said yes does it
+		merged["ask_to"] = upd["answered_by"]
 	}
 	made, err := s.questionResult(ctx, sp, id, d, merged, kind, word)
 	if err != nil {
@@ -482,12 +535,14 @@ func (s *wardenService) listQuestions(ctx context.Context, sp *wardenSpace, a ma
 		if open && !isOpen {
 			continue
 		}
-		if (mine == "to" && docStr(f, "ask_to_uid") != sp.who.uid) || (mine == "by" && docStr(f, "asked_by_uid") != sp.who.uid) {
+		byMe := docStr(f, "asked_by_uid") == sp.who.uid
+		toMe := docStr(f, "ask_to_uid") == sp.who.uid || (docStr(f, "ask_to_uid") == wardenAll && !byMe)
+		if (mine == "to" && !toMe) || (mine == "by" && !byMe) {
 			continue
 		}
 		m := wardenEventJSON(ids[i], d, s.now())
 		m["open"] = isOpen
-		m["to_me"] = docStr(f, "ask_to_uid") == sp.who.uid
+		m["to_me"] = toMe
 		m["by_me"] = docStr(f, "asked_by_uid") == sp.who.uid
 		rows = append(rows, row{isOpen, wardenNum(d["updated"]), m})
 	}

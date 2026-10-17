@@ -37,8 +37,11 @@ it, and how ("Takes: Juho", "Picks up: Mia").
   the budget). The one asked answers yes, no or an option; a yes makes the
   calendar entry, the purchase or the budget settlement, linked with the
   question (`mcp-go/wardenask.go`, MCP `ask_question`, `answer_question`,
-  `list_questions`). The nav shows how many wait for the person's answer;
-  the budget lists the settlements apart from the costs.
+  `list_questions`). A question goes to everyone else unless one member is
+  picked, and then the first to answer does it; the asker can change an
+  open question. The nav shows how many wait for the person's answer, and
+  the summary's Today shows the first open question with a link to the
+  rest; the budget lists the settlements apart from the costs.
 - **Calendar**: EVGUI's event calendar card (month, week, day, agenda,
   per-ward views). A move, a resize or a new event is written back to the
   space; one day of a repeating event becomes its own event.
