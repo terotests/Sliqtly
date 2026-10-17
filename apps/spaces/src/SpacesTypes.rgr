@@ -112,6 +112,11 @@ class SpType {
     def whenIs:string ""
     def doneFields:[string]
     def doneIs:[string]
+    ; number fields that remind at once when at most a limit: the field in
+    ; `lowAts` beside it, or `lowDefaults` when that is not set
+    def lowFields:[string]
+    def lowAts:[string]
+    def lowDefaults:[double]
     Constructor () {
     }
 
@@ -221,6 +226,17 @@ class SpTypes {
                 }
                 q = (q + 1)
             }
+        }
+        def lows:VlJson (o.get("low"))
+        def li:int 0
+        while (li < (lows.count())) {
+            def lo:VlJson (lows.at(li))
+            if (lo.isObject()) {
+                push t.lowFields (lo.stringOr("field" ""))
+                push t.lowAts (lo.stringOr("at" ""))
+                push t.lowDefaults (lo.doubleOr("default" 0.0))
+            }
+            li = (li + 1)
         }
         def ps:VlJson (o.get("packs"))
         def i:int 0

@@ -78,6 +78,16 @@ func TestWardenTypesSchema(t *testing.T) {
 				}
 			}
 		}
+		for _, l := range ty.Low {
+			for i, k := range []string{l.Field, l.At} {
+				if i == 1 && k == "" {
+					continue // no field of its own: the default
+				}
+				if f, ok := ty.field(k); !ok || (f.Type != "number" && f.Type != "money") {
+					t.Fatalf("%s: low field %s is not a number", ty.ID, k)
+				}
+			}
+		}
 		if ty.Group == "" {
 			t.Fatalf("%s: no group", ty.ID)
 		}
@@ -222,6 +232,45 @@ func TestWardenFamilyEntries(t *testing.T) {
 		"fields": map[string]any{"estimate": 60, "include_in_budget": false}})
 	_, out = wardenCall(t, base, "tero", "budget", map[string]any{"space_id": sid, "from": "2026-11", "to": "2026-11"})
 	eq(t, []any{out["total"], out["by_payer"]}, []any{92.2, map[string]any{"Mia": 84.2}}, "the bill and the trip's fee, not the need left out")
+}
+
+func TestWardenTravelCard(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+	now := time.Now().Format("2006-01-02")
+	far := time.Now().AddDate(0, 6, 0).Format("2006-01-02")
+
+	code, out := wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "travel_card", "title": "HSL-kortti", "date": far})
+	eq(t, []any{code, out["error"]}, []any{400, "a travel_card needs ward"}, "whose card")
+
+	// a season ticket valid for months: reminded a week before it runs out
+	code, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "travel_card", "title": "Kausilippu", "date": far, "ward": "Leo",
+		"fields": map[string]any{"card_type": "season", "operator": "HSL", "zones": "AB", "renewal_cost": 32.4}})
+	eq(t, code, 200, "season ticket: "+wardenErrOf(out))
+	week := time.Now().AddDate(0, 6, -7).Format("2006-01-02")
+	eq(t, []any{out["remind_from"], out["reminders"]}, []any{week, []any{map[string]any{"field": "date", "date": far, "day": week}}}, "a week before")
+	_, b := wardenCall(t, base, "tero", "budget", map[string]any{"space_id": sid, "from": far[:7], "to": far[:7]})
+	eq(t, b["total"], 32.4, "renewing goes to the budget")
+
+	// a multi-trip ticket with two trips left: reminded now
+	code, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "travel_card", "title": "Sarjalippu", "date": far, "ward": "Aino",
+		"fields": map[string]any{"card_type": "multi_trip", "trips_left": 2}})
+	eq(t, code, 200, "multi-trip: "+wardenErrOf(out))
+	id := out["event_id"]
+	eq(t, out["remind_from"], now, "low on trips: now")
+	eq(t, out["reminders"].([]any)[1], map[string]any{"field": "trips_left", "date": now, "day": now, "low": true}, "the low reminder")
+	// its own limit, and more trips loaded
+	_, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "event_id": id, "fields": map[string]any{"trips_left": 10, "low_trips": 1}})
+	eq(t, out["remind_from"], week, "enough trips: a week before it runs out")
+	_, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "event_id": id, "fields": map[string]any{"trips_left": 1}})
+	eq(t, out["remind_from"], now, "at its own limit")
+
+	// a value card low on value
+	_, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "travel_card", "title": "Arvokortti", "date": far, "ward": "Leo",
+		"fields": map[string]any{"card_type": "value", "balance": 3.2}})
+	eq(t, out["remind_from"], now, "low on value")
 }
 
 func wardenErrOf(out map[string]any) string {
