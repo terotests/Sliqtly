@@ -337,7 +337,7 @@ try {
     await stubWeather(live);
     live.on("pageerror", (e) => errors.push(String(e)));
     await live.goto(wardenUrl + "#calendar");
-    const onCal = await live.waitForFunction(() => window.__spaces.tab === "calendar" && !window.__spaces.loading, null, { timeout: 8000 })
+    const onCal = await live.waitForFunction(() => !!window.__spaces && window.__spaces.tab === "calendar" && !window.__spaces.loading, null, { timeout: 8000 })
       .then(() => true, () => false);
     ok("#calendar opens the calendar", onCal && (await live.evaluate(() => location.hash)) === "#calendar");
     await clickId(live, "sp-nav-members");
