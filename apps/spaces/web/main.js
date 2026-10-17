@@ -431,7 +431,8 @@ setInterval(() => {
   paint();
 }, 15000);
 
-// The weather on the summary, from Open-Meteo (no key), for each of the
+// The weather on the summary, from Open-Meteo (no key), by the hour for
+// the school day (when it starts, midday, when it ends), for each of the
 // space's places (Tampere when it has none); read again every half hour,
 // and when the places change. A place without an answer has no weather.
 let wxPlaces = "";
@@ -441,10 +442,9 @@ async function weather() {
   for (const p of JSON.parse(wxPlaces)) {
     try {
       const q = `latitude=${p.lat}&longitude=${p.lon}&current=temperature_2m,weather_code`
-        + "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1";
+        + "&hourly=temperature_2m,precipitation_probability,weather_code&timezone=auto&forecast_days=2";
       const w = await (await fetch("https://api.open-meteo.com/v1/forecast?" + q)).json();
-      app.setWeather(p.name, r(w.current.temperature_2m), r(w.daily.temperature_2m_max[0]),
-        r(w.daily.temperature_2m_min[0]), r(w.daily.precipitation_probability_max[0]), r(w.current.weather_code));
+      if (w.hourly) app.setWeatherHours(p.name, r(w.current.temperature_2m), r(w.current.weather_code), JSON.stringify(w.hourly));
       paint();
     } catch { /* no weather for this place */ }
   }

@@ -81,6 +81,11 @@ class SpWeather {
     def lo:int 0
     def rain:int 0
     def code:int 0
+    ; by the hour from today's midnight (the place's time), when the host
+    ; read them: the temperature, the chance of rain and the WMO code
+    def hourT:[int]
+    def hourRain:[int]
+    def hourCode:[int]
     Constructor () {
     }
 }
@@ -307,6 +312,78 @@ class SpacesApp {
         if ((tab == "home") && (editing == false)) {
             this.rebuild()
         }
+    }
+
+    ; The weather of a place by the hour (Open-Meteo's `hourly`, from
+    ; today's midnight): {temperature_2m, precipitation_probability,
+    ; weather_code}. `temp` and `code` are now's.
+    fn setWeatherHours:void (place:string temp:int code:int hours:string) {
+        def h:VlJson (SpRemote.parse(hours))
+        def ts:VlJson (h.get("temperature_2m"))
+        def rs:VlJson (h.get("precipitation_probability"))
+        def cs:VlJson (h.get("weather_code"))
+        def tl:[int]
+        def rl:[int]
+        def cl:[int]
+        def i:int 0
+        while (i < (ts.count())) {
+            def tv:VlJson (ts.at(i))
+            push tl (floor ((tv.asDouble()) + 0.5))
+            def rv:VlJson (rs.at(i))
+            push rl (floor ((rv.asDouble()) + 0.5))
+            def cv:VlJson (cs.at(i))
+            push cl (floor ((cv.asDouble()) + 0.5))
+            i = (i + 1)
+        }
+        this.setWeather(place temp 0 0 0 code)
+        def w@(optional):SpWeather (this.weatherOf(place))
+        if (null? w) {
+            return
+        }
+        def one:SpWeather (unwrap w)
+        one.hourT = tl
+        one.hourRain = rl
+        one.hourCode = cl
+        this.rebuild()
+    }
+
+    ; When the school day starts and ends on `day`, in hours: the earliest
+    ; start and the latest end of the wards' school and daycare entries, or
+    ; 8 and 15.
+    fn schoolHours:[int] (day:int) {
+        def first:int -1
+        def last:int -1
+        def occ:[SpOccur] (space.occurrences(day day))
+        def i:int 0
+        while (i < (array_length occ)) {
+            def o:SpOccur (itemAt occ i)
+            def school:boolean (((o.typeId == "school_timetable") || (o.typeId == "school")) || (o.typeId == "daycare_day"))
+            if (school && (o.startMin >= 0)) {
+                if ((first < 0) || (o.startMin < first)) {
+                    first = o.startMin
+                }
+                def e:int (this.endOf(o))
+                if (e > last) {
+                    last = e
+                }
+            }
+            i = (i + 1)
+        }
+        def sh:int 8
+        def eh:int 15
+        if (first >= 0) {
+            sh = (idiv first 60)
+        }
+        if (last > 0) {
+            eh = (idiv (last + 30) 60)
+        }
+        if (eh <= sh) {
+            eh = (sh + 1)
+        }
+        if (eh > 23) {
+            eh = 23
+        }
+        return ([] _:int ( sh eh ))
     }
 
     fn weatherOf@(optional):SpWeather (place:string) {
@@ -1077,9 +1154,87 @@ class SpacesApp {
         }
         def l1:string (where + " · " + (SpWords.pick(lang "high " "ylin ")) + (to_string w.hi) + "° " + (SpWords.pick(lang "low " "alin ")) + (to_string w.lo) + "°")
         def l2:string ((SpWords.wxText(lang w.code)) + " · " + (SpWords.pick(lang "rain " "sade ")) + (to_string w.rain) + " %")
+        def warn:string ""
+        def icon:int w.code
+        if ((array_length w.hourT) >= 24) {
+            ; the school day: when it starts, midday and when it ends; the
+            ; next one once today's is over
+            def day:int today
+            def off:int 0
+            def sch:[int] (this.schoolHours(today))
+            if (((idiv nowMin 60) >= (itemAt sch 1)) && ((array_length w.hourT) >= 48)) {
+                day = (today + 1)
+                off = 24
+                sch = (this.schoolHours(day))
+            }
+            def sh:int (itemAt sch 0)
+            def eh:int (itemAt sch 1)
+            def slots:[int] ([] _:int ( sh ))
+            if ((12 > sh) && (12 < eh)) {
+                push slots 12
+            }
+            push slots eh
+            def lo:int 999
+            def hi:int -999
+            def parts:[string]
+            def k2:int 0
+            while (k2 < (array_length slots)) {
+                def hr:int (itemAt slots k2)
+                def tv:int (itemAt w.hourT (off + hr))
+                if (tv < lo) {
+                    lo = tv
+                }
+                if (tv > hi) {
+                    hi = tv
+                }
+                push parts ((SpWords.pick(lang "at " "klo ")) + (to_string hr) + " " + (to_string tv) + "°")
+                k2 = (k2 + 1)
+            }
+            def rain:int 0
+            def worst:int 0
+            def hh:int sh
+            while (hh <= eh) {
+                def rv:int (itemAt w.hourRain (off + hh))
+                if (rv > rain) {
+                    rain = rv
+                }
+                def cv:int (itemAt w.hourCode (off + hh))
+                if (cv > worst) {
+                    worst = cv
+                }
+                hh = (hh + 1)
+            }
+            icon = worst
+            def range:string ((to_string lo) + "°")
+            if (hi != lo) {
+                range = ((to_string lo) + "–" + (to_string hi) + "°")
+            }
+            if (off > 0) {
+                range = (range + (SpWords.pick(lang " tomorrow" " huomenna")))
+            }
+            l1 = (where + " · " + range + " · " + (SpWords.wxText(lang worst)))
+            l2 = ((join parts " · ") + " · " + (SpWords.pick(lang "rain " "sade ")) + (to_string rain) + " %")
+            ; frost before school: the roads may be slippery
+            def cold:int 999
+            def nh:int 0
+            while (nh <= sh) {
+                def nv:int (itemAt w.hourT (off + nh))
+                if (nv < cold) {
+                    cold = nv
+                }
+                nh = (nh + 1)
+            }
+            if (cold < 0) {
+                warn = ((SpWords.pick(lang "Slippery roads: " "Liukas keli: ")) + (to_string cold) + (SpWords.pick(lang "° in the night" "° yöllä")))
+            }
+        }
         c.role = "region"
-        c.a11yLabel = ((SpWords.pick(lang "Weather" "Sää")) + ": " + t + ", " + l1 + ", " + l2)
-        def ic:EVGElement (SpacesApp.tx("sp-wxicon" (SpWords.wxIcon(w.code))))
+        def label:string ((SpWords.pick(lang "Weather" "Sää")) + ": " + t + ", " + l1 + ", " + l2)
+        if ((strlen warn) > 0) {
+            label = (label + ", " + warn)
+        }
+        c.a11yLabel = label
+        def ic:EVGElement (SpacesApp.tx("sp-wxicon" (SpWords.wxIcon(icon))))
         ic.a11yHidden = true
         c.addChild(ic)
         def tt:EVGElement (SpacesApp.tx("sp-wxtemp" t))
@@ -1093,6 +1248,11 @@ class SpacesApp {
         def t2:EVGElement (SpacesApp.tx("sp-wxline" l2))
         t2.a11yHidden = true
         col.addChild(t2)
+        if ((strlen warn) > 0) {
+            def t3:EVGElement (SpacesApp.tx("sp-wxwarn" ("⚠ " + warn)))
+            t3.a11yHidden = true
+            col.addChild(t3)
+        }
         c.addChild(col)
         if ((array_length all) > 1) {
             def pills:EVGElement (SpacesApp.box("sp-wxpills"))
