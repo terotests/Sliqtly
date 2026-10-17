@@ -115,6 +115,8 @@ func TestWardenWatch(t *testing.T) {
 	}))
 	defer srv.Close()
 	e.warden.search = newWardenSearch(&geminiModel{http: srv.Client(), model: "g", key: "k", base: srv.URL, tools: aiEditTools})
+	// the sites' own searches answer nothing readable here: the web search looks
+	e.warden.search.(*geminiSearch).sites = wardenSites{tori: srv.URL + "/tori", huutoAPI: srv.URL + "/huutoapi", huuto: srv.URL + "/huuto"}
 	e.warden.now = func() time.Time { return time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC) }
 
 	code, out = wardenCall(t, base, "tero", "run_watch", map[string]any{"space_id": sid, "event_id": id})
@@ -133,7 +135,7 @@ func TestWardenWatch(t *testing.T) {
 	r0 := lw["runs"].([]any)[0].(map[string]any)
 	eq(t, []any{r0["results"], r0["new"], r0["left_out"]}, []any{7.0, 2.0, map[string]any{"too_expensive": 1.0, "excluded": 1.0, "not_listing": 1.0, "other_site": 1.0, "low_fit": 1.0}})
 	eq(t, []any{r0["query"], r0["near"], r0["sources"], r0["local"]}, []any{"Lasten sängyt", "Tampere", []any{"tori", "vinted", "huuto"}, "2026-10-17 12:00"}, "what was searched, where and when")
-	if n, _ := r0["notes"].([]any); len(n) != 1 || !strings.HasPrefix(n[0].(string), "Huuto.net: 0 lines") {
+	if n, _ := r0["notes"].([]any); len(n) != 2 || n[0] != "Tori: page: 400" || !strings.HasPrefix(n[1].(string), "Huuto.net: api: 400; page: 400; 0 lines") {
 		t.Fatalf("a source that found nothing says what the search answered: %v", r0["notes"])
 	}
 	if by, _ := r0["by"].(string); by == "" || by == "auto" {
@@ -229,4 +231,39 @@ func TestWardenWatchOldFindID(t *testing.T) {
 	if f["id"] != wardenHashURL("https://www.huuto.net/kohteet/x/1") {
 		t.Fatalf("an old find gets the id rate_find knows it by: %v", f)
 	}
+}
+
+// Tori's search page and Huuto.net's API read as a person would see them
+func TestWardenListings(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/recommerce/forsale/search":
+			if r.URL.Query().Get("q") != "tuolit" {
+				w.WriteHeader(400)
+				return
+			}
+			fmt.Fprint(w, `<html><body>
+<article><a href="/recommerce/forsale/item/111"><img alt=""></a>
+<h2><a href="/recommerce/forsale/item/111" class="sf-search-ad-link">Puiset tuolit, 4 kpl</a></h2>
+<div>Tampere</div><div>40 €</div></article>
+<article><a href="https://www.tori.fi/recommerce/forsale/item/222?x=1" aria-label="Toimistotuoli"></a><span>15 €</span></article>
+<a href="/recommerce/forsale/search?q=tuolit&page=2">Seuraava</a>
+</body></html>`)
+		case "/1.1/items":
+			fmt.Fprint(w, `{"items":[{"id":5,"title":"Tuolit 2 kpl","currentPrice":12.5,"buyNowPrice":0,"location":"TAMPERE","links":{"alternative":"https://www.huuto.net/kohteet/tuolit-2-kpl/5"}}]}`)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	g := newWardenSearch(&geminiModel{http: srv.Client(), model: "g", key: "k", base: srv.URL}).(*geminiSearch)
+	g.sites = wardenSites{tori: srv.URL, huutoAPI: srv.URL + "/1.1", huuto: srv.URL}
+	hits, note, ok := g.Listings(context.Background(), "tori", "tuolit")
+	eq(t, []any{ok, note, len(hits)}, []any{true, "page: 2 listings", 2})
+	eq(t, []any{hits[0].Title, hits[0].URL, hits[0].Snippet, hits[0].Score}, []any{"Puiset tuolit, 4 kpl", srv.URL + "/recommerce/forsale/item/111", "40 €", -1}, "the picture's link and the title's are one listing")
+	eq(t, []any{hits[1].Title, hits[1].URL, hits[1].Snippet}, []any{"Toimistotuoli", "https://www.tori.fi/recommerce/forsale/item/222", "15 €"}, "a link with only a label")
+	hits, _, ok = g.Listings(context.Background(), "huuto", "tuolit")
+	eq(t, []any{ok, len(hits), hits[0].Title, hits[0].Snippet, hits[0].Location, hits[0].URL}, []any{true, 1, "Tuolit 2 kpl", "12.5 €", "Tampere", "https://www.huuto.net/kohteet/tuolit-2-kpl/5"})
+	_, note, ok = g.Listings(context.Background(), "tori", "sohva")
+	eq(t, []any{ok, note}, []any{false, "page: 400"}, "a search that cannot be read")
 }

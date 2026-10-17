@@ -109,6 +109,9 @@ type wardenSearcher interface {
 	Search(ctx context.Context, ask wardenAsk) ([]wardenHit, string, error)
 	// children's events (wardenkids.go)
 	Events(ctx context.Context, ask wardenEventAsk) ([]wardenEventHit, string, error)
+	// a site's own search (wardendirect.go); ok is false when it could not
+	// be read
+	Listings(ctx context.Context, src, q string) ([]wardenHit, string, bool)
 }
 
 // Gemini answering with Google Search (grounding), on the assistant's own
@@ -120,8 +123,10 @@ type geminiSearch struct {
 	m *geminiModel
 	// follows nothing: the redirect's Location is the address
 	redirect *http.Client
-	// opens a page the answer names without citing it, to see it is there
-	page *http.Client
+	// opens a page the answer names without citing it, to see it is there,
+	// and the sites' own searches (wardendirect.go)
+	page  *http.Client
+	sites wardenSites
 }
 
 // the deal watcher's search on the assistant's model; nil when it is not
@@ -134,7 +139,7 @@ func newWardenSearch(m aiModel) wardenSearcher {
 	c := *g
 	c.tools = nil
 	c.model = env("WARDEN_SEARCH_MODEL", g.model)
-	return &geminiSearch{m: &c, redirect: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, page: &http.Client{Timeout: 6 * time.Second}}
+	return &geminiSearch{m: &c, redirect: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, page: &http.Client{Timeout: 8 * time.Second}, sites: wardenSitesLive}
 }
 
 const wardenSearchAsk = `Search for current second-hand or for-sale listings matching: %s
@@ -766,10 +771,18 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 		if site != "" {
 			ask.Query += " site:" + site
 		}
-		hits, note, err := s.search.Search(ctx, ask)
-		if err != nil {
-			errs = append(errs, name+": "+err.Error())
-			continue
+		hits, note, ok := s.search.Listings(ctx, src, q)
+		if !ok {
+			// the web search when the site's own could not be read
+			more, n2, err := s.search.Search(ctx, ask)
+			if err != nil {
+				errs = append(errs, name+": "+err.Error())
+				continue
+			}
+			hits = more
+			if n2 != "" {
+				note = strings.TrimPrefix(note+"; "+n2, "; ")
+			}
 		}
 		if note != "" {
 			notes = append(notes, name+": "+note)
