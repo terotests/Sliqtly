@@ -24,7 +24,8 @@ it, and how ("Takes: Juho", "Picks up: Mia").
   **this week** day by day with the plans as coloured chips (today framed,
   a day opens in the calendar) and **coming up**, the next one-off plans;
   **remember**, the deadlines and reminders to tick off (an entry's
-  `status` becomes `done`, saved like any change), the Add button and the
+  `status` becomes `done`, saved like any change), each with a Copy chip
+  that puts its title and date on the clipboard, the Add button and the
   wards' colours.
 - **Calendar**: EVGUI's event calendar card (month, week, day, agenda,
   per-ward views). A move, a resize or a new event is written back to the

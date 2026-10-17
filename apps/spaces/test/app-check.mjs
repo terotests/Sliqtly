@@ -645,6 +645,15 @@ console.log("a reminder ticked off on the summary");
   const [fee, passport] = a.space.events;
   ok("a reminder under Muista", t.includes("Retkimaksu 15 €") && !!byId(a, "sp-tick-" + fee.id), t.slice(0, 60).join(","));
   ok("not one already done", !byId(a, "sp-tick-" + passport.id));
+  // each box can be copied, as the canvas has no selection
+  a.press("sp-copy-r-0");
+  const cp = a.takeAction() + "|" + a.copyText;
+  ok("a Muista box to the clipboard", cp.startsWith("copy|Retkimaksu 15 €, ") && cp.endsWith(" · Aino"), cp);
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 800);
+    const probs = a.a11yProblems();
+    ok(`${w} Muista with its copy chips lints clean`, probs.length === 0, probs.join(" | "));
+  }
   a.press("sp-tick-" + fee.id);
   eq("ticking saves it", a.outOp(), "save_event");
   const body = JSON.parse(a.outBody());
