@@ -14,8 +14,11 @@ it, and how ("Takes: Juho", "Picks up: Mia").
 
 ## What it does
 
-- **Summary**: a wall calendar. On top the clock, the date, the week number
-  and the weather (Open-Meteo, Helsinki, read by the host page). Below it
+- **Summary**: a wall calendar with three tabs, **Tänään** (below),
+  **Viikko** (Monday to Sunday as columns, each plan with its time, today
+  filled) and **Tulossa** (the next one-off plans, whose they are and how
+  many days away). On top the clock, the date, the week number
+  and the weather (Open-Meteo, Helsinki, read by the host page). Tänään has
   three columns: **today** as cards with each ward's colour, the plan going
   on or coming next open with its times, who looks after it and its notes;
   **this week** day by day with the plans as coloured chips (today framed,

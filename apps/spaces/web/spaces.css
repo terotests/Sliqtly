@@ -391,6 +391,76 @@
 .sp-wxtext { display: flex; flex-direction: column; flex-wrap: nowrap; }
 .sp-wxline { color: var(--muted); font-size: 14px; height: 20px; line-height: 20px; }
 
+.sp-htabs { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 8px; margin-top: -4px; }
+.sp-htab {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 22px;
+  border-radius: 8px;
+  background-color: #e6ddd3;
+  cursor: pointer;
+}
+.sp-htab:hover { background-color: #ddd2c6; }
+.sp-htab:focus { background-color: #ddd2c6; }
+.sp-htab-on { background-color: #5c544d; }
+.sp-htab-on:hover { background-color: #4a433d; }
+.sp-htab-on:focus { background-color: #4a433d; }
+.sp-htab-tx { color: var(--ink); font-size: 15px; font-weight: 600; height: 20px; line-height: 20px; }
+.sp-htab-on-tx { color: #ffffff; }
+
+.sp-wboard { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: stretch; gap: 8px; }
+.sp-wboard-narrow { flex-direction: column; }
+.sp-wcol {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-height: 380px;
+  padding: 8px 8px 12px 8px;
+  border-radius: 10px;
+  border: 2px solid var(--line);
+  background-color: var(--surface);
+}
+.sp-wcol-narrow { min-height: 0; }
+.sp-wcol-today { border: 3px solid var(--late); background-color: #f2c94c; }
+.sp-wcolday { display: flex; flex-direction: row; align-items: center; height: 30px; padding: 0 4px; border-radius: 6px; cursor: pointer; }
+.sp-wcolday:hover { background-color: var(--soft); }
+.sp-wcolday:focus { background-color: var(--soft); }
+.sp-wcolday-tx { color: var(--ink); font-size: 19px; font-weight: 600; height: 26px; line-height: 26px; white-space: nowrap; }
+.sp-wcolday-today-tx { color: var(--late); font-weight: 700; }
+.sp-witem { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: flex-start; gap: 6px; padding: 2px; border-radius: 6px; cursor: pointer; }
+.sp-witem:hover { background-color: var(--soft); }
+.sp-witem:focus { background-color: var(--soft); }
+.sp-wdot { width: 16px; height: 16px; border-radius: 8px; flex-shrink: 0; margin-top: 2px; }
+.sp-wititle { color: var(--ink); font-size: 14px; font-weight: 500; height: auto; line-height: 19px; }
+.sp-witime { color: var(--ink); font-size: 14px; height: auto; line-height: 19px; }
+
+.sp-aboard { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; padding: 8px 0; }
+.sp-abig {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.sp-abig:hover { background-color: var(--surface); }
+.sp-abig:focus { background-color: var(--surface); }
+.sp-abday { color: var(--ink); font-size: 24px; font-weight: 500; width: 150px; height: 32px; line-height: 32px; flex-shrink: 0; white-space: nowrap; }
+.sp-abdot { width: 22px; height: 22px; border-radius: 11px; flex-shrink: 0; }
+.sp-abtitle { color: var(--ink); font-size: 26px; font-weight: 500; height: auto; line-height: 32px; }
+.sp-abwho { color: var(--ink); font-size: 17px; height: auto; line-height: 22px; }
+.sp-abig-narrow { gap: 10px; padding: 8px 4px; }
+.sp-abday-narrow { font-size: 16px; width: 82px; height: 22px; line-height: 22px; }
+.sp-abtitle-narrow { font-size: 18px; line-height: 24px; }
+.sp-abwho-narrow { font-size: 14px; line-height: 18px; }
+.sp-abaway { color: var(--late); font-size: 24px; font-weight: 600; width: 160px; height: 32px; line-height: 32px; flex-shrink: 0; white-space: nowrap; text-align: right; }
+
 .sp-dash { gap: 28px; align-items: flex-start; }
 .sp-col { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; }
 .sp-sect { color: var(--accent); font-size: 20px; font-weight: 700; height: auto; line-height: 28px; margin-bottom: 4px; }
@@ -622,3 +692,4 @@
 .sp-opt-on { background-color: var(--soft); border: 1px solid var(--accent); }
 .sp-opt-tx { color: var(--muted); font-size: 13px; height: 18px; line-height: 18px; }
 .sp-opt-on-tx { color: var(--ink); font-weight: 600; }
+.sp-abaway-narrow { font-size: 15px; width: 80px; height: 22px; line-height: 22px; }
