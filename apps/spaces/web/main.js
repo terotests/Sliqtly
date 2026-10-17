@@ -16,6 +16,14 @@
 // sign-in cookie and hands each reply back (`answer`, or `failed` with the
 // server's error). Signed out, the page goes to the server's sign-in page.
 // Text fields are edited through EVG's text-input bridge.
+//
+// Every few seconds, while the page is in view, it asks the server whether
+// the space changed elsewhere (`app.poll`), so what an assistant adds
+// through Warden's MCP server shows up without a reload. The page names
+// itself in X-Warden-Client, so its own changes are not news to it.
+//
+// The tab is in the address (#calendar): Back and Forward move between the
+// tabs, and a link or a reload opens the same one.
 
 import { renderDisplayList } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
@@ -43,6 +51,7 @@ const pictureInput = document.getElementById("picture");
 const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
 if (!gl) document.body.textContent = "WebGL 2 is not available in this browser.";
 
+const CLIENT = "p" + Math.random().toString(36).slice(2, 12);
 let generation = 0;
 let queued = false;
 let dragging = false;
@@ -75,6 +84,7 @@ function frame(t) {
   canvas.height = Math.round(H * dpr);
   stage.style.height = H + "px";
   window.__lastList = list;
+  syncAddress(false);
   if (gl) renderDisplayList(gl, { width: W, height: H, list }, { dpr });
   generation += 1;
   const tree = JSON.parse(app.a11yJson(generation, app.focused || ""));
@@ -85,8 +95,44 @@ function frame(t) {
   else lastTick = 0;
 }
 
+// The tab in the address. A tab the person picked is a step Back returns
+// from; one the page moved to itself (opening a space) replaces the address.
+const hashTab = () => decodeURIComponent(location.hash.slice(1));
+let wantTab = hashTab();
+let shownTab = "";
+function syncAddress(step) {
+  const t = app.tab;
+  if (t === shownTab || wantTab) return;
+  const url = location.pathname + location.search + "#" + t;
+  if (step && shownTab) history.pushState(null, "", url);
+  else history.replaceState(null, "", url);
+  shownTab = t;
+}
+
+// the tab the address named when the page opened, once there is a space
+// to show it in (or none)
+function openWanted() {
+  if (!wantTab) return;
+  const t = wantTab;
+  wantTab = "";
+  if (app.goTab(t)) shownTab = t;
+}
+
+window.addEventListener("popstate", () => {
+  const t = hashTab();
+  if (!t || t === app.tab) return;
+  if (app.loading) {
+    wantTab = t;
+    return;
+  }
+  shownTab = t;
+  if (app.goTab(t)) after();
+  else shownTab = "";
+});
+
 // After a press: what the app left for the host to do.
 function after() {
+  syncAddress(true);
   const a = app.takeAction();
   if (a === "import") fileInput.click();
   else if (a === "image") pictureInput.click();
@@ -140,7 +186,7 @@ async function pump() {
         res = await fetch(SERVER + "api/" + op, {
           method: "POST",
           credentials: "same-origin",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", "x-warden-client": CLIENT },
           body,
         });
         text = await res.text();
@@ -160,6 +206,7 @@ async function pump() {
         try { msg = JSON.parse(text).error || msg; } catch { /* not JSON: the text is the message */ }
         app.failed(msg || String(res.status));
       }
+      if (!app.loading) openWanted();
       try { if (app.spaceId) localStorage.setItem(REMEMBER, app.spaceId); } catch { /* storage off */ }
       paint();
     }
@@ -371,11 +418,23 @@ async function weather() {
 weather();
 setInterval(weather, 30 * 60 * 1000);
 
+// Changes made elsewhere: asked for every few seconds while the page is in
+// view, at once when it comes back into view, never in the middle of a drag.
+const POLL_MS = 5000;
+function poll() {
+  if (!SERVER || dragging || document.visibilityState !== "visible") return;
+  if (app.poll()) pump();
+}
+setInterval(poll, POLL_MS);
+document.addEventListener("visibilitychange", poll);
+window.addEventListener("focus", poll);
+
 window.addEventListener("resize", paint);
 document.fonts && document.fonts.ready.then(paint);
 window.__spaces = app;
 // for a check driving the page: press as a click does
 window.__spacesPress = (id) => { app.press(id); after(); };
+if (!SERVER) openWanted();
 if (SERVER) {
   try { app.prefer = localStorage.getItem(REMEMBER) || ""; } catch { /* storage off */ }
   app.start();

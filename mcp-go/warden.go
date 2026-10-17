@@ -36,6 +36,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"regexp"
 	"slices"
 	"sort"
@@ -73,9 +74,11 @@ var (
 )
 
 // the account calling: its user id, name and the address it signed in with
-// (lower case, "" when not verified)
+// (lower case, "" when not verified), and the open page calling ("" for an
+// assistant)
 type wardenWho struct {
 	uid, name, email string
+	client           string
 }
 
 type wardenService struct {
@@ -896,7 +899,7 @@ func (s *wardenService) getSpace(ctx context.Context, sp *wardenSpace) (any, err
 	for i, d := range docs {
 		evs = append(evs, wardenEventJSON(ids[i], d, s.now()))
 	}
-	return map[string]any{"space": sp.json(), "events": evs}, nil
+	return map[string]any{"space": sp.json(), "events": evs, "changed": wardenChanged(sp.doc)}, nil
 }
 
 // list_events: the events that may happen between from and to (repeating
@@ -1135,6 +1138,14 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 	case "list_entry_types":
 		return s.listEntryTypes(ctx, who, a)
 	}
+	if op == wardenChangesOp && page {
+		sp, err := s.space(ctx, who, argStr(a, "space_id"))
+		if err != nil {
+			return nil, err
+		}
+		by := docStr(sp.doc, "changed_by")
+		return map[string]any{"changed": wardenChanged(sp.doc), "mine": by != "" && by == who.client}, nil
+	}
 	if findWardenTool(op) == nil {
 		return nil, roomErr{"no such operation: " + op}
 	}
@@ -1142,6 +1153,40 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 	if err != nil {
 		return nil, err
 	}
+	out, err := s.run(ctx, sp, op, a)
+	if err == nil && wardenWrites[op] {
+		s.touch(ctx, sp)
+	}
+	return out, err
+}
+
+// the operations that change a space or its events: each marks the space
+// changed, so a page that has it open reads it again
+var wardenWrites = map[string]bool{
+	"set_space": true, "invite_member": true, "remove_member": true, "add_ward": true, "set_ward": true, "remove_ward": true,
+	"save_event": true, "delete_event": true, "import_events": true, "import_ics": true,
+}
+
+// the page asks for this now and then (wardenChangesOp): when the space last
+// changed, and whether the change was the asking page's own
+func wardenChanged(d Doc) string {
+	switch n := d["changed"].(type) {
+	case int64:
+		return strconv.FormatInt(n, 10)
+	case float64:
+		return strconv.FormatInt(int64(n), 10)
+	}
+	return "0"
+}
+
+func (s *wardenService) touch(ctx context.Context, sp *wardenSpace) {
+	err := s.db.Update(ctx, wardenSpaces, sp.id, Doc{"changed": s.now().UnixMilli(), "changed_by": sp.who.client})
+	if err != nil {
+		log.Printf("warden %s: marking it changed: %v", sp.id, err)
+	}
+}
+
+func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a map[string]any) (any, error) {
 	switch op {
 	case "get_space":
 		return s.getSpace(ctx, sp)

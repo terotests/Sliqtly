@@ -85,6 +85,14 @@ With the meta tag the page
   first) and sends them to `assist`: the server's model makes the entries
   with Warden's own MCP tools (`mcp-go/wardenai.go`), and the page reads the
   space again;
+- reads the space again when it changed elsewhere: every five seconds,
+  while the page is in view, it asks `changes` (`{changed, mine}`, the
+  stamp each write sets on the space); a change an assistant made through
+  the MCP server, or another member's page, is shown once no form is open
+  and nothing is left to save. The page names itself in `X-Warden-Client`,
+  so its own changes are not news to it;
+- keeps the tab in the address (`#calendar`): Back and Forward move between
+  tabs, and a link or a reload opens the same one;
 - has a **Members** view (members, invites; the owner invites by email and
   removes) and a **Spaces** view (the spaces you are in, and a new one);
 - offers an empty space the pack's demo data: its wards, then its events
