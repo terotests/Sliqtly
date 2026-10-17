@@ -88,19 +88,13 @@ type wardenService struct {
 	ai *wardenAssist
 	// the site's address, for the calendar feed's (wardenfeed.go)
 	base string
-	// the deal watcher's web search (wardenwatch.go); nil: none
-	search wardenSearcher
-	// run_watch's searches per account
-	watchLimit func(who string) string
-	// whether a bearer token is the scheduler's (wardenwatch_cloud.go)
-	cronAuth func(ctx context.Context, token string) bool
 }
 
 func newWardenService(db DB) *wardenService {
 	if db == nil {
 		return nil
 	}
-	return &wardenService{db: db, now: time.Now, cronAuth: wardenCronAuth(), watchLimit: rateLimiter(30, 10*time.Minute)}
+	return &wardenService{db: db, now: time.Now}
 }
 
 func wardenRandomID(prefix string) string {
@@ -1077,9 +1071,6 @@ func wardenEventJSON(id string, d Doc, now time.Time) map[string]any {
 		out["important"] = true
 	}
 	wardenEntryJSON(out, d, now)
-	if w := wardenWatchJSON(d); w != nil {
-		out["watch"] = w
-	}
 	return out
 }
 
@@ -1137,11 +1128,7 @@ func (s *wardenService) getSpace(ctx context.Context, sp *wardenSpace) (any, err
 	if space["calendar_feed"], err = s.feedURL(ctx, sp, false); err != nil {
 		return nil, err
 	}
-	kw, err := s.kidWatch(ctx, sp)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"space": space, "events": evs, "changed": wardenChanged(sp.doc), "event_watch": wardenKidJSON(sp, kw, s.today(sp))}, nil
+	return map[string]any{"space": space, "events": evs, "changed": wardenChanged(sp.doc)}, nil
 }
 
 // list_events: the events that may happen between from and to (repeating
@@ -1524,22 +1511,6 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.answerQuestion(ctx, sp, a)
 	case "list_questions":
 		return s.listQuestions(ctx, sp, a)
-	case "set_watch":
-		return s.setWatch(ctx, sp, a)
-	case "list_watches":
-		return s.listWatches(ctx, sp)
-	case "run_watch":
-		return s.runWatchOp(ctx, sp, a)
-	case "rate_find":
-		return s.rateFind(ctx, sp, a)
-	case "set_event_watch":
-		return s.setKidWatch(ctx, sp, a)
-	case "list_event_finds":
-		return s.listKidFinds(ctx, sp)
-	case "run_event_watch":
-		return s.runKidWatchOp(ctx, sp)
-	case "add_event_find":
-		return s.addKidFind(ctx, sp, a)
 	}
 	return nil, roomErr{"no such operation: " + op}
 }
