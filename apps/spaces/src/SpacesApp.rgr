@@ -3408,11 +3408,15 @@ class SpacesApp {
                 cls = "sp-tab sp-tab-on"
             }
             def n:int (array_length (space.entriesOf(t2.id)))
-            def label:string (t2.name.text(lang))
+            def tb:EVGElement (SpacesApp.btn(("sp-list-" + t2.id) cls (t2.name.text(lang))))
             if (n > 0) {
-                label = (label + " " + (to_string n))
+                ; the count sits in its own pill so it reads as a count, not part of the name
+                tb.a11yLabel = ((t2.name.text(lang)) + " " + (to_string n))
+                def badge:EVGElement (UiTree.div("" "sp-count"))
+                badge.a11yHidden = true
+                badge.addChild((SpacesApp.tx("sp-count-tx" (to_string n))))
+                tb.addChild(badge)
             }
-            def tb:EVGElement (SpacesApp.btn(("sp-list-" + t2.id) cls label))
             tb.role = "tab"
             tb.a11ySelected = (SpacesApp.tri(on))
             bar.addChild(tb)
