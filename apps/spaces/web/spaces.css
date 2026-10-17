@@ -684,6 +684,8 @@
   border: 1px solid var(--line);
   background-color: var(--surface);
 }
+.sp-addpick { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; row-gap: 8px; }
+.sp-chip-on { background-color: var(--soft); border: 1px solid var(--accent); }
 .sp-addgroup { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; row-gap: 8px; }
 .sp-addgroup-name { color: var(--muted); font-size: 12px; font-weight: 600; height: auto; line-height: 16px; margin-top: 4px; }
 .sp-assist { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; margin-bottom: 16px; }
