@@ -778,8 +778,18 @@ console.log("entries: the form, the Add menu, deleting and Undo");
     && inv.hasCost && inv.cost.amount === 20.5 && inv.cost.scope === "shared" && inv.cost.payer === "Mia", JSON.stringify(inv.values));
   ok("and on the calendar", a.occIds.includes(inv.id));
 
-  // a record without a date
+  // a record without a date; the lists page shows only the lists with
+  // something, and Add offers the types kept on lists
   a.press("sp-nav-lists");
+  ok("empty lists are not shown", !byId(a, "sp-list-gift_idea") && byId(a, "sp-add"));
+  a.press("sp-add");
+  a.typeSearch.setValue("thing");
+  a.rebuild();
+  ok("Add on the lists page offers the listed types", !!byId(a, "sp-addtype-item"), texts(a).slice(-20).join(","));
+  a.typeSearch.setValue("dentist");
+  a.rebuild();
+  ok("not the calendar's", !byId(a, "sp-addtype-dentist_visit"));
+  a.press("sp-add");
   a.press("sp-addtype-item");
   eq("a thing has no date to start with", field("date").value, "");
   field("title").setValue("Skates");

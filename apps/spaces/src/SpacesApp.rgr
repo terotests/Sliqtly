@@ -3333,6 +3333,14 @@ class SpacesApp {
         return menu
     }
 
+    ; The types the Add menu offers: on the lists page those kept on lists.
+    fn addTypes:[SpType] () {
+        if (tab == "lists") {
+            return (types.listedFor(pack))
+        }
+        return (types.forPack(pack))
+    }
+
     ; A type's group as the menu groups it: an unknown one with the first.
     sfn groupOf:string (t:SpType) {
         if (SpacesApp.knownGroup(t.group)) {
@@ -3346,7 +3354,7 @@ class SpacesApp {
     ; shows them all; of many, none until something is searched or picked.
     fn addMatches:[SpType] () {
         def res:[SpType]
-        def list:[SpType] (types.forPack(pack))
+        def list:[SpType] (this.addTypes())
         def q:string (to_lowercase (trim typeSearch.value))
         def many:boolean ((array_length list) > 12)
         if (many && (((strlen q) == 0) && ((strlen addGroup) == 0))) {
@@ -3382,7 +3390,7 @@ class SpacesApp {
             UiTree.inline(fr "width" "320px")
         }
         box.addChild(fr)
-        def list:[SpType] (types.forPack(pack))
+        def list:[SpType] (this.addTypes())
         def q:string (trim typeSearch.value)
         def many:boolean ((array_length list) > 12)
         if (many && ((strlen q) == 0)) {
@@ -3535,6 +3543,10 @@ class SpacesApp {
         def tid:string typeId
         if (tid == "event") {
             tid = ""
+        }
+        ; added on the lists page, its list is the one shown
+        if (tab == "lists") {
+            listType = typeId
         }
         def e (new SpEvent())
         e.typeId = tid
@@ -5155,8 +5167,20 @@ class SpacesApp {
             }
             lt = (lt + 1)
         }
+        v.addChild((this.addBar()))
+        ; only the lists that have something, and the one picked last
+        def full:[SpType]
+        def li:int 0
+        while (li < (array_length listed)) {
+            def lt2:SpType (itemAt listed li)
+            if (((array_length (space.entriesOf(lt2.id))) > 0) || (lt2.id == listType)) {
+                push full lt2
+            }
+            li = (li + 1)
+        }
+        listed = full
         if ((array_length listed) == 0) {
-            v.addChild((SpacesApp.tx("sp-empty" (SpWords.ui(lang "noEntries")))))
+            v.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "Nothing on the lists yet. Add something above." "Listoilla ei ole vielä mitään. Lisää jotain yläpuolelta.")))))
             return v
         }
         def cur:SpType (itemAt listed 0)
