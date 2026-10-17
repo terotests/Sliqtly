@@ -1452,6 +1452,7 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 var wardenWrites = map[string]bool{
 	"set_space": true, "invite_member": true, "remove_member": true, "add_ward": true, "set_ward": true, "remove_ward": true,
 	"save_event": true, "delete_event": true, "import_events": true, "import_ics": true,
+	"ask_question": true, "answer_question": true,
 }
 
 // the page asks for this now and then (wardenChangesOp): when the space last
@@ -1510,6 +1511,12 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.calendarFeed(ctx, sp, a)
 	case "budget":
 		return s.budget(ctx, sp, a)
+	case "ask_question":
+		return s.askQuestion(ctx, sp, a)
+	case "answer_question":
+		return s.answerQuestion(ctx, sp, a)
+	case "list_questions":
+		return s.listQuestions(ctx, sp, a)
 	case "set_watch":
 		return s.setWatch(ctx, sp, a)
 	case "list_watches":
