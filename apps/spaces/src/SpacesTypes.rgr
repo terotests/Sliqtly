@@ -104,6 +104,14 @@ class SpType {
     ; kept for entries made before; new ones take `replacedBy`
     def legacy:boolean false
     def replacedBy:string ""
+    ; its own window to get something in: the date field it is got by ("date":
+    ; the entry's day; "": none), while `whenField` is `whenIs`, until one of
+    ; `doneFields` is set (or has the value of `doneIs` beside it)
+    def getBy:string ""
+    def whenField:string ""
+    def whenIs:string ""
+    def doneFields:[string]
+    def doneIs:[string]
     Constructor () {
     }
 
@@ -194,6 +202,25 @@ class SpTypes {
         if (c.isObject()) {
             t.hasCost = true
             t.cost = (SpWord.read("cost" c))
+        }
+        def g:VlJson (o.get("get"))
+        if (g.isObject()) {
+            t.getBy = (g.stringOr("by" ""))
+            def w:VlJson (g.get("when"))
+            if (w.isObject()) {
+                t.whenField = (w.stringOr("field" ""))
+                t.whenIs = (w.stringOr("is" ""))
+            }
+            def dn:VlJson (g.get("done"))
+            def q:int 0
+            while (q < (dn.count())) {
+                def dc:VlJson (dn.at(q))
+                if (dc.isObject()) {
+                    push t.doneFields (dc.stringOr("field" ""))
+                    push t.doneIs (dc.stringOr("is" ""))
+                }
+                q = (q + 1)
+            }
         }
         def ps:VlJson (o.get("packs"))
         def i:int 0

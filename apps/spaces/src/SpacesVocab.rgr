@@ -246,12 +246,24 @@ class SpWords {
         if (key == "cost:instalments") { return (SpWords.pick(lang "Instalments" "Erät")) }
         if (key == "cost:first") { return (SpWords.pick(lang "First payment" "Ensimmäinen erä")) }
         if (key == "cost:every") { return (SpWords.pick(lang "Every (months)" "Välein (kk)")) }
-        if (key == "personal") { return (SpWords.pick(lang "Personal" "Oma")) }
-        if (key == "shared") { return (SpWords.pick(lang "Shared" "Yhteinen")) }
+        if (key == "personal") { return (SpWords.pick(lang "Own budget" "Oma budjetti")) }
+        if (key == "shared") { return (SpWords.pick(lang "Family budget" "Perhebudjetti")) }
+        if (key == "cost:remind") { return (SpWords.pick(lang "Remind of each payment (days before)" "Muistuta maksupäivästä (päivää ennen)")) }
+        if (key == "getHead") { return (SpWords.pick(lang "To get" "Hankinta")) }
+        if (key == "get:from") { return (SpWords.pick(lang "Get from" "Hanki aikaisintaan")) }
+        if (key == "get:by") { return (SpWords.pick(lang "Get by" "Hanki viimeistään")) }
+        if (key == "budgetHead") { return (SpWords.pick(lang "Budget" "Budjetti")) }
+        if (key == "budget:min") { return (SpWords.pick(lang "Estimate from (€)" "Arvio vähintään (€)")) }
+        if (key == "budget:max") { return (SpWords.pick(lang "Estimate up to (€)" "Arvio enintään (€)")) }
+        if (key == "budget:actual") { return (SpWords.pick(lang "Actual (€)" "Toteutunut (€)")) }
+        if (key == "budget:scope") { return (SpWords.pick(lang "In whose budget" "Kenen budjettiin")) }
+        if (key == "budget:owner") { return (SpWords.pick(lang "Whose own" "Kenen oma")) }
+        if (key == "showGets") { return (SpWords.pick(lang "Things to get" "Hankinnat")) }
+        if (key == "showPays") { return (SpWords.pick(lang "Payment days" "Maksupäivät")) }
         if (key == "late") { return (SpWords.pick(lang "Late" "Myöhässä")) }
         if (key == "dueSoon") { return (SpWords.pick(lang "Due" "Ajankohtainen")) }
         if (key == "noEntries") { return (SpWords.pick(lang "Nothing here yet" "Täällä ei ole vielä mitään")) }
-        if (key == "payer") { return (SpWords.pick(lang "Payer" "Maksaja")) }
+        if (key == "payer") { return (SpWords.pick(lang "Whose budget" "Kenen budjetti")) }
         if (key == "everyone") { return (SpWords.pick(lang "Everyone" "Kaikki")) }
         if (key == "total") { return (SpWords.pick(lang "Total" "Yhteensä")) }
         if (key == "sharedTotal") { return (SpWords.pick(lang "Of it shared" "Siitä yhteistä")) }

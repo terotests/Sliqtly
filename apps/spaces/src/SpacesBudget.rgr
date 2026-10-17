@@ -9,7 +9,8 @@
 ; `everyMonths` months. A month's lines are the instalments that fall in it.
 ; Personal costs are one payer's; shared ones the group's. Every line counts
 ; in the total and its payer's sum; `shared` sums the shared lines only.
-; Filtered by a payer, it is that payer's own budget.
+; Filtered by a person, it is their own budget: their personal costs and
+; the shared ones.
 ;
 ; The server answers the same question (the budget op); `read` takes its
 ; answer, `compute` works it out from the space on the page.
@@ -153,16 +154,7 @@ class SpBudget {
     ; The day `months` months after `d`, on the same day of the month or the
     ; month's last day when it is shorter.
     sfn addMonths:int (d:int months:int) {
-        def p:[int] (SpSpace.ymdOf(d))
-        def idx:int ((SpBudget.monthIndex((itemAt p 0) (itemAt p 1))) + months)
-        def y:int (idiv idx 12)
-        def m:int ((idx - (y * 12)) + 1)
-        def dom:int (itemAt p 2)
-        def last:int (UiDate.daysInMonth(y m))
-        if (dom > last) {
-            dom = last
-        }
-        return (UiDate.toDays(y m dom))
+        return (SpSpace.addMonths(d months))
     }
 
     ; The instalments of one entry's cost: one line each, every one of them,
@@ -217,8 +209,9 @@ class SpBudget {
         return out
     }
 
-    ; The space's budget from month `fromIdx` to `toIdx` (inclusive), every
-    ; payer's or, with `payer`, that one's only.
+    ; The space's budget from month `fromIdx` to `toIdx` (inclusive): the
+    ; whole group's or, with `payer`, that person's own budget: their
+    ; personal costs and the family's shared ones.
     sfn compute:SpBudget (s:SpSpace fromIdx:int toIdx:int payer:string) {
         def b (new SpBudget())
         b.from = (SpBudget.monthText(fromIdx))
@@ -239,7 +232,7 @@ class SpBudget {
             while (k < (array_length lines)) {
                 def l:SpBudgetLine (itemAt lines k)
                 def at:int ((SpBudget.monthOf(l.date)) - fromIdx)
-                if (((at >= 0) && (at < (array_length b.months))) && (((strlen payer) == 0) || (l.payer == payer))) {
+                if (((at >= 0) && (at < (array_length b.months))) && ((((strlen payer) == 0) || (l.payer == payer)) || (l.scope == "shared"))) {
                     def into:SpBudgetMonth (itemAt b.months at)
                     into.add(l)
                     b.total = (b.total + l.amount)
