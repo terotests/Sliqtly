@@ -43,7 +43,125 @@ class SpResource {
     def id:string ""
     def name:string ""
     def color:string "blue"
+    ; a child's clothing: its sizes, and what it should have
+    def sizes:[SpSize]
+    def clothes:[SpCloth]
     Constructor () {
+    }
+
+    ; a size of this kind of clothing ("kengät", any case), or -1
+    fn sizeAt:int (what:string) {
+        def i:int 0
+        while (i < (array_length sizes)) {
+            def z:SpSize (itemAt sizes i)
+            if ((to_lowercase z.what) == (to_lowercase (trim what))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; a size set: one of the same kind is replaced
+    fn putSize:void (z:SpSize) {
+        def at:int (this.sizeAt(z.what))
+        if (at >= 0) {
+            set sizes at z
+            return
+        }
+        push sizes z
+    }
+
+    fn dropSize:void (at:int) {
+        def left:[SpSize]
+        def i:int 0
+        while (i < (array_length sizes)) {
+            if (i != at) {
+                push left (itemAt sizes i)
+            }
+            i = (i + 1)
+        }
+        sizes = left
+    }
+
+    fn dropCloth:void (at:int) {
+        def left:[SpCloth]
+        def i:int 0
+        while (i < (array_length clothes)) {
+            if (i != at) {
+                push left (itemAt clothes i)
+            }
+            i = (i + 1)
+        }
+        clothes = left
+    }
+
+    ; what is missing: "talvikengät, 2 × sukat"
+    fn missingText:string () {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length clothes)) {
+            def c:SpCloth (itemAt clothes i)
+            def n:int (c.missing())
+            if (n == 1) {
+                push parts c.item
+            }
+            if (n > 1) {
+                push parts ((to_string n) + " × " + c.item)
+            }
+            i = (i + 1)
+        }
+        return (join parts ", ")
+    }
+}
+
+; The size a child wears now in one kind of clothing, and the next one.
+class SpSize {
+    def what:string ""
+    def size:string ""
+    def nextSize:string ""
+    ; when the next size is needed: "YYYY-MM" or "YYYY-MM-DD"
+    def nextBy:string ""
+    def note:string ""
+    Constructor () {
+    }
+
+    ; "kengät 30 → 31 (3/2027)"
+    fn text:string () {
+        def t:string what
+        if ((strlen size) > 0) {
+            t = (t + " " + size)
+        }
+        if ((strlen nextSize) > 0) {
+            t = (t + " → " + nextSize)
+        }
+        if ((strlen nextBy) >= 7) {
+            def m@(optional):int (to_int (substring nextBy 5 7))
+            def mm:string (substring nextBy 5 7)
+            if (!null? m) {
+                mm = (to_string (unwrap m))
+            }
+            t = (t + " (" + mm + "/" + (substring nextBy 0 4) + ")")
+        }
+        return t
+    }
+}
+
+; One row of a child's clothing list: what it should have and how many it has.
+class SpCloth {
+    def item:string ""
+    def size:string ""
+    def need:int 1
+    def have:int 0
+    def note:string ""
+    Constructor () {
+    }
+
+    fn missing:int () {
+        if (have >= need) {
+            return 0
+        }
+        return (need - have)
     }
 }
 
@@ -2024,14 +2142,49 @@ class SpSpace {
         return ((SpText.compare(a.title b.title)) < 0)
     }
 
-    ; Deadline entries due or late on `today` (their remind day reached),
-    ; the earliest first.
+    ; A number field of the entry's type set and at most its limit (trips
+    ; left on a travel card).
+    fn isLow:boolean (e:SpEvent) {
+        def t@(optional):SpType (types.find(e.typeId))
+        if (null? t) {
+            return false
+        }
+        def tt:SpType t
+        def i:int 0
+        while (i < (array_length tt.lowFields)) {
+            def key:string (itemAt tt.lowFields i)
+            if ((strlen (e.fieldText(key))) > 0) {
+                def at:double (itemAt tt.lowDefaults i)
+                def atKey:string (itemAt tt.lowAts i)
+                if ((strlen atKey) > 0) {
+                    at = (e.fieldNumber(atKey at))
+                }
+                if ((e.fieldNumber(key 0.0)) <= at) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A deadline entry on `now`: its own state, or "due" when it runs low.
+    fn dueOf:string (e:SpEvent now:int) {
+        def st:string (e.dueState(now))
+        if (((strlen st) == 0) && (this.isLow(e))) {
+            return "due"
+        }
+        return st
+    }
+
+    ; Deadline entries due or late on `today` (their remind day reached, or
+    ; running low), the earliest first.
     fn dueEntries:[SpEvent] (now:int) {
         def out:[SpEvent]
         def i:int 0
         while (i < (array_length events)) {
             def e:SpEvent (itemAt events i)
-            if (((types.kindOf(e.typeId)) == "deadline") && ((strlen (e.dueState(now))) > 0)) {
+            if (((types.kindOf(e.typeId)) == "deadline") && ((strlen (this.dueOf(e now))) > 0)) {
                 push out e
                 def k:int ((array_length out) - 1)
                 while (k > 0) {

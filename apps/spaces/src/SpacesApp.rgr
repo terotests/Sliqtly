@@ -148,6 +148,11 @@ class SpacesApp {
     ; was open last
     def spaceId:string ""
     def prefer:string ""
+    ; whether the calendar card shows the windows to get things in and the
+    ; payment days: off unless the person turns them on (the host remembers
+    ; their choice); the summary and the phone feed have them either way
+    def showGets:boolean false
+    def showPays:boolean false
     def loading:boolean false
     def outbox:[SpCall]
     ; when the space last changed on the server, as the page has it, and
@@ -165,6 +170,15 @@ class SpacesApp {
     def nameField:InputCtl (new InputCtl())
     def inviteField:InputCtl (new InputCtl())
     def wardField:InputCtl (new InputCtl())
+    ; the ward whose clothing is open on the Members page, and its fields
+    def clothesOpen:string ""
+    def sizeWhat:InputCtl (new InputCtl())
+    def sizeNow:InputCtl (new InputCtl())
+    def sizeNext:InputCtl (new InputCtl())
+    def sizeBy:InputCtl (new InputCtl())
+    def clothItem:InputCtl (new InputCtl())
+    def clothSize:InputCtl (new InputCtl())
+    def clothNeed:InputCtl (new InputCtl())
     ; the places' search: the town written, whose place it becomes (a
     ; ward's id, "" for the whole space), what the host is to look up
     ; (action "places") and the towns it found
@@ -444,7 +458,11 @@ class SpacesApp {
         occStart = s
         def e:[int]
         occEnd = e
+        space.showGets = showGets
+        space.showPays = showPays
         def occ:[SpOccur] (space.occurrences((today - 92) (today + 184)))
+        space.showGets = true
+        space.showPays = true
         def i:int 0
         while (i < (array_length occ)) {
             def oc:SpOccur (itemAt occ i)
@@ -1713,7 +1731,17 @@ class SpacesApp {
             dot.a11yHidden = true
             row.addChild(dot)
             row.addChild((SpacesApp.btn(("sp-wardcolor-" + (to_string i)) "sp-action" (SpWords.pick(lang "Colour" "Väri")))))
+            def ccls:string "sp-action"
+            if (r.id == clothesOpen) {
+                ccls = "sp-action sp-action-primary"
+            }
+            row.addChild((SpacesApp.btn(("sp-wardclothes-" + (to_string i)) ccls (SpWords.pick(lang "Clothes" "Vaatteet")))))
             c.addChild(row)
+            if (r.id == clothesOpen) {
+                c.addChild((this.clothesBox(r)))
+            } {
+                this.clothesSummary(c r)
+            }
             if (r.id == wardAsk) {
                 def ask:EVGElement (SpacesApp.box("sp-formrow"))
                 ask.addChild((SpacesApp.tx("sp-meta" ((SpWords.pick(lang "Remove " "Poistetaanko ")) + r.name + (SpWords.pick(lang "? Its entries stay, without it." "? Merkinnät säilyvät ilman häntä.")))))))
@@ -1865,6 +1893,224 @@ class SpacesApp {
                     }
                     status = ((SpWords.pick(lang "Removed " "Poistettu ")) + p3.name)
                 }
+            }
+            return true
+        }
+        return false
+    }
+
+    ; A ward's sizes and what is missing, under its row, when it has any.
+    fn clothesSummary:void (c:EVGElement r:SpResource) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length r.sizes)) {
+            def z:SpSize (itemAt r.sizes i)
+            push parts (z.text())
+            i = (i + 1)
+        }
+        if ((array_length parts) > 0) {
+            c.addChild((SpacesApp.tx("sp-meta sp-clothes-line" ((SpWords.pick(lang "Sizes: " "Koot: ")) + (join parts " · ")))))
+        }
+        def miss:string (r.missingText())
+        if ((strlen miss) > 0) {
+            c.addChild((SpacesApp.tx("sp-meta sp-clothes-line" ((SpWords.pick(lang "Missing: " "Puuttuu: ")) + miss))))
+        }
+    }
+
+    ; A ward's clothing, open: its sizes now and next, and its clothing list
+    ; (what it should have, how many it has), each row changed or removed
+    ; here, and a row added at the end of each.
+    fn clothesBox:EVGElement (r:SpResource) {
+        def b:EVGElement (SpacesApp.box("sp-clothes"))
+        b.addChild((SpacesApp.tx("sp-clothes-h" (SpWords.pick(lang "Sizes" "Vaatekoot")))))
+        def i:int 0
+        while (i < (array_length r.sizes)) {
+            def z:SpSize (itemAt r.sizes i)
+            def row:EVGElement (SpacesApp.box("sp-formrow sp-clothes-row"))
+            row.addChild((SpacesApp.tx("sp-clothes-tx" (z.text()))))
+            row.addChild((SpacesApp.btn(("sp-sizedel-" + (to_string i)) "sp-action" (SpWords.ui(lang "remove")))))
+            b.addChild(row)
+            i = (i + 1)
+        }
+        def sf:EVGElement (SpacesApp.box("sp-formrow"))
+        sf.addChild((this.field(sizeWhat "sp-size-what" (SpWords.pick(lang "Clothing" "Vaate")) (SpWords.pick(lang "shoes" "kengät")) "text")))
+        sf.addChild((this.field(sizeNow "sp-size-now" (SpWords.pick(lang "Size now" "Koko nyt")) "30" "text")))
+        sf.addChild((this.field(sizeNext "sp-size-next" (SpWords.pick(lang "Next size" "Seuraava koko")) "31" "text")))
+        sf.addChild((this.field(sizeBy "sp-size-by" (SpWords.pick(lang "Needed by" "Tarvitaan")) "2027-03" "text")))
+        sf.addChild((SpacesApp.btn("sp-sizeadd" "sp-action sp-action-primary" (SpWords.ui(lang "addOne")))))
+        b.addChild(sf)
+        b.addChild((SpacesApp.tx("sp-clothes-h" (SpWords.pick(lang "Clothes needed" "Vaatetarpeet")))))
+        def k:int 0
+        while (k < (array_length r.clothes)) {
+            def cl:SpCloth (itemAt r.clothes k)
+            def t:string cl.item
+            if ((strlen cl.size) > 0) {
+                t = (t + " (" + cl.size + ")")
+            }
+            t = (t + "  " + (to_string cl.have) + "/" + (to_string cl.need))
+            def n:int (cl.missing())
+            def cls:string "sp-clothes-tx"
+            if (n > 0) {
+                t = (t + (SpWords.pick(lang " · missing " " · puuttuu ")) + (to_string n))
+                cls = "sp-clothes-tx sp-clothes-miss"
+            }
+            def row2:EVGElement (SpacesApp.box("sp-formrow sp-clothes-row"))
+            row2.addChild((SpacesApp.tx(cls t)))
+            row2.addChild((SpacesApp.btn(("sp-clothless-" + (to_string k)) "sp-action" "−")))
+            row2.addChild((SpacesApp.btn(("sp-clothmore-" + (to_string k)) "sp-action" "+")))
+            row2.addChild((SpacesApp.btn(("sp-clothdel-" + (to_string k)) "sp-action" (SpWords.ui(lang "remove")))))
+            b.addChild(row2)
+            k = (k + 1)
+        }
+        def cf:EVGElement (SpacesApp.box("sp-formrow"))
+        cf.addChild((this.field(clothItem "sp-cloth-item" (SpWords.pick(lang "Item" "Vaate")) (SpWords.pick(lang "winter boots" "talvikengät")) "text")))
+        cf.addChild((this.field(clothSize "sp-cloth-size" (SpWords.pick(lang "Size" "Koko")) "31" "text")))
+        cf.addChild((this.field(clothNeed "sp-cloth-need" (SpWords.pick(lang "How many" "Montako")) "1" "text")))
+        cf.addChild((SpacesApp.btn("sp-clothadd" "sp-action sp-action-primary" (SpWords.ui(lang "addOne")))))
+        b.addChild(cf)
+        return b
+    }
+
+    ; The open ward's clothing to the server, whole.
+    fn sendClothes:void (r:SpResource) {
+        if ((server == false) || ((strlen spaceId) == 0)) {
+            return
+        }
+        def ward:string r.id
+        if (UiTree.beginsWith(r.id "wnew-")) {
+            ward = r.name
+        }
+        this.queue("set_ward" (SpRemote.clothingBody(spaceId ward r)) r.id)
+    }
+
+    ; the ward whose clothing is open
+    fn clothesWard@(optional):SpResource () {
+        def found@(optional):SpResource
+        def i:int 0
+        while (i < (array_length space.resources)) {
+            def r:SpResource (itemAt space.resources i)
+            if (r.id == clothesOpen) {
+                found = r
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; the number after a target's prefix, or -1
+    sfn indexAfter:int (target:string prefix:string) {
+        def n@(optional):int (to_int (substring target (strlen prefix) (strlen target)))
+        if (null? n) {
+            return -1
+        }
+        return (unwrap n)
+    }
+
+    ; A press on the clothing of the open ward; false when it is none.
+    fn clothesClick:boolean (target:string) {
+        if (UiTree.beginsWith(target "sp-wardclothes-")) {
+            def k:int (SpacesApp.indexAfter(target "sp-wardclothes-"))
+            if ((k >= 0) && (k < (array_length space.resources))) {
+                def wr:SpResource (itemAt space.resources k)
+                if (clothesOpen == wr.id) {
+                    clothesOpen = ""
+                } {
+                    clothesOpen = wr.id
+                }
+            }
+            return true
+        }
+        def opened@(optional):SpResource (this.clothesWard())
+        if (null? opened) {
+            return false
+        }
+        def r:SpResource opened
+        if (target == "sp-sizeadd") {
+            def what:string (trim sizeWhat.value)
+            if ((strlen what) == 0) {
+                status = (SpWords.pick(lang "Name the clothing, e.g. shoes" "Anna vaate, esim. kengät"))
+                focused = "sp-size-what"
+                return true
+            }
+            def by:string (trim sizeBy.value)
+            if (((strlen by) > 0) && (((strlen by) < 7) || ((substring by 4 5) != "-"))) {
+                status = (SpWords.pick(lang "Needed by is YYYY-MM" "Tarvitaan-kenttä on muotoa VVVV-KK"))
+                focused = "sp-size-by"
+                return true
+            }
+            def z (new SpSize())
+            z.what = what
+            z.size = (trim sizeNow.value)
+            z.nextSize = (trim sizeNext.value)
+            z.nextBy = by
+            r.putSize(z)
+            sizeWhat.setValue("")
+            sizeNow.setValue("")
+            sizeNext.setValue("")
+            sizeBy.setValue("")
+            this.sendClothes(r)
+            status = ((SpWords.pick(lang "Saved " "Tallennettu ")) + (z.text()))
+            return true
+        }
+        if (target == "sp-clothadd") {
+            def item:string (trim clothItem.value)
+            if ((strlen item) == 0) {
+                status = (SpWords.pick(lang "Name the item" "Anna vaate"))
+                focused = "sp-cloth-item"
+                return true
+            }
+            def c (new SpCloth())
+            c.item = item
+            c.size = (trim clothSize.value)
+            def nt:string (trim clothNeed.value)
+            if ((strlen nt) > 0) {
+                def nn@(optional):int (to_int nt)
+                if ((null? nn) || ((unwrap nn) < 1) || ((unwrap nn) > 99)) {
+                    status = (SpWords.pick(lang "How many is a number from 1 to 99" "Montako on luku 1–99"))
+                    focused = "sp-cloth-need"
+                    return true
+                }
+                c.need = (unwrap nn)
+            }
+            push r.clothes c
+            clothItem.setValue("")
+            clothSize.setValue("")
+            clothNeed.setValue("")
+            this.sendClothes(r)
+            status = ((SpWords.pick(lang "Added " "Lisätty ")) + item)
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-sizedel-")) {
+            def k2:int (SpacesApp.indexAfter(target "sp-sizedel-"))
+            if ((k2 >= 0) && (k2 < (array_length r.sizes))) {
+                r.dropSize(k2)
+                this.sendClothes(r)
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-clothdel-")) {
+            def k3:int (SpacesApp.indexAfter(target "sp-clothdel-"))
+            if ((k3 >= 0) && (k3 < (array_length r.clothes))) {
+                r.dropCloth(k3)
+                this.sendClothes(r)
+            }
+            return true
+        }
+        if ((UiTree.beginsWith(target "sp-clothless-")) || (UiTree.beginsWith(target "sp-clothmore-"))) {
+            ; the two prefixes are as long
+            def k4:int (SpacesApp.indexAfter(target "sp-clothmore-"))
+            if ((k4 >= 0) && (k4 < (array_length r.clothes))) {
+                def cl:SpCloth (itemAt r.clothes k4)
+                if (UiTree.beginsWith(target "sp-clothmore-")) {
+                    if (cl.have < 99) {
+                        cl.have = (cl.have + 1)
+                    }
+                } {
+                    if (cl.have > 0) {
+                        cl.have = (cl.have - 1)
+                    }
+                }
+                this.sendClothes(r)
             }
             return true
         }
@@ -2054,6 +2300,12 @@ class SpacesApp {
         if (tid == "sp-ward-name") {
             return "sp-addward"
         }
+        if (UiTree.beginsWith(tid "sp-size-")) {
+            return "sp-sizeadd"
+        }
+        if (UiTree.beginsWith(tid "sp-cloth-")) {
+            return "sp-clothadd"
+        }
         if (tid == "sp-assist-text") {
             return "sp-assist-send"
         }
@@ -2082,8 +2334,8 @@ class SpacesApp {
     ; get things in and the payment days, each a switch.
     fn calShows:EVGElement () {
         def row:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
-        row.addChild((this.showSwitch("sp-cal-gets" (SpWords.ui(lang "showGets")) space.showGets)))
-        row.addChild((this.showSwitch("sp-cal-pays" (SpWords.ui(lang "showPays")) space.showPays)))
+        row.addChild((this.showSwitch("sp-cal-gets" (SpWords.ui(lang "showGets")) showGets)))
+        row.addChild((this.showSwitch("sp-cal-pays" (SpWords.ui(lang "showPays")) showPays)))
         return row
     }
 
@@ -2584,6 +2836,10 @@ class SpacesApp {
                 t = (SpWords.pick(lang "Done." "Valmis."))
             }
             if (ok == false) {
+                ; a server older than the page has no assistant yet
+                if (t == "No such call.") {
+                    t = (SpWords.pick(lang "the assistant is not on the server yet; it comes with the server's next update. What you wrote is kept below." "avustaja ei ole vielä palvelimella, se tulee palvelimen seuraavassa päivityksessä. Kirjoittamasi teksti on tallessa alla."))
+                }
                 t = ((SpWords.pick(lang "That did not go through: " "Se ei mennyt läpi: ")) + t)
                 ; what was written and the pictures are back in the field, to
                 ; send again
@@ -4426,7 +4682,7 @@ class SpacesApp {
 
     ; One entry in a list: its title, the day, its state and its cost.
     fn entryRow:EVGElement (e:SpEvent) {
-        def due:string (e.dueState(today))
+        def due:string (space.dueOf(e today))
         def kind:string (this.kindOf(e.typeId))
         def cls:string "sp-item"
         if ((kind == "deadline") && ((strlen due) > 0)) {
@@ -5017,9 +5273,9 @@ class SpacesApp {
         }
         if ((target == "sp-cal-gets") || (target == "sp-cal-pays")) {
             if (target == "sp-cal-gets") {
-                space.showGets = (space.showGets == false)
+                showGets = (showGets == false)
             } {
-                space.showPays = (space.showPays == false)
+                showPays = (showPays == false)
             }
             this.fillBoard()
             this.rebuild()
@@ -5663,6 +5919,10 @@ class SpacesApp {
             }
             wardField.setValue("")
             status = ((SpWords.pick(lang "Added " "Lisätty ")) + wn)
+            this.fillBoard()
+            return true
+        }
+        if (this.clothesClick(target)) {
             this.fillBoard()
             return true
         }
