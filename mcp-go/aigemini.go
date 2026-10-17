@@ -101,16 +101,16 @@ func (m *geminiModel) AskReading(ctx context.Context, system string, turns []aiT
 	decls := make([]map[string]any, 0, len(m.tools))
 	reads := map[string]bool{}
 	for _, t := range m.tools {
-		decls = append(decls, map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Params})
+		decls = append(decls, geminiDecl(t))
 	}
 	if r != nil {
 		for _, t := range r.Tools {
-			decls = append(decls, map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Params})
+			decls = append(decls, geminiDecl(t))
 			reads[t.Name] = true
 		}
 		if r.Places {
 			for _, t := range aiPlaceTools {
-				decls = append(decls, map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Params})
+				decls = append(decls, geminiDecl(t))
 			}
 		}
 	}
@@ -338,4 +338,14 @@ func (m *geminiModel) generate(ctx context.Context, system string, contents []ge
 		g.content.Role = "model"
 	}
 	return g, nil
+}
+
+// A function declaration as Gemini takes it: one without arguments has no
+// parameters, since Gemini refuses an object with no properties.
+func geminiDecl(t aiTool) map[string]any {
+	d := map[string]any{"name": t.Name, "description": t.Description}
+	if p, ok := t.Params["properties"].(map[string]any); !ok || len(p) > 0 {
+		d["parameters"] = t.Params
+	}
+	return d
 }

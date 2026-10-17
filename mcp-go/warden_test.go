@@ -316,3 +316,55 @@ func TestWardenChanges(t *testing.T) {
 	got, _ = env.warden.call(ctx, page, "changes", map[string]any{"space_id": sid}, true)
 	eq(t, got.(map[string]any)["changed"], mine["changed"], "a read")
 }
+
+func TestWardenRemoveWard(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+	_, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "title": "Uinti", "date": "2026-11-02", "ward": "Alex"})
+	eid := out["event_id"].(string)
+	_, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "title": "Synttärit", "date": "2026-11-07", "ward": "Aino"})
+	pid := out["event_id"].(string)
+	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
+	eq(t, len(out["space"].(map[string]any)["wards"].([]any)), 2, "Alex and Aino")
+	_, out = wardenCall(t, base, "tero", "invite_member", map[string]any{"space_id": sid, "email": "anna@example.com"})
+	wardenCall(t, base, "anna", "list_spaces", nil)
+
+	code, out := wardenCall(t, base, "anna", "remove_ward", map[string]any{"space_id": sid, "ward": "Alex"})
+	eq(t, []any{code, out["error"]}, []any{400, "only the space's owner can do that"}, "anna removes")
+	code, out = wardenCall(t, base, "tero", "remove_ward", map[string]any{"space_id": sid, "ward": "Nobody"})
+	eq(t, code, 400, "no such ward")
+	code, out = wardenCall(t, base, "tero", "remove_ward", map[string]any{"space_id": sid, "ward": "alex"})
+	eq(t, []any{code, out["events_cleared"], len(out["wards"].([]any))}, []any{200, float64(1), 1}, "removed")
+
+	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
+	for _, e := range out["events"].([]any) {
+		m := e.(map[string]any)
+		switch m["event_id"] {
+		case eid:
+			eq(t, m["ward"], nil, "the event stays, without a ward")
+		case pid:
+			eq(t, m["ward"] != "", true, "Aino stays")
+		}
+	}
+}
+
+func TestWardenWardColors(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+	colors := []any{}
+	for _, n := range []string{"Alex", "Leevi", "Iida"} {
+		_, out = wardenCall(t, base, "tero", "add_ward", map[string]any{"space_id": sid, "name": n})
+		colors = append(colors, out["color"])
+	}
+	eq(t, colors, []any{"blue", "emerald", "violet"}, "each its own colour of the page's palette")
+	code, out := wardenCall(t, base, "tero", "set_ward", map[string]any{"space_id": sid, "ward": "leevi", "color": "amber"})
+	eq(t, []any{code, out["name"], out["color"]}, []any{200, "Leevi", "amber"}, "recoloured")
+	code, _ = wardenCall(t, base, "tero", "set_ward", map[string]any{"space_id": sid, "ward": "Leevi", "color": "plaid"})
+	eq(t, code, 400, "not a colour")
+	code, _ = wardenCall(t, base, "tero", "set_ward", map[string]any{"space_id": sid, "ward": "Leevi", "name": "Iida"})
+	eq(t, code, 400, "a name another ward has")
+}

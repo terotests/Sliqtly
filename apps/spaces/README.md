@@ -14,14 +14,18 @@ it, and how ("Takes: Juho", "Picks up: Mia").
 
 ## What it does
 
-- **Summary**: a wall calendar. On top the clock, the date, the week number
-  and the weather (Open-Meteo, Helsinki, read by the host page). Below it
+- **Summary**: a wall calendar with three tabs, **Tänään** (below),
+  **Viikko** (Monday to Sunday as columns, each plan with its time, today
+  filled) and **Tulossa** (the next one-off plans, whose they are and how
+  many days away). On top the clock, the date, the week number
+  and the weather (Open-Meteo, Helsinki, read by the host page). Tänään has
   three columns: **today** as cards with each ward's colour, the plan going
   on or coming next open with its times, who looks after it and its notes;
   **this week** day by day with the plans as coloured chips (today framed,
   a day opens in the calendar) and **coming up**, the next one-off plans;
   **remember**, the deadlines and reminders to tick off (an entry's
-  `status` becomes `done`, saved like any change), the Add button and the
+  `status` becomes `done`, saved like any change), each with a Copy chip
+  that puts its title and date on the clipboard, the Add button and the
   wards' colours.
 - **Calendar**: EVGUI's event calendar card (month, week, day, agenda,
   per-ward views). A move, a resize or a new event is written back to the
@@ -63,7 +67,7 @@ With the meta tag the page
 
 - calls the server with `POST /apps/warden/api/<op>` and a JSON body
   (`list_spaces`, `get_space`, `create_space`, `set_space`, `save_event`,
-  `add_ward`, `invite_member`, `remove_member`, `import_events`), sending the
+  `add_ward`, `set_ward`, `remove_ward`, `invite_member`, `remove_member`, `import_events`), sending the
   sign-in cookie; a 401 sends it to `/apps/warden/login`;
 - saves what the calendar changes: a moved event, a new one, and one day of a
   repeating event (the series gets an exdate, the day becomes its own event);
