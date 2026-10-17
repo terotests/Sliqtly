@@ -53,7 +53,7 @@ func (s *wardenService) calendarFeed(ctx context.Context, sp *wardenSpace, a map
 	}
 	return map[string]any{
 		"url": u, "webcal": "webcal://" + strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://"),
-		"how": "iPhone: open the webcal address, or Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar and paste the url. Mac Calendar: File → New Calendar Subscription. Google Calendar: Other calendars → From URL. Add ?get=0 or ?pay=0 (or both, joined with &) to leave out the windows to get things in or the payment days. The address is the space's secret: anyone with it sees the events.",
+		"how": "iPhone: open the webcal address, or Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar and paste the url. Mac Calendar: File → New Calendar Subscription. Google Calendar: Other calendars → From URL. Each entry carries alarms (VALARM) on the days its type reminds of (Apple's calendars show them; Google Calendar leaves a subscribed calendar's alarms out). Add ?get=0, ?pay=0 or ?alarm=0 (joined with &) to leave out the windows to get things in, the payment days or the alarms. The address is the space's secret: anyone with it sees the events.",
 	}, nil
 }
 
@@ -86,9 +86,10 @@ func serveWardenFeed(env *Env, w http.ResponseWriter, r *http.Request, p string)
 		http.Error(w, "The calendar could not be reached", http.StatusServiceUnavailable)
 		return
 	}
-	// ?get=0, ?pay=0: without the windows to get things in, the payment days
+	// ?get=0, ?pay=0, ?alarm=0: without the windows to get things in, the
+	// payment days, the alarms
 	q := r.URL.Query()
-	opt := icsOptions{feed: true, gets: q.Get("get") != "0", pays: q.Get("pay") != "0"}
+	opt := icsOptions{feed: true, gets: q.Get("get") != "0", pays: q.Get("pay") != "0", alarms: q.Get("alarm") != "0"}
 	wardenICSOut(w, "", env.warden.icsCalendar(sp, evs, eids, evs, opt))
 }
 
@@ -120,7 +121,7 @@ func serveWardenEventICS(env *Env, w http.ResponseWriter, r *http.Request, p str
 		http.Error(w, "The calendar could not be reached", http.StatusServiceUnavailable)
 		return
 	}
-	wardenICSOut(w, docStr(d, "title"), env.warden.icsCalendar(sp, []Doc{d}, []string{id}, all, icsOptions{}))
+	wardenICSOut(w, docStr(d, "title"), env.warden.icsCalendar(sp, []Doc{d}, []string{id}, all, icsOptions{alarms: true}))
 }
 
 // a file name of the title's letters and digits
@@ -148,8 +149,9 @@ func wardenICSOut(w http.ResponseWriter, title, text string) {
 
 // what a VCALENDAR has: feed, a calendar to subscribe to (its name, how
 // often to read it again); gets and pays, the windows to get things in and
-// the payment days, as the page's calendar shows them
-type icsOptions struct{ feed, gets, pays bool }
+// the payment days, as the page's calendar shows them; alarms, a VALARM on
+// each day an entry reminds of
+type icsOptions struct{ feed, gets, pays, alarms bool }
 
 // the space's dated entries as one VCALENDAR; all: the space's entries, for
 // the days a timetable skips
@@ -188,6 +190,11 @@ func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, a
 		occs := []icsOcc{}
 		if docStr(d, "date") != "" {
 			occs = icsOccurrences(d, all)
+			if opt.alarms {
+				for j := range occs {
+					occs[j].alarms = icsAlarms(d, occs[j].start != "", fi, loc, s.now())
+				}
+			}
 		}
 		occs = append(occs, icsDerived(d, opt, fi)...)
 		for _, o := range occs {
@@ -205,6 +212,13 @@ func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, a
 				title = o.title
 			}
 			icsAbout(line, d, title, wards, s.base)
+			for _, a := range o.alarms {
+				line("BEGIN:VALARM")
+				line("ACTION:DISPLAY")
+				line("TRIGGER" + a.trigger)
+				line("DESCRIPTION:" + icsEsc(wardenOr(a.text, title)))
+				line("END:VALARM")
+			}
 			line("END:VEVENT")
 		}
 	}
@@ -218,6 +232,74 @@ func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, a
 type icsOcc struct {
 	uid, title, day, start, end, lastDay, rrule string
 	exdates                                     []string
+	alarms                                      []icsAlarm
+}
+
+// a VEVENT's alarm: its TRIGGER's parameters and value (":-P1D"), what it
+// says ("" the event's title)
+type icsAlarm struct{ trigger, text string }
+
+// an alarm n days before an occurrence: at its time, or an hour before on
+// its own day; for a day without a time at 09:00 of the day
+func icsBefore(n int, timed bool) string {
+	if timed {
+		if n == 0 {
+			return ":-PT1H"
+		}
+		return fmt.Sprintf(":-P%dD", n)
+	}
+	if h := 24*n - 9; h > 0 {
+		return fmt.Sprintf(":-PT%dH", h)
+	} else {
+		return fmt.Sprintf(":PT%dH", -h)
+	}
+}
+
+// the alarms of an entry's own days, as its type reminds of them: of its
+// day (remind_days of its fields first) before each occurrence, of its other
+// dates (answer by, pay by…) at 09:00 of the day, those not past yet. None
+// once it is done, cancelled or archived.
+func icsAlarms(d Doc, timed, fi bool, loc *time.Location, now time.Time) []icsAlarm {
+	t := wardenTypeOf(wardenOr(docStr(d, "type"), "event"))
+	fields, _ := d["fields"].(map[string]any)
+	if st := docStr(fields, "status"); t == nil || st == "done" || st == "cancelled" || st == "archived" {
+		return nil
+	}
+	today := now.In(loc).Format("2006-01-02")
+	out := []icsAlarm{}
+	for _, r := range t.Reminders {
+		if r.Field == "date" {
+			n := r.Days
+			if v, ok := fields["remind_days"]; ok {
+				n = int(wardenNum(v))
+			}
+			out = append(out, icsAlarm{trigger: icsBefore(n, timed)})
+			continue
+		}
+		date, _ := fields[r.Field].(string)
+		day, err := time.Parse("2006-01-02", date)
+		if err != nil {
+			continue
+		}
+		at := day.AddDate(0, 0, -r.Days)
+		if at.Format("2006-01-02") < today {
+			continue
+		}
+		name := r.Field
+		for _, f := range append(slices.Clone(t.Fields), wardenCommon...) {
+			if f.Key == r.Field {
+				name = wardenOr(f.Name["en"], name)
+				if fi {
+					name = wardenOr(f.Name["fi"], name)
+				}
+				break
+			}
+		}
+		when := time.Date(at.Year(), at.Month(), at.Day(), 9, 0, 0, 0, loc).UTC().Format("20060102T150405Z")
+		out = append(out, icsAlarm{trigger: ";VALUE=DATE-TIME:" + when,
+			text: fmt.Sprintf("%s %d.%d.: %s", name, day.Day(), int(day.Month()), docStr(d, "title"))})
+	}
+	return out
 }
 
 func icsOccurrences(d Doc, all []Doc) []icsOcc {
@@ -297,20 +379,33 @@ func icsDerived(d Doc, opt icsOptions, fi bool) []icsOcc {
 	}
 	if opt.gets {
 		if from, by := wardenGetWindow(d); by != "" {
-			out = append(out, icsOcc{uid: "-get", title: word("Hanki: ", "Get: ") + docStr(d, "title"), day: from, lastDay: by})
+			o := icsOcc{uid: "-get", title: word("Hanki: ", "Get: ") + docStr(d, "title"), day: from, lastDay: by}
+			if opt.alarms {
+				o.alarms = []icsAlarm{{trigger: icsBefore(0, false)}}
+			}
+			out = append(out, o)
 		}
 	}
 	if c := wardenCostOf(d); opt.pays && c != nil {
+		n := wardenPayRemind(c)
 		for _, p := range wardenPayments(d, c) {
 			amount := strings.TrimSuffix(fmt.Sprintf("%.2f", p.amount), ".00")
 			if fi {
 				amount = strings.ReplaceAll(amount, ".", ",")
 			}
-			out = append(out, icsOcc{uid: fmt.Sprintf("-pay%d", p.n-1), title: word("Maksu: ", "Payment: ") + docStr(d, "title") + " " + amount + " €", day: p.day.Format("2006-01-02")})
+			o := icsOcc{uid: fmt.Sprintf("-pay%d", p.n-1), title: word("Maksu: ", "Payment: ") + docStr(d, "title") + " " + amount + " €", day: p.day.Format("2006-01-02")}
+			if opt.alarms && n >= 0 {
+				o.alarms = []icsAlarm{{trigger: icsBefore(n, false)}}
+			}
+			out = append(out, o)
 		}
 	}
 	for i, p := range wardenPlannedDays(d) {
-		out = append(out, icsOcc{uid: fmt.Sprintf("-plan%d", i), title: word("Suunniteltu: ", "Planned: ") + docStr(d, "title"), day: p})
+		o := icsOcc{uid: fmt.Sprintf("-plan%d", i), title: word("Suunniteltu: ", "Planned: ") + docStr(d, "title"), day: p}
+		if opt.alarms {
+			o.alarms = []icsAlarm{{trigger: icsBefore(0, false)}}
+		}
+		out = append(out, o)
 	}
 	return out
 }

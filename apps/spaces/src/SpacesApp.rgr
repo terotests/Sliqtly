@@ -180,6 +180,7 @@ class SpacesApp {
     ; windows to get things in and the payment days
     def feedGets:boolean true
     def feedPays:boolean true
+    def feedAlarms:boolean true
     def status:string ""
 
     ; --- a space on a server -----------------------------------------------------
@@ -3108,10 +3109,11 @@ class SpacesApp {
         }
         if ((strlen space.feed) > 0) {
             def fc:EVGElement (this.card("feed" (SpWords.pick(lang "Calendar on your phone" "Kalenteri puhelimeen"))))
-            fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe and the space's events show in Apple's, Google's or Outlook's calendar, and change there when they change here. Anyone with the address sees the events." "Tilaa, niin tilan menot näkyvät Applen, Googlen tai Outlookin kalenterissa ja muuttuvat siellä, kun ne muuttuvat täällä. Jokainen, jolla on osoite, näkee menot.")))))
+            fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe and the space's events show in Apple's, Google's or Outlook's calendar, and change there when they change here. Apple's calendar also alerts of the reminders; Google's leaves the alerts out. Anyone with the address sees the events." "Tilaa, niin tilan menot näkyvät Applen, Googlen tai Outlookin kalenterissa ja muuttuvat siellä, kun ne muuttuvat täällä. Applen kalenteri myös hälyttää muistutuksista; Googlen kalenteri jättää hälytykset pois. Jokainen, jolla on osoite, näkee menot.")))))
             def sw:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
             sw.addChild((this.showSwitch("sp-feed-gets" (SpWords.ui(lang "showGets")) feedGets)))
             sw.addChild((this.showSwitch("sp-feed-pays" (SpWords.ui(lang "showPays")) feedPays)))
+            sw.addChild((this.showSwitch("sp-feed-alarms" (SpWords.pick(lang "Alerts" "Hälytykset")) feedAlarms)))
             fc.addChild(sw)
             def fr:EVGElement (SpacesApp.box("sp-formrow"))
             fr.addChild((SpacesApp.btn("sp-feed-open" "sp-action sp-action-primary" (SpWords.pick(lang "Subscribe" "Tilaa kalenteriin")))))
@@ -8889,6 +8891,11 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (target == "sp-feed-alarms") {
+            feedAlarms = (feedAlarms == false)
+            this.rebuild()
+            return true
+        }
         if (target == "sp-feed-open") {
             def u:string (this.feedAddress())
             def at:int (indexOf u "://")
@@ -9107,6 +9114,9 @@ class SpacesApp {
         }
         if (feedPays == false) {
             push q "pay=0"
+        }
+        if (feedAlarms == false) {
+            push q "alarm=0"
         }
         if ((array_length q) == 0) {
             return space.feed
