@@ -6034,6 +6034,76 @@ class PresCheck {
         pkg3.close()
     }
 
+    ; The PDF clicks through and finds its way: an address as a URI link
+    ; over its words, a `#name` or `#3` of this deck as a GoTo to that
+    ; slide's page, the title (Finnish: UTF-16 with a byte-order mark) and
+    ; the author in the document information, the slides' titles as
+    ; bookmarks. With only some slides exported the pages are theirs.
+    fn pdfNavigation:void () {
+        def text:string ("---\ntitle: Kesän esitys\nauthor: Tero\nslide-split-level: 2\n---\n\n"
+            + "## Start\n\nSee [the site](https://example.com/docs), [the end](#the-end), [three](#3) or [elsewhere](#no-such).\n\n"
+            + "## Middle\n\nText.\n\n## The end\n\nBye.\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        this.ok(((deck.slideCount()) == 3) ("pdf links: three slides, got " + (to_string (deck.slideCount()))))
+        def ex (new PresExport())
+        ex.deck = deck
+        def pdf:string (buffer_to_string (ex.pdf()))
+        def kids:[string] (PresCheck.pdfKids(pdf))
+        this.ok(((array_length kids) == 3) ("pdf links: three pages, got " + (to_string (array_length kids))))
+        this.ok(((PresCheck.countIn(pdf "/S /URI /URI (https://example.com/docs)")) == 1) "pdf links: the address is a URI link")
+        this.ok(((indexOf pdf "/Annots [") > 0) "pdf links: on the page's annotations")
+        if ((array_length kids) == 3) {
+            def toEnd:string ("/S /GoTo /D [" + (itemAt kids 2) + " /Fit]")
+            this.ok(((PresCheck.countIn(pdf toEnd)) == 2) ("pdf links: #the-end and #3 go to the third page: " + toEnd))
+            this.ok(((indexOf pdf ("/Dest [" + (itemAt kids 1) + " /Fit]")) > 0) "pdf links: the middle slide's bookmark opens its page")
+        }
+        this.ok(((PresCheck.countIn(pdf "/S /GoTo")) == 2) "pdf links: a name no slide has is no link")
+        this.ok(((indexOf pdf "no-such") < 0) "pdf links: …and not an address either")
+        this.ok(((indexOf pdf "/Title <FEFF004B0065007300E4006E0020006500730069007400790073>") > 0) "pdf links: the Finnish title as UTF-16")
+        this.ok(((indexOf pdf "/Author (Tero)") > 0) "pdf links: the author")
+        this.ok(((indexOf pdf "/Outlines ") > 0) "pdf links: bookmarks")
+        this.ok((((indexOf pdf "/Title (Start)") > 0) && ((indexOf pdf "/Title (The end)") > 0)) "pdf links: the bookmarks are the slides' titles")
+        ; slides 1 and 3 only: the end is the second page, a jump to the
+        ; middle (left out) would be none
+        def ex2 (new PresExport())
+        ex2.deck = deck
+        def only:[int] ([] _:int ( 0 2 ))
+        ex2.only = only
+        def pdf2:string (buffer_to_string (ex2.pdf()))
+        def kids2:[string] (PresCheck.pdfKids(pdf2))
+        this.ok(((array_length kids2) == 2) "pdf links: two slides, two pages")
+        if ((array_length kids2) == 2) {
+            this.ok(((PresCheck.countIn(pdf2 ("/S /GoTo /D [" + (itemAt kids2 1) + " /Fit]"))) == 2) "pdf links: the end is the second page there")
+        }
+        this.ok(((indexOf pdf2 "/Title (Middle)") < 0) "pdf links: no bookmark for a slide left out")
+        def ex3 (new PresExport())
+        ex3.deck = deck
+        def first:[int] ([] _:int ( 0 ))
+        ex3.only = first
+        def pdf3:string (buffer_to_string (ex3.pdf()))
+        this.ok(((PresCheck.countIn(pdf3 "/S /GoTo")) == 0) "pdf links: a jump to a slide left out is none")
+        this.ok(((PresCheck.countIn(pdf3 "/S /URI")) == 1) "pdf links: …the address still is")
+    }
+
+    ; The page objects of a PDF, in order ("12 0 R" each), from its /Kids.
+    sfn pdfKids:[string] (pdf:string) {
+        def out:[string]
+        def at:int (indexOf pdf "/Kids [")
+        if (at < 0) {
+            return out
+        }
+        def from:int (at + 7)
+        def end:int (indexOfFrom pdf "]" from)
+        def words:[string] (strsplit (substring pdf from end) " ")
+        def i:int 0
+        while ((i + 2) < ((array_length words) + 1)) {
+            push out ((itemAt words i) + " 0 R")
+            i = (i + 3)
+        }
+        return out
+    }
+
     sfn countIn:int (s:string needle:string) {
         def n:int 0
         def at:int (indexOf s needle)
@@ -10325,6 +10395,7 @@ class PresCheck {
         c.video()
         c.docx()
         c.pptxLinks()
+        c.pdfNavigation()
         c.a11ySlide()
         c.calmMotion()
         c.htmlPage()
