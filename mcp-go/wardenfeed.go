@@ -53,7 +53,7 @@ func (s *wardenService) calendarFeed(ctx context.Context, sp *wardenSpace, a map
 	}
 	return map[string]any{
 		"url": u, "webcal": "webcal://" + strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://"),
-		"how": "iPhone: open the webcal address, or Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar and paste the url. Mac Calendar: File → New Calendar Subscription. Google Calendar: Other calendars → From URL. The address is the space's secret: anyone with it sees the events.",
+		"how": "iPhone: open the webcal address, or Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar and paste the url. Mac Calendar: File → New Calendar Subscription. Google Calendar: Other calendars → From URL. Add ?get=0 or ?pay=0 (or both, joined with &) to leave out the windows to get things in or the payment days. The address is the space's secret: anyone with it sees the events.",
 	}, nil
 }
 
@@ -86,7 +86,10 @@ func serveWardenFeed(env *Env, w http.ResponseWriter, r *http.Request, p string)
 		http.Error(w, "The calendar could not be reached", http.StatusServiceUnavailable)
 		return
 	}
-	wardenICSOut(w, "", env.warden.icsCalendar(sp, evs, eids, evs, true))
+	// ?get=0, ?pay=0: without the windows to get things in, the payment days
+	q := r.URL.Query()
+	opt := icsOptions{feed: true, gets: q.Get("get") != "0", pays: q.Get("pay") != "0"}
+	wardenICSOut(w, "", env.warden.icsCalendar(sp, evs, eids, evs, opt))
 }
 
 func serveWardenEventICS(env *Env, w http.ResponseWriter, r *http.Request, p string) {
@@ -117,7 +120,7 @@ func serveWardenEventICS(env *Env, w http.ResponseWriter, r *http.Request, p str
 		http.Error(w, "The calendar could not be reached", http.StatusServiceUnavailable)
 		return
 	}
-	wardenICSOut(w, docStr(d, "title"), env.warden.icsCalendar(sp, []Doc{d}, []string{id}, all, false))
+	wardenICSOut(w, docStr(d, "title"), env.warden.icsCalendar(sp, []Doc{d}, []string{id}, all, icsOptions{}))
 }
 
 // a file name of the title's letters and digits
@@ -143,10 +146,14 @@ func wardenICSOut(w http.ResponseWriter, title, text string) {
 
 // ------------------------------------------------------------- iCalendar --
 
+// what a VCALENDAR has: feed, a calendar to subscribe to (its name, how
+// often to read it again); gets and pays, the windows to get things in and
+// the payment days, as the page's calendar shows them
+type icsOptions struct{ feed, gets, pays bool }
+
 // the space's dated entries as one VCALENDAR; all: the space's entries, for
-// the days a timetable skips; feed: a calendar to subscribe to (its name,
-// how often to read it again)
-func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, all []Doc, feed bool) string {
+// the days a timetable skips
+func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, all []Doc, opt icsOptions) string {
 	tz, _ := sp.json()["time_zone"].(string)
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
@@ -165,7 +172,7 @@ func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, a
 	line("VERSION:2.0")
 	line("PRODID:-//Sliqtly//Warden//FI")
 	line("CALSCALE:GREGORIAN")
-	if feed {
+	if opt.feed {
 		line("METHOD:PUBLISH")
 		line("X-WR-CALNAME:" + icsEsc(docStr(sp.doc, "name")))
 		line("X-WR-TIMEZONE:" + tz)
@@ -176,11 +183,14 @@ func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, a
 		line(l)
 	}
 	stamp := s.now().UTC().Format("20060102T150405Z")
+	fi := docStr(sp.doc, "lang") != "en"
 	for i, d := range docs {
-		if docStr(d, "date") == "" {
-			continue
+		occs := []icsOcc{}
+		if docStr(d, "date") != "" {
+			occs = icsOccurrences(d, all)
 		}
-		for _, o := range icsOccurrences(d, all) {
+		occs = append(occs, icsDerived(d, opt, fi)...)
+		for _, o := range occs {
 			line("BEGIN:VEVENT")
 			line("UID:" + ids[i] + o.uid + "@warden.sliqtly.com")
 			line("DTSTAMP:" + stamp)
@@ -190,7 +200,11 @@ func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, a
 				line("LAST-MODIFIED:" + time.UnixMilli(int64(f)).UTC().Format("20060102T150405Z"))
 			}
 			icsWhenLines(line, o, tz, loc)
-			icsAbout(line, d, wards, s.base)
+			title := docStr(d, "title")
+			if o.title != "" {
+				title = o.title
+			}
+			icsAbout(line, d, title, wards, s.base)
 			line("END:VEVENT")
 		}
 	}
@@ -202,8 +216,8 @@ func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, a
 // different weekdays one for each set of times (its UID the entry's and the
 // times)
 type icsOcc struct {
-	uid, day, start, end, lastDay, rrule string
-	exdates                              []string
+	uid, title, day, start, end, lastDay, rrule string
+	exdates                                     []string
 }
 
 func icsOccurrences(d Doc, all []Doc) []icsOcc {
@@ -261,6 +275,39 @@ func icsOccurrences(d Doc, all []Doc) []icsOcc {
 			}
 		}
 		out = append(out, g)
+	}
+	return out
+}
+
+// what the page's calendar shows of an entry besides its own days: the
+// window to get its thing in and its payment days (an entry done, cancelled
+// or archived has none), each a day or days of its own (UID the entry's and
+// "-get", "-payN")
+func icsDerived(d Doc, opt icsOptions, fi bool) []icsOcc {
+	f, _ := d["fields"].(map[string]any)
+	if st := docStr(f, "status"); st == "done" || st == "cancelled" || st == "archived" {
+		return nil
+	}
+	out := []icsOcc{}
+	word := func(fiw, en string) string {
+		if fi {
+			return fiw
+		}
+		return en
+	}
+	if opt.gets {
+		if from, by := wardenGetWindow(d); by != "" {
+			out = append(out, icsOcc{uid: "-get", title: word("Hanki: ", "Get: ") + docStr(d, "title"), day: from, lastDay: by})
+		}
+	}
+	if c := wardenCostOf(d); opt.pays && c != nil {
+		for _, p := range wardenPayments(d, c) {
+			amount := strings.TrimSuffix(fmt.Sprintf("%.2f", p.amount), ".00")
+			if fi {
+				amount = strings.ReplaceAll(amount, ".", ",")
+			}
+			out = append(out, icsOcc{uid: fmt.Sprintf("-pay%d", p.n-1), title: word("Maksu: ", "Payment: ") + docStr(d, "title") + " " + amount + " €", day: p.day.Format("2006-01-02")})
+		}
 	}
 	return out
 }
@@ -351,8 +398,8 @@ func icsWhenLines(line func(string), o icsOcc, tz string, loc *time.Location) {
 }
 
 // what the event is, where, whose and who takes care of it
-func icsAbout(line func(string), d Doc, wards map[string]string, base string) {
-	line("SUMMARY:" + icsEsc(docStr(d, "title")))
+func icsAbout(line func(string), d Doc, title string, wards map[string]string, base string) {
+	line("SUMMARY:" + icsEsc(title))
 	if p := docStr(d, "place"); p != "" {
 		line("LOCATION:" + icsEsc(p))
 	}

@@ -509,3 +509,31 @@ func TestWardenFeedTimetable(t *testing.T) {
 	eq(t, strings.Count(ics, "BEGIN:VEVENT"), 4, "three sets of times and the holiday")
 	eq(t, strings.Contains(ics, "EXDATE;TZID=Europe/Helsinki:20261020T081500"), false, "a Tuesday is not skipped at Monday's time")
 }
+
+// the windows to get things in and the payment days are in the feed, each
+// left out with ?get=0 or ?pay=0
+func TestWardenFeedGetsPays(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+	code, out := wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "title": "Luistimet", "date": "2026-11-20",
+		"fields": map[string]any{"get_from": "2026-11-01", "get_by": "2026-11-15"}, "cost": map[string]any{"amount": 100, "instalments": 3, "first": "2026-11-01"}})
+	eq(t, code, 200, "saved: "+wardenErrOf(out))
+	id := out["event_id"].(string)
+	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
+	feed := out["space"].(map[string]any)["calendar_feed"].(string)
+	path := feed[strings.Index(feed, "/apps/warden/cal/"):]
+	_, ics := editorDo(t, "GET", base+path, "", "", "")
+	for _, want := range []string{"UID:" + id + "-get@", "SUMMARY:Hanki: Luistimet", "DTSTART;VALUE=DATE:20261101", "DTEND;VALUE=DATE:20261116",
+		"UID:" + id + "-pay0@", "SUMMARY:Maksu: Luistimet 33\\,33 €", "UID:" + id + "-pay2@", "SUMMARY:Maksu: Luistimet 33\\,34 €", "DTSTART;VALUE=DATE:20270101"} {
+		if !strings.Contains(ics, want) {
+			t.Errorf("feed has no %q:\n%s", want, ics)
+		}
+	}
+	eq(t, strings.Count(ics, "BEGIN:VEVENT"), 5, "the entry, its window and three payments")
+	_, ics = editorDo(t, "GET", base+path+"?get=0&pay=0", "", "", "")
+	eq(t, strings.Count(ics, "BEGIN:VEVENT"), 1, "only the entry")
+	_, ics = editorDo(t, "GET", base+path+"?pay=0", "", "", "")
+	eq(t, strings.Count(ics, "BEGIN:VEVENT"), 2, "and its window")
+}
