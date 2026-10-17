@@ -372,12 +372,17 @@ try {
     await page.keyboard.press("Control+c");
     ok("Ctrl+A, Ctrl+C copy a field's text", (await copiedKeys) === "Swimming on Tuesdays");
     await page.keyboard.press("End");
+    // Enter is a line break in the assistant's field; Ctrl+Enter sends
     await page.keyboard.press("Enter");
+    await page.keyboard.type("17-18");
+    await page.waitForTimeout(100);
+    eq("Enter makes a new line", await page.evaluate(() => window.__spaces.assistField.value), "Swimming on Tuesdays\n17-18");
+    await page.keyboard.press("Control+Enter");
     const answered = await page
       .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text === "Added Leo's swimming on Tuesdays."), null, { timeout: 5000 })
       .then(() => true, () => false);
     const asked = calls.filter((c) => c.op === "assist").pop();
-    ok("the assistant gets the text and a JPEG", asked && asked.body.text === "Swimming on Tuesdays" && asked.body.images.length === 1
+    ok("the assistant gets the text and a JPEG", asked && asked.body.text === "Swimming on Tuesdays\n17-18" && asked.body.images.length === 1
       && asked.body.images[0].mimeType === "image/jpeg" && Buffer.from(asked.body.images[0].data, "base64")[0] === 0xff, JSON.stringify(asked && asked.body.text));
     const read = calls.filter((c) => c.op !== "changes");
     ok("its answer is shown and the space read again", answered && read[read.length - 1].op === "get_space", JSON.stringify(read.slice(-3).map((c) => c.op)));
