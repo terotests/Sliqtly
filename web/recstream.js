@@ -10,12 +10,15 @@
 //
 // The stream (JSON, gzipped in the file):
 //
-//   sliqrec   1, the format
+//   sliqrec   2, the format (streamAge: what a player makes of another)
+//   rev       1, what the player may rely on within the format: every
+//             slide of a deck says where it is shown whole (`settled`)
 //   width, height, fps, frames, duration
-//   slides    [{ start, end, steps: [t], enter? }]: each slide's master
-//             time, the build steps on it (the sub times a presenter steps
-//             through) and where its transition ends (none: at start);
-//             seconds of the recording
+//   slides    [{ start, end, steps: [t], enter?, settled? }]: each slide's
+//             master time, the build steps on it (the sub times a presenter
+//             steps through), where its transition ends (none: at start)
+//             and where everything on it has arrived; seconds of the
+//             recording
 //   cmds      every distinct shape once: a drawing command without its
 //             place (x, y), its points (pts) as whole twentieths of a unit
 //             from that place, each from the one before
@@ -46,6 +49,28 @@
 // the next slide, and autoplay plays the whole recording through.
 
 export const FORMAT = 2;
+export const REV = 1;
+
+/**
+ * What this player makes of a stream (its JSON): { play, age }. `age`
+ * "older" or "newer" says it was made by another Sliqtly than this one, and
+ * `play` whether it plays all the same. Format 1 (before shapes were kept
+ * once, #489) is not read at all, nor a format to come. A stream of format 2
+ * from before `rev` whose slides do not say where they are shown whole
+ * (#530) plays, but presenting stops at each slide's end, after its
+ * autoplay hold, instead: it plays, and the page asks for a new export.
+ * "unknown": not a recording.
+ */
+export function streamAge(stream) {
+  if (!stream || typeof stream !== "object" || typeof stream.sliqrec !== "number") return { play: false, age: "unknown" };
+  if (stream.sliqrec < FORMAT) return { play: false, age: "older" };
+  if (stream.sliqrec > FORMAT) return { play: false, age: "newer" };
+  if ((stream.rev || 0) >= REV) return { play: true, age: "" };
+  // the deck's timeline gave every slide its settled time since #530
+  const slides = Array.isArray(stream.slides) ? stream.slides : [];
+  if (slides.length && !slides.some((sl) => typeof sl?.settled === "number")) return { play: true, age: "older" };
+  return { play: true, age: "" };
+}
 
 // places and points are kept in twentieths of a slide unit (a 960 wide
 // slide drawn 3840 wide is a fifth of a pixel off at most)
@@ -159,6 +184,7 @@ export class RecEncoder {
     const tl = this.timeline;
     return {
       sliqrec: FORMAT,
+      rev: REV,
       width: this.width,
       height: this.height,
       fps: tl.fps,
@@ -205,8 +231,11 @@ export function slidesOf(timeline) {
 /** A stream read back: what frame n (or time t) draws. */
 export class Recording {
   constructor(stream) {
-    if (!stream || stream.sliqrec !== FORMAT) throw new Error("not a recording of this format (export it again)");
+    const { play, age } = streamAge(stream);
+    if (!play) throw Object.assign(new Error(age === "unknown" ? "not a recording" : "a recording of another format (sliqrec " + stream.sliqrec + ")"), { code: "rec-" + age });
     this.s = stream;
+    // made by an older Sliqtly: played, but not all as it should (streamAge)
+    this.age = age;
     this.width = stream.width;
     this.height = stream.height;
     this.fps = stream.fps;

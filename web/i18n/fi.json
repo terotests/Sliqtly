@@ -1979,5 +1979,16 @@
   "3 decimals": "3 desimaalia",
   "Rows": "Rivit",
   "First": "Ensimmäiset",
-  "Paste table": "Liitä taulukko"
+  "Paste table": "Liitä taulukko",
+  "Not saved": "Ei tallennettu",
+  "To keep it, export it before closing the page: File → Export → Markdown (.md), or All files (.zip) for its pictures and data too.": "Jotta se säilyy, vie se ennen kuin suljet sivun: Tiedosto → Vie → Markdown (.md), tai Kaikki tiedostot (.zip), niin myös sen kuvat ja data tulevat mukaan.",
+  "You are not signed in, so this presentation is not saved anywhere.": "Et ole kirjautunut sisään, joten tätä esitystä ei tallenneta minnekään.",
+  "Your license lets you edit {n} presentations in the cloud, and they are taken: this one is not saved.": "Lisenssisi sallii {n} esityksen muokkaamisen pilvessä, ja ne ovat jo käytössä: tätä ei tallenneta.",
+  "Your license to edit has ended: changes are not saved.": "Muokkauslisenssisi on päättynyt: muutoksia ei tallenneta.",
+  "This presentation belongs to another account: your changes are not saved.": "Tämä esitys kuuluu toiselle tilille: muutoksiasi ei tallenneta.",
+  "Nothing is kept in this browser; it is tried again on the next change.": "Tähän selaimeen ei jää mitään; tallennusta yritetään uudelleen seuraavan muutoksen jälkeen.",
+  "Or sign in again.": "Tai kirjaudu uudelleen sisään.",
+  "Or delete another presentation to free a place for it.": "Tai poista jokin toinen esitys, jotta sille vapautuu paikka.",
+  "This browser does not allow storage, so this presentation is kept only while the page is open.": "Tämä selain ei salli tallennusta, joten esitys säilyy vain niin kauan kuin sivu on auki.",
+  "Or sign in with PRO to keep it in the cloud.": "Tai kirjaudu PRO:hon, niin se säilyy pilvessä."
 }
