@@ -670,9 +670,10 @@
 .ui-input-selection { background-color: #f3d9cb; }
 .ui-input-clear { width: 18px; height: 18px; border-radius: 9px; color: var(--muted); background-color: var(--soft); font-size: 13px; text-align: center; line-height: 18px; margin-left: 6px; }
 
-/* --- a date: a button with the day, EVGUI's calendar under it ------------------- */
+/* --- a date field: a button with the day, EVGUI's calendar under it ------------- */
+/* (not .sp-date: that is the summary's big date) */
 
-.sp-date {
+.sp-datebtn {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
@@ -684,11 +685,11 @@
   height: 34px;
   cursor: pointer;
 }
-.sp-date:hover { background-color: var(--soft); }
-.sp-date:focus { border: 1px solid var(--accent); }
-.sp-date-open { border: 1px solid var(--accent); }
-.sp-date-tx { color: var(--ink); font-size: 14px; height: 18px; line-height: 18px; }
-.sp-date-empty-tx { color: var(--faint); }
+.sp-datebtn:hover { background-color: var(--soft); }
+.sp-datebtn:focus { border: 1px solid var(--accent); }
+.sp-datebtn-open { border: 1px solid var(--accent); }
+.sp-datebtn-tx { color: var(--ink); font-size: 14px; height: 18px; line-height: 18px; }
+.sp-datebtn-empty-tx { color: var(--faint); }
 .ui-calendar {
   display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px;
   width: 274px; min-width: 274px;
