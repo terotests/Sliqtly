@@ -40,6 +40,15 @@ const (
 // calls per account in ten minutes: the page's and an assistant's together
 var wardenLimit = rateLimiter(600, 10*time.Minute)
 
+// The open page asks every few seconds whether its space changed (an
+// assistant wrote to it through the MCP server, or another member did):
+// POST api/changes {space_id} answers {changed, mine}. It has a limit of its
+// own, so asking does not use up the calls that change things. The page
+// names itself in X-Warden-Client, so a change it made itself is "mine".
+const wardenChangesOp = "changes"
+
+var wardenChangesLimit = rateLimiter(400, 10*time.Minute)
+
 // ------------------------------------------------------------------ tools --
 
 var wardenEventProps = map[string]any{
@@ -225,7 +234,7 @@ func serveWardenLogin(env *Env, w http.ResponseWriter, r *http.Request) {
 
 func serveWardenAPI(env *Env, w http.ResponseWriter, r *http.Request, op string) {
 	g := env.EditorGate
-	if g == nil || (op != "list_spaces" && op != "create_space" && op != wardenAssistOp && findWardenTool(op) == nil) {
+	if g == nil || (op != "list_spaces" && op != "create_space" && op != wardenAssistOp && op != wardenChangesOp && findWardenTool(op) == nil) {
 		editorJSON(w, 404, map[string]string{"error": "No such call."})
 		return
 	}
@@ -238,7 +247,11 @@ func serveWardenAPI(env *Env, w http.ResponseWriter, r *http.Request, op string)
 		editorJSON(w, 401, map[string]string{"error": "Sign in again.", "code": "signed-out"})
 		return
 	}
-	if why := wardenLimit(t.UID); why != "" {
+	limit := wardenLimit
+	if op == wardenChangesOp {
+		limit = wardenChangesLimit
+	}
+	if why := limit(t.UID); why != "" {
 		editorJSON(w, 429, map[string]string{"error": "Too many requests; try again in a few minutes."})
 		return
 	}
@@ -252,7 +265,11 @@ func serveWardenAPI(env *Env, w http.ResponseWriter, r *http.Request, op string)
 		editorJSON(w, 400, map[string]string{"error": "A JSON object is expected."})
 		return
 	}
-	out, err := env.warden.call(r.Context(), wardenWhoOf(t), op, a, true)
+	who := wardenWhoOf(t)
+	if c := r.Header.Get("X-Warden-Client"); wardenIDRe.MatchString(c) {
+		who.client = c
+	}
+	out, err := env.warden.call(r.Context(), who, op, a, true)
 	var re roomErr
 	switch {
 	case errors.As(err, &re):

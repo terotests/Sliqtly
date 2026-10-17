@@ -280,3 +280,39 @@ func TestWardenLogin(t *testing.T) {
 	res, _ = editorDo(t, "GET", base+"/apps/warden/index.html", "tero", "", "")
 	eq(t, res.StatusCode, 404, "the page is Hosting's")
 }
+
+// The open page asks whether its space changed: a change an assistant (or
+// another page) made is news; one the asking page made itself is "mine".
+func TestWardenChanges(t *testing.T) {
+	env, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti"})
+	sid := out["space_id"].(string)
+	_, out = wardenCall(t, base, "tero", "changes", map[string]any{"space_id": sid})
+	eq(t, []any{out["changed"], out["mine"]}, []any{"0", false}, "nothing yet")
+
+	ctx := context.Background()
+	who := wardenWho{uid: "u-tero", name: "Tero"}
+	_, err := env.warden.call(ctx, who, "save_event", map[string]any{"space_id": sid, "title": "Uinti", "date": "2026-10-20"}, false)
+	eq(t, err, nil)
+	_, out = wardenCall(t, base, "tero", "changes", map[string]any{"space_id": sid})
+	first := out["changed"]
+	eq(t, []any{first != "0", out["mine"]}, []any{true, false}, "an assistant's change")
+	_, sp := wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
+	eq(t, sp["changed"], first, "get_space says when")
+
+	page := who
+	page.client = "page-1"
+	_, err = env.warden.call(ctx, page, "add_ward", map[string]any{"space_id": sid, "name": "Aino"}, true)
+	eq(t, err, nil)
+	got, _ := env.warden.call(ctx, page, "changes", map[string]any{"space_id": sid}, true)
+	mine := got.(map[string]any)
+	eq(t, mine["mine"], true, "the page's own")
+	_, err = env.warden.call(ctx, who, "changes", map[string]any{"space_id": sid}, false)
+	eq(t, err != nil, true, "not an assistant's operation")
+
+	// reading changes nothing
+	env.warden.call(ctx, who, "list_events", map[string]any{"space_id": sid}, false)
+	got, _ = env.warden.call(ctx, page, "changes", map[string]any{"space_id": sid}, true)
+	eq(t, got.(map[string]any)["changed"], mine["changed"], "a read")
+}

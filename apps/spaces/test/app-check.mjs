@@ -662,6 +662,60 @@ console.log("the assistant on a server");
   }
 }
 
+console.log("changes made elsewhere, and the tab in the address");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "en";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  const space = { space_id: "sp1", name: "Home", vocab: "family", lang: "en", role: "owner", members: [], invites: [], wards: [{ id: "w1", name: "Aino", color: "blue" }] };
+  const ev = (id, title) => ({ event_id: id, title, date: iso(a.today), start: "12:00", end: "13:00", ward: "w1" });
+  eq("nothing to ask before a space is open", a.poll(), false);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1" }, spaces: [{ space_id: "sp1", name: "Home" }] }));
+  a.answer(JSON.stringify({ space, events: [ev("e1", "Dentist")], changed: "100" }));
+  eq("the space's stamp", a.changed, "100");
+  a.importSheet("Shopping", "milk\tbread");
+  a.press("sp-nav-calendar");
+  ok("a poll asks", a.poll() && a.outOp() === "changes" && JSON.parse(a.outBody()).space_id === "sp1");
+  eq("one at a time", a.poll(), false);
+  a.answer(JSON.stringify({ changed: "100", mine: false }));
+  eq("unchanged: nothing more", a.outCount(), 0);
+  a.poll();
+  a.answer(JSON.stringify({ changed: "150", mine: true }));
+  ok("the page's own change is no news", a.outCount() === 0 && a.changed === "150");
+  a.poll();
+  a.answer(JSON.stringify({ changed: "200", mine: false }));
+  ok("one made elsewhere reads the space again", a.outOp() === "get_space" && a.outbox[0].quiet);
+  a.answer(JSON.stringify({ space, events: [ev("e1", "Dentist"), ev("e2", "Swimming")], changed: "200" }));
+  eq("the new event is there", a.space.events.length, 2);
+  eq("the tab stays", a.tab, "calendar");
+  eq("and the page's own sheet", a.space.sheets.length, 1);
+
+  // a form open: the change waits until it is closed
+  a.poll();
+  a.answer(JSON.stringify({ changed: "300", mine: false }));
+  a.editing = true;
+  a.answer(JSON.stringify({ space, events: [ev("e1", "Dentist")], changed: "300" }));
+  ok("not while a form is open", a.space.events.length === 2 && a.stale);
+  eq("nor asked", a.poll(), true);
+  eq("(the poll asks only whether it changed)", a.outOp(), "changes");
+  a.answer(JSON.stringify({ changed: "300", mine: false }));
+  a.editing = false;
+  ok("closed, it is read again", a.poll() && a.outOp() === "get_space");
+  a.answer(JSON.stringify({ space, events: [ev("e1", "Dentist")], changed: "300" }));
+  ok("and shown", a.space.events.length === 1 && !a.stale);
+  a.poll();
+  a.failed("The space could not be reached");
+  eq("a failed poll says nothing", a.status, "");
+
+  // the address names the tab
+  ok("a tab by name", a.goTab("budget") && a.tab === "budget");
+  ok("not a tab", !a.goTab("nowhere") && a.tab === "budget");
+}
+
 console.log(`passed=${passed} failed=${failed}`);
 if (failed > 0) process.exit(1);
 console.log("ALL PASS");

@@ -59,12 +59,14 @@ Import "pkg:evg/EVGHitTest.rgr"
 
 ; One call for the host to make: POST <op> with `body`. `ref` is what the
 ; answer is about (an event's or a ward's id here), `rev` the event's change
-; count when its body was taken.
+; count when its body was taken. A quiet get_space reads the space again
+; for a change made elsewhere and keeps the page as it is.
 class SpCall {
     def op:string ""
     def body:string "{}"
     def ref:string ""
     def rev:int 0
+    def quiet:boolean false
     Constructor () {
     }
 }
@@ -126,6 +128,10 @@ class SpacesApp {
     def prefer:string ""
     def loading:boolean false
     def outbox:[SpCall]
+    ; when the space last changed on the server, as the page has it, and
+    ; whether it changed elsewhere since (read again once the page is idle)
+    def changed:string ""
+    def stale:boolean false
     ; the demo data on its way to the server, and how many wards are left
     ; to add before its events go
     def seed@(optional):SpSpace
@@ -578,16 +584,39 @@ class SpacesApp {
         return bar
     }
 
+    fn tabNames:[string] () {
+        if server {
+            return ([] _:string ( "home" "calendar" "lists" "budget" "members" "spaces" "sheets" "docs" "assistant" ))
+        }
+        return ([] _:string ( "home" "calendar" "lists" "budget" "sheets" "docs" "assistant" ))
+    }
+
+    ; The host's address names the tab (#calendar); Back and Forward come
+    ; here. False for a name that is no tab.
+    fn goTab:boolean (name:string) {
+        def tabs:[string] (this.tabNames())
+        def i:int 0
+        while (i < (array_length tabs)) {
+            if ((itemAt tabs i) == name) {
+                if (name != tab) {
+                    this.press(("sp-nav-" + name))
+                }
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     fn nav:EVGElement () {
         def nav:EVGElement (SpacesApp.box("sp-nav"))
         if (this.narrow()) {
             nav = (SpacesApp.box("sp-nav sp-nav-row"))
         }
         nav.role = "navigation"
-        def tabs:[string] ([] _:string ( "home" "calendar" "lists" "budget" "sheets" "docs" "assistant" ))
+        def tabs:[string] (this.tabNames())
         def glyphs:[string] ([] _:string ( "◎" "▦" "☰" "€" "▤" "▧" "✦" ))
         if server {
-            tabs = ([] _:string ( "home" "calendar" "lists" "budget" "members" "spaces" "sheets" "docs" "assistant" ))
             glyphs = ([] _:string ( "◎" "▦" "☰" "€" "◈" "▣" "▤" "▧" "✦" ))
         }
         def i:int 0
@@ -3783,6 +3812,58 @@ class SpacesApp {
         this.queue("get_space" (SpRemote.body(([] _:string ( "space_id" id )))) id)
     }
 
+    ; Live changes: the host asks every few seconds (`poll`) whether the
+    ; space changed on the server, when nothing of the page's own is on its
+    ; way. A change made elsewhere (an assistant through Warden's MCP server,
+    ; another member's page) reads the space again, once the page is idle:
+    ; no form open and nothing left to save. False: nothing was asked.
+    fn poll:boolean () {
+        if (((server == false) || ((strlen spaceId) == 0)) || loading) {
+            return false
+        }
+        if ((array_length outbox) > 0) {
+            return false
+        }
+        if (stale && (this.idle())) {
+            this.reload()
+            return true
+        }
+        this.queue("changes" (SpRemote.body(([] _:string ( "space_id" spaceId )))) spaceId)
+        return true
+    }
+
+    fn idle:boolean () {
+        if ((editing || addOpen) || (!null? seed)) {
+            return false
+        }
+        return ((array_length (space.dirtyEvents())) == 0)
+    }
+
+    fn reload:void () {
+        stale = false
+        def c:SpCall (this.queue("get_space" (SpRemote.body(([] _:string ( "space_id" spaceId )))) spaceId))
+        c.quiet = true
+    }
+
+    ; The space read again for a change made elsewhere: the tab, the sheet
+    ; or document open and the page's own sheets and documents stay.
+    fn refreshSpace:void (sp:VlJson events:VlJson) {
+        def keepTab:string tab
+        def keepSheets:[SpSheet] space.sheets
+        def keepDocs:[SpDoc] space.docs
+        def keepSheet:string sheetSel
+        def keepDoc:string docSel
+        this.showSpace(sp events)
+        space.sheets = keepSheets
+        space.docs = keepDocs
+        tab = keepTab
+        sheetSel = keepSheet
+        docSel = keepDoc
+        if (tab == "budget") {
+            this.askBudget()
+        }
+    }
+
     ; The server's answer to the first call.
     fn answer:void (text:string) {
         if ((array_length outbox) == 0) {
@@ -3790,6 +3871,20 @@ class SpacesApp {
         }
         def c:SpCall (this.takeFirst())
         def o:VlJson (SpRemote.parse(text))
+        if (c.op == "changes") {
+            def at:string (o.stringOr("changed" ""))
+            if ((c.ref == spaceId) && (at != changed)) {
+                changed = at
+                if ((o.boolOr("mine" false)) == false) {
+                    stale = true
+                }
+            }
+            if (stale && (this.idle())) {
+                this.reload()
+            }
+            ; nothing on the page changed yet
+            return
+        }
         if (c.op == "list_spaces") {
             account = (SpRemote.account(text))
             def pick:string ""
@@ -3809,7 +3904,17 @@ class SpacesApp {
         }
         if (c.op == "get_space") {
             if (c.ref == spaceId) {
-                this.showSpace((o.get("space")) (o.get("events")))
+                changed = (o.stringOr("changed" ""))
+                if (c.quiet == false) {
+                    this.showSpace((o.get("space")) (o.get("events")))
+                } {
+                    if (this.idle()) {
+                        this.refreshSpace((o.get("space")) (o.get("events")))
+                    } {
+                        ; edited meanwhile: read again once it is saved
+                        stale = true
+                    }
+                }
             }
         }
         if (c.op == "create_space") {
@@ -3915,6 +4020,10 @@ class SpacesApp {
             return
         }
         def c:SpCall (this.takeFirst())
+        if (c.op == "changes") {
+            ; asked again in a moment
+            return
+        }
         status = message
         loading = false
         if (c.op == "delete_event") {
