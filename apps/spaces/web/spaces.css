@@ -514,13 +514,13 @@
   border-radius: 16px;
   background-color: var(--surface);
 }
-.sp-wxicon { color: #e0a526; font-size: 34px; height: 44px; line-height: 44px; }
-.sp-wxtemp { color: var(--ink); font-size: 38px; font-weight: 800; height: 46px; line-height: 46px; }
-.sp-wxtext { display: flex; flex-direction: column; flex-wrap: nowrap; }
-.sp-wxline { color: var(--muted); font-size: 14px; height: 20px; line-height: 20px; }
-.sp-wxnext { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; }
-.sp-wxicon-sm { color: #e0a526; font-size: 15px; height: 20px; line-height: 20px; }
-.sp-wxwarn { color: #b4501f; font-size: 14px; font-weight: 600; height: 20px; line-height: 20px; }
+.sp-wxicon { color: #e0a526; font-size: 34px; height: 44px; line-height: 44px; flex-shrink: 0; }
+.sp-wxtemp { color: var(--ink); font-size: 38px; font-weight: 800; height: 46px; line-height: 46px; flex-shrink: 0; }
+.sp-wxtext { display: flex; flex-direction: column; flex-wrap: nowrap; flex-shrink: 1; min-width: 0; }
+.sp-wxline { color: var(--muted); font-size: 14px; height: auto; line-height: 20px; }
+.sp-wxnext { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: flex-start; gap: 6px; }
+.sp-wxicon-sm { color: #e0a526; font-size: 15px; height: 20px; line-height: 20px; flex-shrink: 0; }
+.sp-wxwarn { color: #b4501f; font-size: 14px; font-weight: 600; height: auto; line-height: 20px; }
 .sp-placefound { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
 .sp-wxpills { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .sp-wxpill {
