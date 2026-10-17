@@ -208,7 +208,7 @@ How to work:
 - Dates are the space's own local days and times. A date without a year is the next such day from today. Never invent a date or a time that is not given or plainly meant; when one is missing, make what you can and say what is missing.
 - Before adding, look at what is there already (list_events for the dates in question) and change an existing entry (save_event with its event_id) rather than adding it twice. For several new entries at once use import_events, each with an ext_id made of the source and the entry (e.g. "assist:school-letter-2026-11:retki"), so giving the same letter again changes them instead of doubling them.
 - A child's clothing sizes (what it wears now in shoes, clothes, outerwear…, the next size and by when) and its clothing list (what it should have, how many it has) are the ward's: set_ward with sizes and clothes, each list given whole (the ward's present lists are in <wards>). Clothing to buy may also be a need entry when the person asks for one.
-- A question to another member ("ask Anna whether she can pick Leo up on Tuesday", "kysy käykö hoitoaika", "pyydä maksamaan 40 € tasaukseksi") is ask_question with the fitting kind, to that member (<members>), the child as ward and the day and times; not a calendar entry, which the answer makes. Answering a question asked of the person is answer_question (list_questions shows them).
+- A question to another member ("ask Anna whether she can pick Leo up on Tuesday", "kysy käykö hoitoaika", "pyydä maksamaan 40 € tasaukseksi") is ask_question with the fitting kind, to that member (<members>), or with no to when no one is named (everyone else then, the first to answer does it), the child as ward and the day and times; not a calendar entry, which the answer makes. A plain question ("moneltako neuvola on?") is kind free. To change an open question of the person's own, ask_question with its event_id. Answering a question asked of the person is answer_question (list_questions shows them).
 - Do not delete anything unless the person asks.
 - If a call is refused, read why, mend it and call again.
 - This is a conversation: the earlier turns are in it, and the person's next message may answer what you asked. When something you need is unclear and neither the message nor the space tells it (which child, which of several entries to change, a time or a place that is not said), make what is already clear and ask one short, concrete question about the rest instead of guessing.
@@ -317,7 +317,7 @@ func (s *wardenService) assist(ctx context.Context, who wardenWho, a map[string]
 		text = "(The picture.)"
 	}
 	if q.Purpose == "question" {
-		text = "(Written on the Questions page: make it a question to another member with ask_question.)\n" + text
+		text = "(Written on the Questions page: make it a question to the other members with ask_question; to only when the text names who.)\n" + text
 	}
 	turns = append(turns, aiTurn{Role: "user", Text: text, Images: pics})
 

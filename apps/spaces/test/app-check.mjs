@@ -1398,7 +1398,9 @@ console.log("questions between members");
   a.answer(JSON.stringify({ space, events: [q1, q2] }));
   ok("Questions is under the summary, with what waits for an answer", a.tabNames()[1] === "questions" && byId(a, "sp-nav-questions").a11yLabel === "Kyselyt 2");
   a.press("sp-nav-questions");
-  ok("the assistant first, then the kinds", texts(a).includes("Anna AI:n hoitaa kyselyn teko") && texts(a).includes("Käykö hoitoaika") && texts(a).includes("Maksupyyntö budjetin tasaukseen"));
+  ok("only a button for a new question, no explanation", byId(a, "sp-ask-new") && !byId(a, "sp-askai-text") && !texts(a).includes("Anna AI:n hoitaa kyselyn teko"));
+  a.press("sp-ask-new");
+  ok("…it opens the assistant's field, then the kinds", a.focused === "sp-askai-text" && byId(a, "sp-askai-text").a11yLabel === "Kirjoita mitä haluat kysyä muilta perheenjäseniltä" && texts(a).includes("Käykö hoitoaika") && texts(a).includes("Maksupyyntö budjetin tasaukseen"));
   ok("not in the Add menu's types", !a.types.forPack("family").some((t) => t.id === "question"));
   // the assistant: written for a question
   a.askAiField.setValue("Kysy Juholta voiko hän hakea Leon koulusta tiistaina klo 14");
@@ -1414,7 +1416,8 @@ console.log("questions between members");
   // by hand: a school run
   a.press("sp-askkind-school");
   ok("its form: whom, the child, the day, take or pick up", byId(a, "sp-ask-send") && texts(a).includes("Juho") && texts(a).includes("Vie") && texts(a).includes("Hae"));
-  ok("no one is asked of themselves", !a.askable().includes("Mia"));
+  ok("no one is asked of themselves; everyone else first", !a.askable().includes("Mia") && a.askable()[0] === "Kaikki muut" && a.pickOf("f:ask_to") === "Kaikki muut");
+  a.press(`sp-pick-${a.pickIndex("f:ask_to")}-1`);
   a.press("sp-ask-send");
   ok("the day is asked for", a.formErr.includes("Päivä") && a.outCount() === 0, a.formErr);
   a.formCtls[a.textIndex("f:on_date")].setValue(iso(a.today + 2));
@@ -1432,15 +1435,27 @@ console.log("questions between members");
   const q4 = { event_id: "q4", title: "Voitko hakea: Leo (koulu)?", type: "question", ward: "w1",
     fields: { ask: "school", ask_to: "Juho", ask_to_uid: "u2", asked_by: "Mia", asked_by_uid: "u1", on_date: iso(a.today + 2), from_time: "14:00", direction: "pick", status: "planned" } };
   a.answer(JSON.stringify({ space, events: [q1, q2, q4] }));
-  ok("asked, waiting", texts(a).includes("Voitko hakea: Leo (koulu)?") && texts(a).includes("Peru kysymys"));
+  ok("asked, waiting", texts(a).includes("Voitko hakea: Leo (koulu)?") && texts(a).includes("Peru kysymys") && texts(a).includes("Muokkaa"));
+  // changing it: the form as it was asked, saved over the same question
+  a.press(`sp-askedit-${a.askIds.findIndex((id) => a.space.event(id).remoteId === "q4")}`);
+  ok("Change opens its form with what was asked", a.askKind === "school" && a.askEdit !== "" && a.pickOf("f:ask_to") === "Juho" && a.formText("f:on_date") === iso(a.today + 2)
+    && a.formText("f:from_time") === "14:00" && a.pickOf("f:direction") === "pick" && a.pickOf("ward") === "w1" && texts(a).includes("Muokkaa kysymystä") && !byId(a, "sp-askai-text"));
+  a.formCtls[a.textIndex("f:from_time")].setValue("15:00");
+  a.press("sp-ask-send");
+  const eb = JSON.parse(a.outBody());
+  ok("…saved as the same question", a.outOp() === "ask_question" && eb.event_id === "q4" && eb.start === "15:00" && eb.to === "Juho", JSON.stringify(eb));
+  a.answer(JSON.stringify({ event_id: "q4", title: "Voitko hakea: Leo (koulu)?", type: "question" }));
+  ok("…and the form closes", a.askKind === "" && a.askEdit === "" && !a.askNew);
+  a.answer(JSON.stringify({ space, events: [q1, q2, q4] }));
   // a payment: the amount is needed
+  a.press("sp-ask-new");
   a.press("sp-askkind-payment");
   a.press("sp-ask-send");
   ok("the amount", a.formErr.includes("Summa"), a.formErr);
   a.formCtls[a.textIndex("f:amount")].setValue("25,50");
   a.press("sp-ask-send");
   const pb = JSON.parse(a.outBody());
-  ok("in euros, not on the calendar", pb.amount === 25.5 && pb.add_to_calendar === undefined && pb.ward === undefined, JSON.stringify(pb));
+  ok("in euros, not on the calendar, of everyone else", pb.amount === 25.5 && pb.add_to_calendar === undefined && pb.ward === undefined && pb.to === "all", JSON.stringify(pb));
   a.failed("to: ask another member, not yourself");
   ok("a refusal keeps the form", a.askKind === "payment" && a.status.startsWith("to:"));
   a.press("sp-ask-cancel");
@@ -1461,6 +1476,24 @@ console.log("questions between members");
   a.press(`sp-ans-${k2}-s`);
   const sb = JSON.parse(a.outBody());
   ok("sent as the answer", sb.event_id === "q2" && sb.answer === "lauantaina klo 10" && sb.note === undefined, JSON.stringify(sb));
+  // asked of everyone else: any of the others answers
+  const q5 = { event_id: "q5", title: "Voiko joku ostaa maitoa?", type: "question",
+    fields: { ask: "buy", what: "maito", ask_to: "Kaikki muut", ask_to_uid: "*", asked_by: "Juho", asked_by_uid: "u2", status: "planned" } };
+  const q6 = { ...q5, event_id: "q6", title: "Kuka vie roskat?", fields: { ...q5.fields, ask: "free", asked_by: "Mia", asked_by_uid: "u1" } };
+  a.answer(JSON.stringify({ answer: "lauantaina klo 10" }));
+  a.answer(JSON.stringify({ space, events: [q1, q2, q4, q5, q6] }));
+  texts(a);
+  const k5 = rowOf("q5");
+  const k6 = rowOf("q6");
+  ok("a question to everyone else is the person's to answer, not the asker's", a.askForMe(a.space.event(a.askIds[k5])) && byId(a, `sp-ans-${k5}-y`) && !byId(a, `sp-ans-${k6}-y`) && byId(a, `sp-askedit-${k6}`));
+  // the summary's Today: the first open question, the rest on Questions
+  a.press("sp-nav-home");
+  texts(a);
+  ok("Today shows the first question to answer, with its buttons", a.askIds.length === 1 && a.space.event(a.askIds[0]).remoteId === "q1" && byId(a, "sp-ans-0-y") && texts(a).includes("Voitko maksaa 40 € budjetin tasaukseksi?") && !texts(a).includes("Kuka vie roskat?"));
+  ok("…and a link to the rest", texts(a).includes("Katso lisää kysymyksiä (4)"));
+  a.press("sp-askmore");
+  eq("…which opens Questions", a.tab, "questions");
+  a.press("sp-ask-new");
   for (const w of [1280, 390]) {
     a.setWidth(w, 900);
     a.press("sp-askkind-care_time");
