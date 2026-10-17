@@ -332,6 +332,16 @@ class SpRemote {
         e.findTitles = nt
         e.findUrls = nu
         e.findInfo = ni
+        def nids:[string]
+        def nsc:[int]
+        def nwhy:[string]
+        def nrat:[string]
+        def nrea:[string]
+        e.findIds = nids
+        e.findScores = nsc
+        e.findWhy = nwhy
+        e.findRating = nrat
+        e.findReason = nrea
         e.watched = (w.isObject())
         if ((w.isObject()) == false) {
             return
@@ -378,6 +388,11 @@ class SpRemote {
                     push parts ((SpRemote.dayMonth(found)))
                 }
                 push e.findInfo (join parts " · ")
+                push e.findIds (f.stringOr("id" ""))
+                push e.findScores (f.intOr("score" -1))
+                push e.findWhy (f.stringOr("why" ""))
+                push e.findRating (f.stringOr("rating" ""))
+                push e.findReason (f.stringOr("reason" ""))
             }
             i = (i + 1)
         }
@@ -551,6 +566,21 @@ class SpRemote {
                 i = (i + 1)
             }
             o.setMember("sources" a)
+        }
+        return (SpRemote.write(o))
+    }
+
+    ; rate_find's body: one of an entry's finds liked, hidden (with why) or
+    ; cleared
+    sfn rateBody:string (spaceId:string e:SpEvent k:int) {
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("space_id" (SpRemote.str(spaceId)))
+        o.setMember("event_id" (SpRemote.str(e.remoteId)))
+        o.setMember("find_id" (SpRemote.str((itemAt e.findIds k))))
+        o.setMember("rating" (SpRemote.str((itemAt e.findRating k))))
+        def r:string (itemAt e.findReason k)
+        if ((strlen r) > 0) {
+            o.setMember("reason" (SpRemote.str(r)))
         }
         return (SpRemote.write(o))
     }

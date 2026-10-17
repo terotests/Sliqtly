@@ -338,6 +338,13 @@ class SpEvent {
     def findTitles:[string]
     def findUrls:[string]
     def findInfo:[string]
+    ; each find's id (rate_find), fit 0-100 (-1 not said) and why, and the
+    ; rating given ("like", "hide" or "") with why it was hidden
+    def findIds:[string]
+    def findScores:[int]
+    def findWhy:[string]
+    def findRating:[string]
+    def findReason:[string]
     ; where it looks (tori, vinted, huuto, web) and days between searches
     def watchSources:[string]
     def watchEvery:int 1

@@ -797,3 +797,11 @@
 .sp-opt-tx { color: var(--muted); font-size: 13px; height: 18px; line-height: 18px; }
 .sp-opt-on-tx { color: var(--ink); font-weight: 600; }
 .sp-abaway-narrow { font-size: 15px; width: 80px; height: 22px; line-height: 22px; }
+
+/* Tarjoukset: the offer watches' finds */
+.sp-deals { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; padding: 8px 0; }
+.sp-dhead { color: var(--muted); font-size: 13px; font-weight: 700; height: 18px; line-height: 18px; margin-top: 8px; }
+.sp-deal { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; padding: 10px 12px; border-radius: 12px; background-color: var(--surface); }
+.sp-dealtop { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.sp-dfit { color: var(--ink); font-size: 12px; font-weight: 700; height: 20px; line-height: 20px; padding: 0 8px; border-radius: 10px; background-color: var(--soft); flex-shrink: 0; }
+.sp-dwhy { color: var(--muted); font-size: 13px; height: auto; line-height: 18px; }

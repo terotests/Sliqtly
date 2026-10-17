@@ -942,6 +942,55 @@ console.log("an entry's offer watch");
   ok("the watch lints clean", probs.length === 0, probs.join(" | "));
 }
 
+console.log("the offers on the summary");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  a.answer(JSON.stringify({
+    space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] },
+    events: [
+      { event_id: "ev1", title: "Lasten sängyt", date: "", type: "item", fields: { state: "missing" },
+        watch: { query: "lasten sänky", active: true, sources: ["tori"], every_days: 1, finds: [
+          { id: "f1", title: "Nukensänky", url: "https://www.tori.fi/recommerce/forsale/item/1", price: 5, source: "Tori", found: "2026-10-07", score: 20, why: "nuken sänky" },
+          { id: "f2", title: "IKEA Kura", url: "https://www.tori.fi/recommerce/forsale/item/2", price: 60, location: "Pirkkala", source: "Tori", found: "2026-10-07", score: 70 },
+          { id: "f3", title: "Lasten sänky 90x200", url: "https://www.tori.fi/recommerce/forsale/item/3", price: 80, source: "Tori", found: "2026-10-07", score: 90, why: "juuri oikea koko" },
+          { id: "f4", title: "Pinnasänky", url: "https://www.vinted.fi/items/4", source: "Vinted", found: "2026-10-07", rating: "like" },
+        ] } },
+    ],
+  }));
+  ok("a tab for the offers", !!byId(a, "sp-htab-deals"));
+  a.press("sp-htab-deals");
+  let t = texts(a);
+  const at = (s) => t.indexOf(s);
+  ok("new ones best first, then liked, then skipped", at("Uudet (2)") >= 0 && at("Uudet (2)") < at("Lasten sänky 90x200") && at("Lasten sänky 90x200") < at("IKEA Kura")
+    && at("IKEA Kura") < at("Kiinnostavat (1)") && at("Kiinnostavat (1)") < at("Pinnasänky") && at("Pinnasänky") < at("Ohitetut (1)") && at("Ohitetut (1)") < at("Nukensänky"), t.join(","));
+  ok("with the fit and why", t.includes("90") && t.includes("juuri oikea koko") && t.includes("Lasten sängyt · 60 € · Pirkkala · Tori · 7.10."), t.join(","));
+  a.press("sp-deal-0");
+  eq("a find opens in a new tab", a.takeAction(), "open:https://www.tori.fi/recommerce/forsale/item/3");
+  a.press("sp-dhide-1");
+  eq("Ohita asks why first", a.outCount(), 0);
+  ok("the reasons", texts(a).includes("Liian kaukana"));
+  a.press("sp-dwhy-1-too_far");
+  eq("hidden as rate_find", a.outOp(), "rate_find");
+  let rb = JSON.parse(a.outBody());
+  ok("with why", rb.event_id === "ev1" && rb.find_id === "f2" && rb.rating === "hide" && rb.reason === "too_far", JSON.stringify(rb));
+  a.answer(JSON.stringify({ event_id: "ev1", find: { id: "f2", rating: "hide", reason: "too_far" } }));
+  t = texts(a);
+  ok("now under the skipped", t.indexOf("Ohitetut (2)") >= 0 && t.indexOf("Ohitetut (2)") < t.indexOf("IKEA Kura"), t.join(","));
+  a.press("sp-dlike-0");
+  rb = JSON.parse(a.outBody());
+  ok("liked", rb.find_id === "f3" && rb.rating === "like" && rb.reason === undefined, JSON.stringify(rb));
+  a.answer(JSON.stringify({ event_id: "ev1", find: { id: "f3", rating: "like" } }));
+  ok("in the interesting ones", texts(a).includes("Kiinnostavat (2)"));
+  const probs = a.a11yProblems();
+  ok("the offers lint clean", probs.length === 0, probs.join(" | "));
+}
+
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();
