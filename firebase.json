@@ -182,6 +182,20 @@
         }
       },
       {
+        "source": "/apps/warden/cal/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/apps/warden/ics/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/apps/warden/login",
         "run": {
           "serviceId": "sliqtly-mcp",
