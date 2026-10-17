@@ -10910,6 +10910,9 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setDragSlop(finger ? 16 : 6);
   app.setTouch(finger);
   app.setCtrl(pickKeyHeld(ev, IS_MAC));
+  // the press's own time, not the last frame's: a hold is timed from it
+  // (PresCodeView), and a slow machine's frames can be a second apart
+  app.setUiTime(performance.now() / 1000);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
   if (where === "hint" && app.hintWantsPick()) startColorPick();
@@ -11118,6 +11121,8 @@ function endPointer(ev) {
     }
     return;
   }
+  // …and the release's: a hold no frame saw is still one (PresCodeView.upAt)
+  app.setUiTime(performance.now() / 1000);
   app.pointerUp();
   if (ev.pointerType === "mouse" && ev.button !== 2 && app.focusTarget() === "strip" && !app.toolbarOnTop()) {
     paintOnce();

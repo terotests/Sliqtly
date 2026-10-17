@@ -7335,7 +7335,7 @@ class PresApp {
         }
         if codePress {
             codePress = false
-            codeView.release()
+            codeView.release(deck.uiNow)
             this.takeCode()
             return
         }

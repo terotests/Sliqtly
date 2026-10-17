@@ -4617,8 +4617,13 @@ try {
     await page.evaluate(() => [...document.querySelectorAll(".sheet-dialog-bar button")].find((b) => !b.classList.contains("primary"))?.click());
     await page.waitForTimeout(300);
     // without EVGSheets (no copy beside the page, its site out of reach) the
-    // text editor is the fallback
-    const sheetsHere = fs.existsSync(path.join(distDir, "sheets", "evgsheets.mjs"));
+    // text editor is the fallback. Which one this page has is asked of the
+    // page itself: with no copy beside it, it loads EVGSheets from its site
+    // (build.mjs, "evgsheets.base"), which one machine's network reaches
+    // (GitHub's runners) and another's does not.
+    const sheetsLocal = fs.existsSync(path.join(distDir, "sheets", "evgsheets.mjs"));
+    const sheetsBase = sheetsLocal ? "./sheets/" : (JSON.parse(fs.readFileSync(path.join(root, "presentation.config.json"), "utf8")).evgsheets?.base || "https://terotests.github.io/EVGSheets/");
+    const sheetsHere = await page.evaluate((u) => import(new URL(u, location.href).href).then(() => true, () => false), sheetsBase + "evgsheets.mjs");
     const asked = csvOpen.asked && csvOpen.asked.name === "vfs-sales.csv" && /^kk,euroa/i.test(csvOpen.asked.csv || "");
     check("Open on a CSV file: the spreadsheet editor, not the text" + (sheetsHere ? "" : " (EVGSheets unreachable: asked, then the text)"),
       asked && (sheetsHere ? csvOpen.dialog && csvOpen.name === "vfs-sales.csv" && !csvOpen.asText : csvOpen.asText), JSON.stringify(csvOpen).slice(0, 200));
@@ -5126,12 +5131,21 @@ try {
   check("PPTX slide 2 has a push transition", /<p:transition[^>]*>[\s\S]*<p:push/.test(slide2));
   const paras = new Set((slide2.match(/<p:pRg st="(\d+)"/g) || []));
   check("PPTX slide 2 builds its four list items one paragraph at a time", paras.size === 4, [...paras].join(" "));
-  // Keynote imports a build only with its build list and group ids, and
-  // warns about any face it does not have
+  // Keynote imports a build only with its build list and group ids
   check("PPTX slide 2 declares its paragraph build", /<p:bldLst><p:bldP spid="\d+" grpId="0" build="p"\/>/.test(slide2) && /grpId="0" nodeType="clickEffect"/.test(slide2));
+  // The file names the faces the stage drew with, the ones the boxes were
+  // measured for (PresExport.exportFont, #607): the theme's heading and
+  // body, a run's own (a theme's `code` face), all of them Sliqtly's
+  // (PresFonts.FAMILIES), or the theme's (+mn-lt …); never a generic family
+  // ("sans-serif", the Calibri a chart asks for). A reader without a face
+  // substitutes its own.
+  const ownFaces = ["Open Sans", "Noto Sans", "Lato", "Droid Serif", "Fjalla One"];
+  const theme = pptx.get("ppt/theme/theme1.xml") || "";
+  const major = (theme.match(/<a:majorFont><a:latin typeface="([^"]*)"/) || [])[1] || "";
+  const minor = (theme.match(/<a:minorFont><a:latin typeface="([^"]*)"/) || [])[1] || "";
   const faces = new Set();
   for (const [k, v] of pptx) if (k.endsWith(".xml")) for (const m of v.matchAll(/typeface="([^"]+)"/g)) if (m[1]) faces.add(m[1]);
-  check("PPTX names only faces every machine has", [...faces].every((f) => f === "Arial" || f.startsWith("+")), [...faces].join(", "));
+  check("PPTX names the faces the stage drew with: the theme's heading and body, no generic family", ownFaces.includes(major) && ownFaces.includes(minor) && [...faces].every((f) => ownFaces.includes(f) || f.startsWith("+")), `theme ${major} / ${minor}; ${[...faces].join(", ")}`);
   // A formula in a line is an equation PowerPoint can edit (Office Math in
   // the a14 choice) and Unicode text in the fallback, never its TeX source.
   // Equations are set in Cambria Math, which every Office install has.
