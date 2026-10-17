@@ -491,12 +491,36 @@ console.log("entries: the form, the Add menu, deleting and Undo");
   }
   a.setWidth(1280, 700);
 
-  // the Add menu offers the pack's types
+  // the Add menu: without a server, a search over the pack's types and its
+  // groups to browse, not the whole long list
   a.press("sp-nav-calendar");
   a.press("sp-add");
   t = texts(a);
-  ok("the Add menu lists the family types", t.includes("Birthday invitation") && t.includes("Childcare shift") && t.includes("Thing") && !t.includes("Party invitation"), t.slice(-40).join(","));
-  ok("by group", t.includes("Health") && t.includes("Doctor's visit") && t.includes("Change to the usual"));
+  ok("the Add menu searches the types", byId(a, "sp-addsearch") && a.focused === "sp-addsearch" && t.includes("Health") && !t.includes("Doctor's visit"), t.slice(-40).join(","));
+  a.press("sp-addgrp-health");
+  t = texts(a);
+  ok("a group shows its types", t.includes("Doctor's visit") && !t.includes("Birthday invitation"));
+  a.press("sp-addgrp-health");
+  a.typeSearch.setValue("invit");
+  a.rebuild();
+  t = texts(a);
+  ok("the search finds the family types", t.includes("Birthday invitation") && !t.includes("Party invitation") && !t.includes("Doctor's visit"), t.slice(-40).join(","));
+  a.typeSearch.setValue("kutsu");
+  a.rebuild();
+  ok("in Finnish too", texts(a).includes("Birthday invitation"));
+  a.typeSearch.setValue("zzz");
+  a.rebuild();
+  ok("nothing found is said", texts(a).includes("Nothing found"));
+  a.typeSearch.setValue("thing");
+  a.rebuild();
+  ok("a thing", texts(a).includes("Thing"));
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const probs = a.a11yProblems();
+    ok(`${w} the Add menu lints clean`, probs.length === 0, probs.join(" | "));
+  }
+  a.setWidth(1280, 700);
+  a.typeSearch.setValue("");
   a.board.cursor = a.today + 2;
   a.press("sp-addtype-birthday_invitation");
   ok("a new invitation", a.editing && a.editId === "" && a.editType === "birthday_invitation");
@@ -851,6 +875,31 @@ console.log("the assistant on a server");
     a.setWidth(w, 700);
     const probs = a.a11yProblems();
     ok(`${w} the assistant lints clean`, probs.length === 0, probs.join(" | "));
+  }
+  a.setWidth(1280, 700);
+  // on a server Add opens the assistant first; the types by hand are folded
+  a.press("sp-nav-calendar");
+  a.press("sp-add");
+  ok("Add opens the assistant", byId(a, "sp-assist-send") && a.focused === "sp-assist-text" && !byId(a, "sp-addsearch"));
+  a.addImage("kirje.jpg", "image/jpeg", "QUJD");
+  eq("a picture stays in the Add menu", a.tab, "calendar");
+  a.assistField.setValue("Eelin hammaslääkäri ensi tiistaina klo 9");
+  a.press("sp-assist-send");
+  eq("sent from the Add menu", a.outOp(), "assist");
+  a.answer(JSON.stringify({ space_id: "sp1", text: "Lisäsin hammaslääkärin.", changed: true, event_ids: ["e2"], calls: [] }));
+  ok("its answer in the menu", texts(a).includes("Lisäsin hammaslääkärin.") && a.tab === "calendar" && a.addOpen);
+  a.press("sp-add-manual");
+  ok("by hand: the search", byId(a, "sp-addsearch") && a.focused === "sp-addsearch");
+  a.typeSearch.setValue("hammas");
+  a.keyWith("Enter", false, false);
+  ok("Enter opens the first found", a.editing && a.editType !== "" && !a.addOpen, a.editType);
+  a.press("sp-ed-cancel");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    a.press("sp-add");
+    const probs = a.a11yProblems();
+    ok(`${w} the Add menu with the assistant lints clean`, probs.length === 0, probs.join(" | "));
+    a.press("sp-add");
   }
 }
 

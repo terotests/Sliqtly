@@ -256,9 +256,16 @@ try {
       ok("with Undo offered", (await texts(page)).includes("Undo"));
     }
 
-    // the Add menu: a new thing, with no date
+    // the Add menu: the assistant first; by hand, a type searched for: a new
+    // thing, with no date
     await clickId(page, "sp-add");
     await page.waitForTimeout(200);
+    ok("Add opens the assistant", await page.evaluate(() => window.__spaces.focused === "sp-assist-text"));
+    await clickId(page, "sp-add-manual");
+    await page.waitForTimeout(100);
+    await page.keyboard.type("thing");
+    await page.waitForTimeout(200);
+    if (process.env.SPACES_SHOTS) await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "addsearch.png") });
     const thing = await clickId(page, "sp-addtype-item");
     ok("the Add menu offers a thing", thing);
     if (thing) {
