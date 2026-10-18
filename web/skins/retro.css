@@ -50,7 +50,6 @@
 }
 .theme-retro .tb-brand { color: var(--retro-btn-ink); }
 .theme-retro .tb-label,
-.theme-retro .tb-status { color: var(--retro-btn-ink); font-weight: 600; }
 .theme-retro .tb-sep { background-color: var(--retro-edge); }
 /* Present / Sign in: the lit play button */
 .theme-retro .tb-accent,
