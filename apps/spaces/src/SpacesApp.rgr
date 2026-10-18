@@ -179,6 +179,8 @@ class SpacesApp {
     ; their choice); the summary and the phone feed have them either way
     def showGets:boolean false
     def showPays:boolean false
+    ; which email summary the Members page previews (wardensummary.go)
+    def summaryShow:string "day"
     def loading:boolean false
     def outbox:[SpCall]
     ; when the space last changed on the server, as the page has it, and
@@ -2056,6 +2058,116 @@ class SpacesApp {
         return box
     }
 
+    ; Omat asetukset: whether the space's summary comes by email every
+    ; morning or on Monday mornings, and what that email would say from the
+    ; space as it is now. Nothing is sent yet.
+    fn summaryCard:EVGElement () {
+        def c:EVGElement (this.card("summary" (SpWords.pick(lang "My settings: email summary" "Omat asetukset: sähköpostikooste"))))
+        c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "A summary of the space's plans and reminders by email, every morning or on Monday mornings. Only you get it; each member picks their own." "Tilan menot ja muistutukset koosteena sähköpostiin joka aamu tai maanantaiaamuisin. Kooste tulee vain sinulle; jokainen jäsen valitsee omansa.")))))
+        def sw:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        sw.addChild((this.showSwitch("sp-sum-off" (SpWords.pick(lang "No summary" "Ei koostetta")) (space.emailSummary == "off"))))
+        sw.addChild((this.showSwitch("sp-sum-day" (SpWords.pick(lang "Every morning" "Joka aamu")) (space.emailSummary == "day"))))
+        sw.addChild((this.showSwitch("sp-sum-week" (SpWords.pick(lang "Monday mornings" "Maanantaiaamuisin")) (space.emailSummary == "week"))))
+        c.addChild(sw)
+        def to:string account.email
+        if ((strlen to) == 0) {
+            to = (SpWords.pick(lang "your account's address" "tilisi osoitteeseen"))
+        }
+        c.addChild((SpacesApp.tx("sp-meta" ((SpWords.pick(lang "It would go to " "Kooste lähtisi osoitteeseen ")) + to + (SpWords.pick(lang ". Sending is not on yet: below is what the email would say now." ". Lähetys ei ole vielä käytössä: alla näet, mitä viesti nyt sanoisi."))))))
+        def pv:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        pv.addChild((this.showSwitch("sp-sumprev-day" (SpWords.pick(lang "Preview: a day" "Esikatselu: päivä")) (summaryShow == "day"))))
+        pv.addChild((this.showSwitch("sp-sumprev-week" (SpWords.pick(lang "Preview: a week" "Esikatselu: viikko")) (summaryShow == "week"))))
+        c.addChild(pv)
+        c.addChild((this.summaryMail(summaryShow)))
+        return c
+    }
+
+    ; The email: its subject, each day's plans with their times and wards,
+    ; and the reminders that are due (late ones too).
+    fn summaryMail:EVGElement (kind:string) {
+        def m:EVGElement (UiTree.div("sp-card-mail" "sp-mail"))
+        m.role = "region"
+        def last:int today
+        def subj:string ((SpWords.pick(lang "Today " "Tänään ")) + (SpWords.dayLabel(lang today)))
+        if (kind == "week") {
+            last = (today + 6)
+            subj = ((SpWords.pick(lang "Your week " "Viikkosi ")) + (SpWords.dayLabel(lang today)) + "–" + (SpWords.dayLabel(lang last)))
+        }
+        m.a11yLabel = (SpWords.pick(lang "Email preview" "Sähköpostin esikatselu"))
+        m.addChild((SpacesApp.tx("sp-mailhead" ((SpWords.pick(lang "From: Warden · To: " "Lähettäjä: Warden · Vastaanottaja: ")) + account.email))))
+        m.addChild((SpacesApp.tx("sp-mailsubj" (space.name + ": " + subj))))
+        def hello:string (SpWords.pick(lang "Hi" "Hei"))
+        if ((strlen account.name) > 0) {
+            hello = (hello + " " + account.name)
+        }
+        m.addChild((SpacesApp.tx("sp-mailline" (hello + ","))))
+        m.addChild((SpacesApp.tx("sp-mailsect" (SpWords.pick(lang "Plans" "Menot")))))
+        def occ:[SpOccur] (space.occurrences(today last))
+        def n:int 0
+        def d:int today
+        while (d <= last) {
+            def first:boolean true
+            def i:int 0
+            while (i < (array_length occ)) {
+                def o:SpOccur (itemAt occ i)
+                if (o.day == d) {
+                    if (first && (kind == "week")) {
+                        m.addChild((SpacesApp.tx("sp-mailday" (SpWords.dayLabel(lang d)))))
+                    }
+                    first = false
+                    def line:string ((SpWords.timeOf(lang o)) + "  " + o.title)
+                    def ward:string (space.resourceName(o.resource))
+                    if ((strlen ward) > 0) {
+                        line = (line + " · " + ward)
+                    }
+                    m.addChild((SpacesApp.tx("sp-mailline" line)))
+                    n = (n + 1)
+                }
+                i = (i + 1)
+            }
+            d = (d + 1)
+        }
+        if (n == 0) {
+            m.addChild((SpacesApp.tx("sp-mailline" (SpWords.pick(lang "No plans." "Ei menoja.")))))
+        }
+        m.addChild((SpacesApp.tx("sp-mailsect" (SpWords.pick(lang "Remember" "Muista")))))
+        def r:int 0
+        def j:int 0
+        while (j < (array_length space.deadlines)) {
+            def dl:SpDeadline (itemAt space.deadlines j)
+            if ((dl.done == false) && (dl.day <= last)) {
+                m.addChild((SpacesApp.tx("sp-mailline" (this.summaryRemind(dl.title dl.day dl.resource)))))
+                r = (r + 1)
+            }
+            j = (j + 1)
+        }
+        def due:[SpEvent] (space.dueEntries(last))
+        def k:int 0
+        while (k < (array_length due)) {
+            def e:SpEvent (itemAt due k)
+            if ((SpacesApp.closed(e)) == false) {
+                m.addChild((SpacesApp.tx("sp-mailline" (this.summaryRemind(e.title e.day e.resource)))))
+                r = (r + 1)
+            }
+            k = (k + 1)
+        }
+        if (r == 0) {
+            m.addChild((SpacesApp.tx("sp-mailline" (SpWords.pick(lang "Nothing due." "Ei erääntyviä.")))))
+        }
+        m.addChild((SpacesApp.tx("sp-mailfoot" (SpWords.pick(lang "Open Warden: sliqtly.com/apps/warden · Change or stop the summary on the Members page." "Avaa Warden: sliqtly.com/apps/warden · Muuta tai lopeta kooste Jäsenet-sivulla.")))))
+        return m
+    }
+
+    ; "Laskun eräpäivä, ti 20.10. · Leevi"
+    fn summaryRemind:string (title:string day:int ward:string) {
+        def line:string (title + ", " + (this.whenText(day)))
+        def wn:string (space.resourceName(ward))
+        if ((strlen wn) > 0) {
+            line = (line + " · " + wn)
+        }
+        return line
+    }
+
     ; "tänään", "huomenna", "myöhässä · ma 12.10.", "ti 20.10."
     fn whenText:string (day:int) {
         if (day < today) {
@@ -2261,6 +2373,9 @@ class SpacesApp {
             fr.addChild((SpacesApp.btn("sp-feed-copy" "sp-action" (SpWords.pick(lang "Copy the address" "Kopioi osoite")))))
             fc.addChild(fr)
             v.addChild(fc)
+        }
+        if server {
+            v.addChild((this.summaryCard()))
         }
         if (owner && server) {
             v.addChild((this.backupsCard()))
@@ -8455,6 +8570,11 @@ class SpacesApp {
         if (c.op == "own_budget") {
             own.read(text)
         }
+        if (c.op == "email_summary") {
+            if (c.ref == spaceId) {
+                space.emailSummary = (o.stringOr("period" space.emailSummary))
+            }
+        }
         if ((c.op == "list_backups") || (c.op == "restore_backup")) {
             this.backupsAnswered(c o)
         }
@@ -8700,6 +8820,21 @@ class SpacesApp {
         }
         if (target == "sp-feed-pays") {
             feedPays = (feedPays == false)
+            this.rebuild()
+            return true
+        }
+        if (((target == "sp-sum-off") || (target == "sp-sum-day")) || (target == "sp-sum-week")) {
+            def p:string (substring target 7 (strlen target))
+            space.emailSummary = p
+            this.queue("email_summary" (SpRemote.body(([] _:string ( "space_id" spaceId "period" p )))) spaceId)
+            if (p != "off") {
+                summaryShow = p
+            }
+            this.rebuild()
+            return true
+        }
+        if ((target == "sp-sumprev-day") || (target == "sp-sumprev-week")) {
+            summaryShow = (substring target 11 (strlen target))
             this.rebuild()
             return true
         }

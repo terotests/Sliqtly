@@ -390,6 +390,17 @@ console.log("a space on a server");
   a.press("sp-feed-gets");
   a.press("sp-feed-open");
   eq("nor the windows to get things in", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0");
+
+  // the email summary: the person's own choice, and a preview of the email
+  ok("the summary's card, off", texts(a).includes("✓ No summary") && texts(a).includes("Hi Mia,"));
+  a.press("sp-sum-week");
+  const sb = JSON.parse(a.outBody());
+  ok("choosing sends email_summary", a.outOp() === "email_summary" && sb.space_id === "sp1" && sb.period === "week", JSON.stringify(sb));
+  ok("and previews the week", texts(a).includes("✓ Monday mornings") && texts(a).some((t) => t.startsWith("Home crew: Your week ")));
+  a.answer(JSON.stringify({ space_id: "sp1", period: "week", email: "mia@example.com", sending: false }));
+  eq("kept", a.space.emailSummary, "week");
+  a.press("sp-sumprev-day");
+  ok("the day's preview", texts(a).some((t) => t.startsWith("Home crew: Today ")));
   for (const w of [1280, 390]) {
     a.setWidth(w, 700);
     for (const v of ["members", "spaces"]) {
