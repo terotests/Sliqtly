@@ -88,6 +88,9 @@ type wardenService struct {
 	ai *wardenAssist
 	// the site's address, for the calendar feed's (wardenfeed.go)
 	base string
+	// the Sliqtly tools the info screen is made with (wardeninfo.go); nil:
+	// none
+	deck wardenDeckCall
 }
 
 func newWardenService(db DB) *wardenService {
@@ -209,7 +212,7 @@ func (sp *wardenSpace) json() map[string]any {
 	return map[string]any{
 		"space_id": sp.id, "name": docStr(sp.doc, "name"), "vocab": docStr(sp.doc, "vocab"), "lang": docStr(sp.doc, "lang"),
 		"time_zone": tz, "role": sp.role, "members": members, "invites": anys(docStrs(sp.doc, "invites")), "wards": wards,
-		"places": wardenPlacesJSON(sp.doc),
+		"places": wardenPlacesJSON(sp.doc), "info_screen": wardenInfoJSON(sp),
 	}
 }
 
@@ -1540,6 +1543,8 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.answerQuestion(ctx, sp, a)
 	case "list_questions":
 		return s.listQuestions(ctx, sp, a)
+	case "info_screen":
+		return s.infoScreen(ctx, sp, a)
 	}
 	return nil, roomErr{"no such operation: " + op}
 }

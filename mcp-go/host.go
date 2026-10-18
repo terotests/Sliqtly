@@ -225,6 +225,15 @@ func NewApp(env *Env) http.Handler {
 	if env.warden != nil && env.warden.base == "" {
 		env.warden.base = wardenOrigin(env)
 	}
+	// the info screen is a presentation of the person's own (wardeninfo.go)
+	if env.warden != nil && env.warden.deck == nil {
+		env.warden.deck = func(ctx context.Context, uid, op string, args map[string]any) (map[string]any, error) {
+			if !aiPlacesOn(env) {
+				return nil, roomErr{"Presentations are not available on this server."}
+			}
+			return aiPlaceCall(env, ctx, uid)(op, args)
+		}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 40<<20)
 		if r.Method == http.MethodPost && r.URL.Path == "/oauth/register" && env.Registrations(clientIP(r)) != "" {

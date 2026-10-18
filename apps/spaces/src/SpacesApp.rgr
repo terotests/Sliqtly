@@ -229,6 +229,10 @@ class SpacesApp {
     def types:SpTypes (SpTypes.builtin())
     ; the Add menu is open
     def addOpen:boolean false
+    ; on a server: the info screen's panel open under the top bar, and its
+    ; presentation on its way from the assistant
+    def infoOpen:boolean false
+    def infoBusy:boolean false
     ; on a narrow page the navigation hides behind the menu button
     def menuOpen:boolean false
     ; in it: the types to pick by hand shown (on a server the assistant comes
@@ -804,6 +808,9 @@ class SpacesApp {
         def main:EVGElement (UiTree.div("sp-main" "sp-main"))
         main.role = "main"
         UiTree.inline(main "width" (SpacesApp.px((this.mainW()))))
+        if ((infoOpen && server) && ((strlen spaceId) > 0)) {
+            main.addChild((this.infoCard()))
+        }
         def noSpace:boolean (server && (((strlen spaceId) == 0) && (loading == false)))
         if ((tab == "spaces") || noSpace) {
             main.addChild((this.spacesView()))
@@ -912,6 +919,17 @@ class SpacesApp {
         }
         if wordsOn {
             bar.addChild(pills)
+        }
+        ; the info screen: the latest presentation of the space
+        if (server && ((strlen spaceId) > 0)) {
+            def ic:string "sp-infobtn"
+            if infoOpen {
+                ic = "sp-infobtn sp-infobtn-on"
+            }
+            def ib:EVGElement (SpacesApp.btn("sp-info" ic "▶"))
+            ib.a11yLabel = (SpWords.pick(lang "Info screen" "Info-näyttö"))
+            ib.a11yExpanded = (SpacesApp.tri(infoOpen))
+            bar.addChild(ib)
         }
         def lg:EVGElement (SpacesApp.box("sp-pills"))
         lg.role = "group"
@@ -2061,6 +2079,80 @@ class SpacesApp {
     ; Omat asetukset: whether the space's summary comes by email every
     ; morning or on Monday mornings, and what that email would say from the
     ; space as it is now. Nothing is sent yet.
+    ; The info screen: the assistant makes a short presentation of the
+    ; space's day and the days ahead for a screen on the wall, by the button
+    ; or every morning (wardeninfo.go); the top bar's button opens the latest.
+    fn infoCard:EVGElement () {
+        def c:EVGElement (this.card("info" (SpWords.pick(lang "Info screen" "Info-näyttö"))))
+        c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "The assistant makes a short presentation of today's plans, what to remember and the week, for a screen on the wall." "Avustaja tekee tämän päivän menoista, muistettavista ja viikosta lyhyen esityksen seinänäytölle.")))))
+        if ((strlen space.infoUrl) > 0) {
+            def when:string space.infoMade
+            if ((strlen when) >= 16) {
+                def d:int (SpText.dayOf((substring when 0 10) (itemAt (SpSpace.ymdOf(today)) 0)))
+                when = ((SpWords.dayLabel(lang d)) + (SpWords.pick(lang " at " " klo ")) + (substring when 11 16))
+            }
+            if ((strlen space.infoBy) > 0) {
+                when = (when + " · " + space.infoBy)
+            }
+            c.addChild((SpacesApp.tx("sp-meta" ((SpWords.pick(lang "Latest: " "Viimeisin: ")) + when))))
+        } {
+            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "None made yet." "Ei vielä tehty.")))))
+        }
+        def row:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        if ((strlen space.infoUrl) > 0) {
+            row.addChild((SpacesApp.btn("sp-info-open" "sp-action" (SpWords.pick(lang "Open the presentation" "Avaa esitys")))))
+        }
+        def mk:string (SpWords.pick(lang "Make it now" "Tee nyt"))
+        if infoBusy {
+            mk = (SpWords.pick(lang "Making…" "Tehdään…"))
+        }
+        def mb:EVGElement (SpacesApp.btn("sp-info-make" "sp-action sp-action-primary" mk))
+        row.addChild(mb)
+        row.addChild((this.showSwitch("sp-info-morning" (SpWords.pick(lang "Make it every morning" "Tee joka aamu")) space.infoMorning)))
+        c.addChild(row)
+        c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Anyone with the presentation's link can see it." "Esityksen näkee kuka tahansa, jolla on sen linkki.")))))
+        return c
+    }
+
+    ; The info screen's buttons.
+    fn pressInfo:boolean (target:string) {
+        if (target == "sp-info") {
+            infoOpen = (infoOpen == false)
+            if (infoOpen && ((strlen space.infoUrl) > 0)) {
+                action = ("open:" + space.infoUrl)
+            }
+            return true
+        }
+        if (target == "sp-info-open") {
+            if ((strlen space.infoUrl) > 0) {
+                action = ("open:" + space.infoUrl)
+            }
+            return true
+        }
+        if (target == "sp-info-make") {
+            if (infoBusy || assistBusy) {
+                return true
+            }
+            def o:VlJson (VlJson.objectValue())
+            o.setMember("space_id" (SpRemote.str(spaceId)))
+            o.setMember("purpose" (SpRemote.str("info_screen")))
+            o.setMember("today" (SpRemote.str((SpSpace.dateText(today)))))
+            this.queue("assist" (SpRemote.write(o)) "info")
+            infoBusy = true
+            status = (SpWords.pick(lang "The assistant is making the info screen…" "Avustaja tekee info-näyttöä…"))
+            return true
+        }
+        if (target == "sp-info-morning") {
+            space.infoMorning = (space.infoMorning == false)
+            def o2:VlJson (VlJson.objectValue())
+            o2.setMember("space_id" (SpRemote.str(spaceId)))
+            o2.setMember("morning" (VlJson.boolValue(space.infoMorning)))
+            this.queue("info_screen" (SpRemote.write(o2)) spaceId)
+            return true
+        }
+        return false
+    }
+
     fn summaryCard:EVGElement () {
         def c:EVGElement (this.card("summary" (SpWords.pick(lang "My settings: email summary" "Omat asetukset: sähköpostikooste"))))
         c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "A summary of the space's plans and reminders by email, every morning or on Monday mornings. Only you get it; each member picks their own." "Tilan menot ja muistutukset koosteena sähköpostiin joka aamu tai maanantaiaamuisin. Kooste tulee vain sinulle; jokainen jäsen valitsee omansa.")))))
@@ -8104,6 +8196,10 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (server && (this.pressInfo(target))) {
+            this.rebuild()
+            return true
+        }
         if (UiTree.beginsWith(target "sp-wxplace-")) {
             def wn@(optional):int (to_int (substring target 11 (strlen target)))
             def all:[SpWeather] (this.shownWeather())
@@ -8597,6 +8693,18 @@ class SpacesApp {
                 SpRemote.readPlaces(space o)
             }
         }
+        if ((c.op == "assist") && (c.ref == "info")) {
+            infoBusy = false
+            status = (o.stringOr("text" ""))
+            this.reload()
+            this.rebuild()
+            return
+        }
+        if (c.op == "info_screen") {
+            if (c.ref == spaceId) {
+                space.infoMorning = (o.boolOr("morning" space.infoMorning))
+            }
+        }
         if (c.op == "assist") {
             this.assistAnswered(c.ref (o.stringOr("text" "")) true)
             ; it may have changed the person's own budget too
@@ -8693,8 +8801,14 @@ class SpacesApp {
             this.openSpace(spaceId)
             tab = "members"
         }
-        if (c.op == "assist") {
+        if ((c.op == "assist") && (c.ref == "info")) {
+            infoBusy = false
+        }
+        if ((c.op == "assist") && (c.ref != "info")) {
             this.assistAnswered(c.ref message false)
+        }
+        if (c.op == "info_screen") {
+            this.reload()
         }
         if ((c.op == "add_ward") && (UiTree.beginsWith(c.ref "wnew-"))) {
             ; the server did not take it: nor does the page

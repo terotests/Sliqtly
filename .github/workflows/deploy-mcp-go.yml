@@ -122,6 +122,13 @@ jobs:
             --cpu 1 --memory 512Mi --concurrency 8 --max-instances 10 --cpu-boost "${ENV_ARGS[@]}"
           URL=$(gcloud run services describe sliqtly-mcp --region "$REGION" --project "$PROJECT" --format 'value(status.url)')
           echo "Service: $URL/mcp" | tee -a "$GITHUB_STEP_SUMMARY"
+          # Warden's morning info screens (mcp-go/wardeninfo.go): the same
+          # image run as `warden-morning`, with the service's settings (its
+          # assistant), started each morning by warden-morning.yml
+          gcloud run jobs deploy sliqtly-warden-morning --image "$IMAGE:$GITHUB_SHA" \
+            --region "$REGION" --project "$PROJECT" \
+            --cpu 1 --memory 1Gi --task-timeout 60m --max-retries 0 --tasks 1 \
+            --args warden-morning "${ENV_ARGS[@]}"
       - name: Check the service answers
         run: |
           URL=$(gcloud run services describe sliqtly-mcp --region "$REGION" --project "$PROJECT" --format 'value(status.url)')
