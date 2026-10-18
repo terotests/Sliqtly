@@ -124,6 +124,17 @@ class SpacesApp {
     def linkUrls:[string]
     def sheetSel:string ""
     def docSel:string ""
+    ; the Documents view on a server: the space's documents read
+    ; (list_docs), its folders, the folder shown ("" all), the new folder's
+    ; field open, the move-to-folder chips open, and the document whose
+    ; Delete was pressed once
+    def docsRead:boolean false
+    def docFolders:[string]
+    def docFolderSel:string ""
+    def docFolderOpen:boolean false
+    def docFolderField:InputCtl (new InputCtl())
+    def docMoveOpen:boolean false
+    def docDelAsk:string ""
     ; the assistant's conversation: question keys and answers; a question
     ; the person wrote is kept as "@" and its text
     def asked:[string]
@@ -134,6 +145,8 @@ class SpacesApp {
     def doneIds:[string]
     def doneGone:[string]
     def doneNotes:[string]
+    ; the first document each answer wrote or changed, "" for none
+    def doneDocs:[string]
     ; the assistant page's list of what it can do, open
     def helpOpen:boolean false
     ; an element the host scrolls into view at the next paint (takeReveal),
@@ -553,6 +566,8 @@ class SpacesApp {
         doneGone = none4
         def none5:[string]
         doneNotes = none5
+        def none6:[string]
+        doneDocs = none6
         this.newBoard()
         this.rebuild()
     }
@@ -3188,6 +3203,9 @@ class SpacesApp {
         if (tid == "sp-askai-text") {
             return "sp-askai-send"
         }
+        if (tid == "sp-docfolder-name") {
+            return "sp-docfolder-save"
+        }
         if (tid == "sp-addsearch") {
             return "sp-addfirst"
         }
@@ -3347,34 +3365,67 @@ class SpacesApp {
 
     fn docsView:EVGElement () {
         def v:EVGElement (SpacesApp.box("sp-view"))
-        v.addChild((this.heading((SpWords.ui(lang "docs")) (SpWords.pick(lang "Summaries and plans the assistant wrote, and the space's own notes." "Avustajan kirjoittamat koosteet ja suunnitelmat sekä tilan omat muistiinpanot.")))))
+        def onServer:boolean (this.docsOnServer())
+        def sub:string (SpWords.pick(lang "Summaries and plans the assistant wrote, and the space's own notes." "Avustajan kirjoittamat koosteet ja suunnitelmat sekä tilan omat muistiinpanot."))
+        if onServer {
+            sub = (SpWords.pick(lang "The space's own Sliqtly documents on any subject, in folders. The assistant writes and changes them; each opens in Sliqtly too." "Tilan omat Sliqtly-dokumentit mistä aiheesta tahansa, kansioissa. Avustaja kirjoittaa ja muokkaa niitä, ja jokainen aukeaa myös Sliqtlyssä."))
+        }
+        v.addChild((this.heading((SpWords.ui(lang "docs")) sub)))
         v.addChild((this.addBar()))
-        def bar:EVGElement (SpacesApp.box("sp-tabs"))
+        def bar:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
         bar.addChild((SpacesApp.btn("sp-write-summary" "sp-action" (SpWords.ui(lang "newSummary")))))
         bar.addChild((SpacesApp.btn("sp-write-plan" "sp-action sp-action-primary" (SpWords.ui(lang "newPlan")))))
+        if onServer {
+            def nf:EVGElement (SpacesApp.btn("sp-docfolder-new" "sp-action" (SpWords.pick(lang "+ Folder" "+ Kansio"))))
+            nf.a11yExpanded = (SpacesApp.tri(docFolderOpen))
+            bar.addChild(nf)
+        }
         v.addChild(bar)
+        if (onServer && docFolderOpen) {
+            def form:EVGElement (SpacesApp.box("sp-row sp-wrap"))
+            form.addChild((this.field(docFolderField "sp-docfolder-name" (SpWords.pick(lang "Folder's name" "Kansion nimi")) (SpWords.pick(lang "e.g. Home decorating" "esim. Sisustus")) "text")))
+            form.addChild((SpacesApp.btn("sp-docfolder-save" "sp-action sp-action-primary" (SpWords.pick(lang "Make folder" "Luo kansio")))))
+            v.addChild(form)
+        }
+        if ((array_length docFolders) > 0) {
+            def fr:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+            fr.role = "group"
+            fr.a11yLabel = (SpWords.pick(lang "Folders" "Kansiot"))
+            def allCls:string "sp-chip"
+            if ((strlen docFolderSel) == 0) {
+                allCls = "sp-chip sp-chip-on"
+            }
+            def all:EVGElement (SpacesApp.btn("sp-docf-all" allCls (SpWords.pick(lang "All" "Kaikki"))))
+            all.a11yPressed = (SpacesApp.tri(((strlen docFolderSel) == 0)))
+            fr.addChild(all)
+            def fi:int 0
+            while (fi < (array_length docFolders)) {
+                def fname:string (itemAt docFolders fi)
+                def fcls:string "sp-chip"
+                if (fname == docFolderSel) {
+                    fcls = "sp-chip sp-chip-on"
+                }
+                def fb:EVGElement (SpacesApp.btn(("sp-docf-" + (to_string fi)) fcls ("▸ " + fname)))
+                fb.a11yPressed = (SpacesApp.tri((fname == docFolderSel)))
+                fr.addChild(fb)
+                fi = (fi + 1)
+            }
+            if ((strlen docFolderSel) > 0) {
+                fr.addChild((SpacesApp.btn("sp-docfolder-del" "sp-link sp-link-quiet" (SpWords.pick(lang "Remove folder" "Poista kansio")))))
+            }
+            v.addChild(fr)
+        }
         def split:EVGElement (SpacesApp.box("sp-split"))
         if (this.narrow()) {
             split = (SpacesApp.box("sp-split sp-cols-narrow"))
         }
         def list:EVGElement (SpacesApp.box("sp-doclist"))
         list.role = "list"
-        def cur@(optional):SpDoc
-        def n:int (array_length space.docs)
-        def i:int (n - 1)
-        while (i >= 0) {
-            def d:SpDoc (itemAt space.docs i)
-            if (((strlen docSel) == 0) && (i == (n - 1))) {
-                cur = d
-            }
-            if (d.id == docSel) {
-                cur = d
-            }
-            i = (i - 1)
-        }
-        def k:int (n - 1)
+        def docs:[SpDoc] (this.shownDocs())
+        def cur@(optional):SpDoc (this.curDoc())
+        def k:int ((array_length docs) - 1)
         while (k >= 0) {
-            def d2:SpDoc (itemAt space.docs k)
+            def d2:SpDoc (itemAt docs k)
             def on:boolean false
             if (!null? cur) {
                 on = ((unwrap cur).id == d2.id)
@@ -3389,7 +3440,14 @@ class SpacesApp {
             b.a11yLabel = d2.title
             b.a11yPressed = (SpacesApp.tri(on))
             b.addChild((SpacesApp.tx("sp-title" d2.title)))
-            b.addChild((SpacesApp.tx("sp-meta" (SpWords.dayLabel(lang d2.day)))))
+            def meta:string ""
+            if (d2.day > 0) {
+                meta = (SpWords.dayLabel(lang d2.day))
+            }
+            if (((strlen d2.folder) > 0) && ((strlen docFolderSel) == 0)) {
+                meta = (meta + " · ▸ " + d2.folder)
+            }
+            b.addChild((SpacesApp.tx("sp-meta" meta)))
             list.addChild(b)
             k = (k - 1)
         }
@@ -3398,7 +3456,11 @@ class SpacesApp {
         }
         split.addChild(list)
         if (null? cur) {
-            split.addChild((SpacesApp.tx("sp-empty" (SpWords.ui(lang "noDocs")))))
+            def none:string (SpWords.ui(lang "noDocs"))
+            if (onServer && (docsRead == false)) {
+                none = (SpWords.pick(lang "Reading the documents…" "Luetaan dokumentteja…"))
+            }
+            split.addChild((SpacesApp.tx("sp-empty" none)))
         } {
             def docW:double (((this.mainW()) - 240.0) - 16.0)
             if (this.narrow()) {
@@ -3406,10 +3468,308 @@ class SpacesApp {
             }
             def cd:SpDoc (unwrap cur)
             def body:EVGElement (this.markdown("sp-docbody" cd.body docW))
-            split.addChild(body)
+            if cd.remote {
+                def col:EVGElement (SpacesApp.box("sp-col"))
+                UiTree.inline(col "width" (SpacesApp.px(docW)))
+                col.addChild((this.docActions(cd)))
+                col.addChild(body)
+                split.addChild(col)
+            } {
+                split.addChild(body)
+            }
         }
         v.addChild(split)
         return v
+    }
+
+    ; What can be done with a document of the server's: open it in Sliqtly,
+    ; change it with the assistant, move it to a folder, delete it.
+    fn docActions:EVGElement (d:SpDoc) {
+        def box:EVGElement (SpacesApp.box("sp-col"))
+        def row:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        row.role = "group"
+        row.a11yLabel = d.title
+        if ((strlen d.url) > 0) {
+            row.addChild((SpacesApp.btn("sp-docopen" "sp-action sp-action-primary" (SpWords.pick(lang "Open in Sliqtly ↗" "Avaa Sliqtlyssä ↗")))))
+        }
+        row.addChild((SpacesApp.btn("sp-docai" "sp-action" (SpWords.pick(lang "Edit with the assistant" "Muokkaa avustajalla")))))
+        def mv:EVGElement (SpacesApp.btn("sp-docmove" "sp-action" (SpWords.pick(lang "Move to folder" "Siirrä kansioon"))))
+        mv.a11yExpanded = (SpacesApp.tri(docMoveOpen))
+        row.addChild(mv)
+        def delText:string (SpWords.pick(lang "Delete" "Poista"))
+        if (docDelAsk == d.id) {
+            delText = (SpWords.pick(lang "Delete for good?" "Poistetaanko pysyvästi?"))
+        }
+        row.addChild((SpacesApp.btn("sp-docdel" "sp-link sp-link-quiet" delText)))
+        box.addChild(row)
+        if docMoveOpen {
+            def to:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+            to.role = "group"
+            to.a11yLabel = (SpWords.pick(lang "Move to folder" "Siirrä kansioon"))
+            def topCls:string "sp-chip"
+            if ((strlen d.folder) == 0) {
+                topCls = "sp-chip sp-chip-on"
+            }
+            to.addChild((SpacesApp.btn("sp-docmv-top" topCls (SpWords.pick(lang "No folder" "Ei kansiota")))))
+            def i:int 0
+            while (i < (array_length docFolders)) {
+                def fname:string (itemAt docFolders i)
+                def cls:string "sp-chip"
+                if (fname == d.folder) {
+                    cls = "sp-chip sp-chip-on"
+                }
+                to.addChild((SpacesApp.btn(("sp-docmv-" + (to_string i)) cls ("▸ " + fname))))
+                i = (i + 1)
+            }
+            if ((array_length docFolders) == 0) {
+                to.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "No folders yet: make one with + Folder." "Ei vielä kansioita: luo sellainen napista + Kansio.")))))
+            }
+            box.addChild(to)
+        }
+        def meta:string ""
+        if ((strlen d.madeBy) > 0) {
+            meta = ((SpWords.pick(lang "Made by " "Tekijä: ")) + d.madeBy)
+        }
+        if (d.day > 0) {
+            if ((strlen meta) > 0) {
+                meta = (meta + " · ")
+            }
+            meta = (meta + (SpWords.pick(lang "changed " "muutettu ")) + (SpWords.dayLabel(lang d.day)))
+        }
+        if ((strlen meta) > 0) {
+            box.addChild((SpacesApp.tx("sp-meta" meta)))
+        }
+        return box
+    }
+
+    fn docsOnServer:boolean () {
+        return (server && ((strlen spaceId) > 0))
+    }
+
+    ; The documents the view lists: those of the folder chosen, or all.
+    fn shownDocs:[SpDoc] () {
+        def out:[SpDoc]
+        def i:int 0
+        while (i < (array_length space.docs)) {
+            def d:SpDoc (itemAt space.docs i)
+            if (((strlen docFolderSel) == 0) || (d.folder == docFolderSel)) {
+                push out d
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The document open: the one chosen, or the newest shown.
+    fn curDoc@(optional):SpDoc () {
+        def cur@(optional):SpDoc
+        def docs:[SpDoc] (this.shownDocs())
+        def n:int (array_length docs)
+        def i:int 0
+        while (i < n) {
+            def d:SpDoc (itemAt docs i)
+            if (d.id == docSel) {
+                cur = d
+            }
+            i = (i + 1)
+        }
+        if ((null? cur) && (n > 0)) {
+            cur = (itemAt docs (n - 1))
+        }
+        return cur
+    }
+
+    ; list_docs: the space's documents with their Markdown, once the
+    ; Documents view is open.
+    fn askDocs:void () {
+        if ((this.docsOnServer()) == false) {
+            return
+        }
+        if (this.queued("list_docs" spaceId)) {
+            return
+        }
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("space_id" (SpRemote.str(spaceId)))
+        o.setMember("with_text" (VlJson.boolValue(true)))
+        this.queue("list_docs" (SpRemote.write(o)) spaceId)
+    }
+
+    ; list_docs' answer: newest first there, oldest first here (the view
+    ; lists them from the end).
+    fn docsAnswered:void (o:VlJson) {
+        def list:[SpDoc]
+        def ds:VlJson (o.get("docs"))
+        def year:int (itemAt (SpSpace.ymdOf(today)) 0)
+        def i:int ((ds.count()) - 1)
+        while (i >= 0) {
+            def j:VlJson (ds.at(i))
+            def d (new SpDoc())
+            d.id = (j.stringOr("doc_id" ""))
+            d.title = (j.stringOr("title" ""))
+            d.body = (j.stringOr("markdown" ""))
+            d.folder = (j.stringOr("folder" ""))
+            d.url = (j.stringOr("url" ""))
+            d.madeBy = (j.stringOr("made_by" ""))
+            d.remote = true
+            def day:string (j.stringOr("day" ""))
+            if ((strlen day) > 0) {
+                d.day = (SpText.dayOf(day year))
+            }
+            if ((strlen d.id) > 0) {
+                push list d
+            }
+            i = (i - 1)
+        }
+        space.docs = list
+        def fs:[string]
+        def fl:VlJson (o.get("folders"))
+        def k:int 0
+        while (k < (fl.count())) {
+            def f:VlJson (fl.at(k))
+            def nm:string (f.stringOr("name" ""))
+            if ((strlen nm) > 0) {
+                push fs nm
+            }
+            k = (k + 1)
+        }
+        docFolders = fs
+        if ((SpacesApp.inList(fs docFolderSel)) == false) {
+            docFolderSel = ""
+        }
+        docsRead = true
+    }
+
+    ; save_doc: a new document, or the open one's folder (folder only)
+    fn saveDocCall:void (docId:string title:string md:string folder:string moveOnly:boolean) {
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("space_id" (SpRemote.str(spaceId)))
+        if ((strlen docId) > 0) {
+            o.setMember("doc_id" (SpRemote.str(docId)))
+        }
+        if (moveOnly == false) {
+            o.setMember("title" (SpRemote.str(title)))
+            o.setMember("markdown" (SpRemote.str(md)))
+        }
+        if (moveOnly || ((strlen folder) > 0)) {
+            o.setMember("folder" (SpRemote.str(folder)))
+        }
+        this.queue("save_doc" (SpRemote.write(o)) title)
+    }
+
+    fn docFolderCall:void (action:string folder:string) {
+        this.queue("doc_folder" (SpRemote.body(([] _:string ( "space_id" spaceId "action" action "folder" folder )))) folder)
+    }
+
+    ; The Documents view's buttons; false: not one of them.
+    fn pressDocs:boolean (target:string) {
+        if (target == "sp-docfolder-new") {
+            docFolderOpen = (docFolderOpen == false)
+            if docFolderOpen {
+                focused = "sp-docfolder-name"
+            }
+            return true
+        }
+        if (target == "sp-docfolder-save") {
+            def nm:string (trim docFolderField.value)
+            if ((strlen nm) == 0) {
+                status = (SpWords.pick(lang "Give the folder a name" "Anna kansiolle nimi"))
+                focused = "sp-docfolder-name"
+                return true
+            }
+            this.docFolderCall("add" nm)
+            docFolderSel = nm
+            return true
+        }
+        if (target == "sp-docf-all") {
+            docFolderSel = ""
+            docSel = ""
+            return true
+        }
+        if (target == "sp-docfolder-del") {
+            if ((strlen docFolderSel) > 0) {
+                this.docFolderCall("remove" docFolderSel)
+                docFolderSel = ""
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-docf-")) {
+            def fi@(optional):int (to_int (substring target 8 (strlen target)))
+            if (!null? fi) {
+                def fni:int (unwrap fi)
+                if ((fni >= 0) && (fni < (array_length docFolders))) {
+                    docFolderSel = (itemAt docFolders fni)
+                    docSel = ""
+                }
+            }
+            return true
+        }
+        def cur@(optional):SpDoc (this.curDoc())
+        if (null? cur) {
+            return false
+        }
+        def d:SpDoc (unwrap cur)
+        if (target == "sp-docopen") {
+            if ((strlen d.url) > 0) {
+                action = ("open:" + d.url)
+            }
+            return true
+        }
+        if (target == "sp-docai") {
+            tab = "assistant"
+            assistField.setValue(((SpWords.pick(lang "Document " "Dokumentti ")) + "\"" + d.title + "\" (" + d.id + "): "))
+            focused = "sp-assist-text"
+            return true
+        }
+        if (target == "sp-docmove") {
+            docMoveOpen = (docMoveOpen == false)
+            return true
+        }
+        if (target == "sp-docmv-top") {
+            this.saveDocCall(d.id d.title "" "" true)
+            docMoveOpen = false
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-docmv-")) {
+            def mi@(optional):int (to_int (substring target 9 (strlen target)))
+            if (!null? mi) {
+                def mn:int (unwrap mi)
+                if ((mn >= 0) && (mn < (array_length docFolders))) {
+                    this.saveDocCall(d.id d.title "" (itemAt docFolders mn) true)
+                }
+            }
+            docMoveOpen = false
+            return true
+        }
+        if (target == "sp-docdel") {
+            if (docDelAsk == d.id) {
+                docDelAsk = ""
+                this.queue("delete_doc" (SpRemote.body(([] _:string ( "space_id" spaceId "doc_id" d.id )))) d.title)
+            } {
+                docDelAsk = d.id
+            }
+            return true
+        }
+        return false
+    }
+
+    ; save_doc, delete_doc and doc_folder answered: the documents read again
+    fn docSaved:void (c:SpCall o:VlJson) {
+        if (c.op == "save_doc") {
+            def nid:string (o.stringOr("doc_id" ""))
+            if ((strlen nid) > 0) {
+                docSel = nid
+            }
+            status = ((SpWords.pick(lang "Saved: " "Tallennettu: ")) + (o.stringOr("title" c.ref)))
+        }
+        if (c.op == "delete_doc") {
+            docSel = ""
+            status = ((SpWords.pick(lang "Deleted: " "Poistettu: ")) + c.ref)
+        }
+        if (c.op == "doc_folder") {
+            docFolderField.setValue("")
+            docFolderOpen = false
+        }
+        this.askDocs()
     }
 
     ; Markdown drawn as the documents use it: headings, bullets, task boxes
@@ -3538,9 +3898,15 @@ class SpacesApp {
         if (UiTree.beginsWith(title "# ")) {
             title = (substring title 2 (strlen title))
         }
+        tab = "docs"
+        if (this.docsOnServer()) {
+            ; a Sliqtly document of the space, in the folder shown
+            this.saveDocCall("" title body docFolderSel false)
+            status = (SpWords.pick(lang "Writing: " "Kirjoitetaan: ") + title)
+            return
+        }
         def d:SpDoc (space.addDoc(title body today))
         docSel = d.id
-        tab = "docs"
         status = (SpWords.pick(lang "Written: " "Kirjoitettu: ") + title)
     }
 
@@ -3752,6 +4118,9 @@ class SpacesApp {
             if (latest && ((itemAt asked j) == "qWeek")) {
                 act.addChild((SpacesApp.btn("sp-write-summary" "sp-link" (SpWords.pick(lang "Save as a document" "Tallenna dokumentiksi")))))
             }
+            if ((j < (array_length doneDocs)) && ((strlen (itemAt doneDocs j)) > 0)) {
+                act.addChild((SpacesApp.btn(("sp-showdoc-" + (itemAt doneDocs j)) "sp-link" (SpWords.pick(lang "Show the document" "Näytä dokumentti")))))
+            }
             act.addChild((SpacesApp.btn(("sp-copy-a-" + (to_string j)) "sp-link sp-link-quiet" (SpWords.pick(lang "Copy answer" "Kopioi vastaus")))))
             col.addChild(act)
         }
@@ -3929,6 +4298,7 @@ class SpacesApp {
         push doneIds ""
         push doneGone ""
         push doneNotes ""
+        push doneDocs ""
     }
 
     ; The field, the pictures added and Send.
@@ -4236,6 +4606,13 @@ class SpacesApp {
         set doneIds n (join ids " ")
         set doneGone n (join gone "\n")
         set doneNotes n (join notes "\n")
+        def dl:VlJson (o.get("doc_ids"))
+        if ((dl.count()) > 0) {
+            def first:string ((dl.at(0)).asString())
+            set doneDocs n first
+            docSel = first
+            docsRead = false
+        }
     }
 
     ; What a call that changes something other than an entry did, in words;
@@ -4258,6 +4635,15 @@ class SpacesApp {
         }
         if (tool == "remove_member") {
             return (SpWords.pick(lang "Member removed" "Jäsen poistettu"))
+        }
+        if (tool == "save_doc") {
+            return (SpWords.pick(lang "Document saved" "Dokumentti tallennettu"))
+        }
+        if (tool == "delete_doc") {
+            return (SpWords.pick(lang "Document deleted" "Dokumentti poistettu"))
+        }
+        if (tool == "doc_folder") {
+            return (SpWords.pick(lang "Folders changed" "Kansiot muutettu"))
         }
         if (tool == "set_space") {
             return (SpWords.pick(lang "Space settings saved" "Tilan asetukset tallennettu"))
@@ -8133,6 +8519,9 @@ class SpacesApp {
                     this.askOwn()
                 }
             }
+            if (tab == "docs") {
+                this.askDocs()
+            }
             this.rebuild()
             return true
         }
@@ -8245,8 +8634,22 @@ class SpacesApp {
             action = ("export:" + (substring target 10 (strlen target)))
             return true
         }
+        if (this.pressDocs(target)) {
+            this.rebuild()
+            return true
+        }
         if (UiTree.beginsWith(target "sp-doc-")) {
             docSel = (substring target 7 (strlen target))
+            docMoveOpen = false
+            docDelAsk = ""
+            this.rebuild()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-showdoc-")) {
+            docSel = (substring target 11 (strlen target))
+            tab = "docs"
+            docFolderSel = ""
+            this.askDocs()
             this.rebuild()
             return true
         }
@@ -8435,9 +8838,15 @@ class SpacesApp {
         def keepDocs:[SpDoc] space.docs
         def keepSheet:string sheetSel
         def keepDoc:string docSel
+        def keepFolders:[string] docFolders
+        def keepFolder:string docFolderSel
+        def keepRead:boolean docsRead
         this.showSpace(sp events)
         space.sheets = keepSheets
         space.docs = keepDocs
+        docFolders = keepFolders
+        docFolderSel = keepFolder
+        docsRead = keepRead
         tab = keepTab
         sheetSel = keepSheet
         docSel = keepDoc
@@ -8615,6 +9024,14 @@ class SpacesApp {
                 revealOnLoad = ((tab == "assistant") && (addOpen == false))
             }
         }
+        if (c.op == "list_docs") {
+            if (c.ref == spaceId) {
+                this.docsAnswered(o)
+            }
+        }
+        if (((c.op == "save_doc") || (c.op == "delete_doc")) || (c.op == "doc_folder")) {
+            this.docSaved(c o)
+        }
         if (c.op == "import_events") {
             def none@(optional):SpSpace
             seed = none
@@ -8650,6 +9067,14 @@ class SpacesApp {
         loading = false
         sheetSel = ""
         docSel = ""
+        docsRead = false
+        def noFolders:[string]
+        docFolders = noFolders
+        docMoveOpen = false
+        docDelAsk = ""
+        if (tab == "docs") {
+            this.askDocs()
+        }
         editing = false
         def none@(optional):SpBudget
         budgetAnswer = none

@@ -225,6 +225,15 @@ func NewApp(env *Env) http.Handler {
 	if env.warden != nil && env.warden.base == "" {
 		env.warden.base = wardenOrigin(env)
 	}
+	if env.warden != nil && env.warden.removeFiles == nil {
+		if r, ok := env.Bucket.(prefixRemover); ok {
+			env.warden.removeFiles = func(ctx context.Context, prefix string) {
+				if err := r.RemovePrefix(ctx, prefix); err != nil {
+					log.Printf("warden: removing %s: %v", prefix, err)
+				}
+			}
+		}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 40<<20)
 		if r.Method == http.MethodPost && r.URL.Path == "/oauth/register" && env.Registrations(clientIP(r)) != "" {
