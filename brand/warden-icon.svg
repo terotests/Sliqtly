@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Warden"><title>Warden</title>
+  <defs>
+    <linearGradient id="g-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2E8B6F"/><stop offset="1" stop-color="#1B5E4B"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#g-bg)"/>
+  <path d="M12 17L21.5 48L32 26L42.5 48L52 17" fill="none" stroke="#FFF8EF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
