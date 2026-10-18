@@ -131,6 +131,14 @@ class SpRemote {
         s.lang = (o.stringOr("lang" s.lang))
         s.myRole = (o.stringOr("role" s.myRole))
         s.feed = (o.stringOr("calendar_feed" s.feed))
+        s.emailSummary = (o.stringOr("email_summary" s.emailSummary))
+        def info:VlJson (o.get("info_screen"))
+        if (info.isObject()) {
+            s.infoUrl = (info.stringOr("url" ""))
+            s.infoMade = (info.stringOr("made" ""))
+            s.infoBy = (info.stringOr("made_by" ""))
+            s.infoMorning = (info.boolOr("morning" false))
+        }
         def m:[SpMember]
         s.members = m
         def iv:[string]

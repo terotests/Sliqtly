@@ -231,6 +231,13 @@
         }
       },
       {
+        "source": "/mcp/account",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/oauth/**",
         "run": {
           "serviceId": "sliqtly-mcp",

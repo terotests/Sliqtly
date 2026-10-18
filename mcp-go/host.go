@@ -225,6 +225,15 @@ func NewApp(env *Env) http.Handler {
 	if env.warden != nil && env.warden.base == "" {
 		env.warden.base = wardenOrigin(env)
 	}
+	// the info screen is a presentation of the person's own (wardeninfo.go)
+	if env.warden != nil && env.warden.deck == nil {
+		env.warden.deck = func(ctx context.Context, uid, op string, args map[string]any) (map[string]any, error) {
+			if !aiPlacesOn(env) {
+				return nil, roomErr{"Presentations are not available on this server."}
+			}
+			return aiPlaceCall(env, ctx, uid)(op, args)
+		}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 40<<20)
 		if r.Method == http.MethodPost && r.URL.Path == "/oauth/register" && env.Registrations(clientIP(r)) != "" {
@@ -271,7 +280,7 @@ func NewApp(env *Env) http.Handler {
 		}()
 		// who is working where (presence.go): only where a page reads it,
 		// from the server (rooms) or from Firestore (the cloud's pub)
-		if r.URL.Path == "/mcp" && (env.rooms != nil || env.agents.pub != nil) {
+		if (r.URL.Path == "/mcp" || r.URL.Path == "/mcp/account") && (env.rooms != nil || env.agents.pub != nil) {
 			env.agents.watchMcp(w, r, func(w http.ResponseWriter) { App_static_serve(h, r, w) })
 			return
 		}

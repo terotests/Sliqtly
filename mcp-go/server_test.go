@@ -944,6 +944,30 @@ func TestOptionalSignIn(t *testing.T) {
 	eq(t, r401.StatusCode, 401)
 	match(t, r401.Header.Get("www-authenticate"), `resource_metadata="https://sliqtly\.test/\.well-known/oauth-protected-resource/mcp"`)
 
+	// /mcp/account asks a client without a token to sign in (Cursor signs
+	// in only when asked); with one it is the same server
+	acct := func(auth string) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest("POST", root+"/mcp/account", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+		req.Header.Set("content-type", "application/json")
+		req.Header.Set("accept", "application/json, text/event-stream")
+		if auth != "" {
+			req.Header.Set("authorization", "Bearer "+auth)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+	ra := acct("")
+	eq(t, ra.StatusCode, 401, "no token: sign in")
+	match(t, ra.Header.Get("www-authenticate"), `resource_metadata="https://sliqtly\.test/\.well-known/oauth-protected-resource/mcp/account"`)
+	eq(t, acct("nope").StatusCode, 401, "a token that does not hold")
+	eq(t, acct(tok["access_token"].(string)).StatusCode, 200, "signed in")
+	eq(t, getJSON(root + "/.well-known/oauth-protected-resource/mcp/account")["resource"], BASE+"/mcp/account")
+
 	// refresh rotates
 	r1 := formPost("/oauth/token", map[string]string{"grant_type": "refresh_token", "refresh_token": tok["refresh_token"].(string), "client_id": clientID})
 	if r1["access_token"] == nil || r1["refresh_token"] == tok["refresh_token"] {
@@ -1357,7 +1381,7 @@ func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
 		t.Fatal(textOf(w))
 	}
 	match(t, textOf(w), `data/risk\.xlsx: sheet "Menot" \(2 rows; columns "Kuukausi", "Vuokra", "Sähkö"\) read as data/risk-Menot\.csv`)
-	match(t, textOf(w), `Formatting is not kept`)
+	match(t, textOf(w), `other formatting is not`)
 	paths := []any{}
 	for _, x := range list(f.db.doc("shares/" + id)["files"]) {
 		paths = append(paths, mapOf(x)["path"])
@@ -1389,6 +1413,12 @@ func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
 		{map[string]any{"sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}, map[string]any{"name": "a", "rows": []any{[]any{"y"}}}}}, `Two sheets are named`},
 		{map[string]any{"sheets": []any{map[string]any{"name": "A"}}}, `give rows or csv`},
 		{map[string]any{"path": "data/x.csv", "sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}}}, `ending in \.xlsx`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "Tasks", "rows": []any{[]any{"x"}}, "formats": []any{map[string]any{"range": "A1", "fill": "red"}}}}}, `Sheet "Tasks", formats\[0\]: fill "red" is not a colour like "#RRGGBB"`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "Tasks", "rows": []any{[]any{"x"}}, "formats": map[string]any{"range": "A1"}}}}, `Sheet "Tasks": formats is a list`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "Tasks", "rows": []any{[]any{"x"}}, "formats": []any{"A1"}}}}, `Sheet "Tasks", formats\[0\]: a format is an object`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "Tasks", "rows": []any{[]any{"x"}}, "widths": 20}}}, `Sheet "Tasks": widths is a list`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "Tasks", "rows": []any{[]any{"x"}}, "freeze": 1.5}}}, `Sheet "Tasks": freeze is a whole number`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "Tasks", "rows": []any{[]any{"x"}}, "filter": "yes"}}}, `Sheet "Tasks": filter is true or false`},
 	} {
 		r := write(bad.args)
 		if !r.IsError {
@@ -1396,6 +1426,22 @@ func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
 		}
 		match(t, textOf(r), bad.why)
 	}
+	// a task list coloured by status, kept in the .xlsx the editor opens
+	w = write(map[string]any{"sheets": []any{map[string]any{"name": "Tasks",
+		"rows":    []any{[]any{"Task", "Status"}, []any{"Ship", "Done"}, []any{"Test", "Open"}},
+		"formats": []any{map[string]any{"range": "A2:B2", "fill": "#C8E6C9"}, map[string]any{"range": "A3:B3", "fill": "#FFCDD2", "color": "#B71C1C", "bold": true}},
+		"widths":  []any{24, 10}, "freeze": 1, "filter": true}}})
+	if w.IsError {
+		t.Fatal(textOf(w))
+	}
+	tasks := editorLooks(t, f.bucket.saved["shares/"+id+"/data/risk.xlsx"].data)[0]
+	eq(t, tasks.Freeze, 1)
+	eq(t, tasks.FilterCol, 0)
+	eq(t, cellAt(t, tasks, 1, 1).Fill, cellAt(t, tasks, 1, 0).Fill)
+	match(t, strings.ToUpper(cellAt(t, tasks, 1, 0).Fill), `C8E6C9`)
+	match(t, strings.ToUpper(cellAt(t, tasks, 2, 1).Color), `B71C1C`)
+	eq(t, cellAt(t, tasks, 2, 1).Bold, true)
+	eq(t, sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk.xlsx", "sheet": "Tasks"}))["rows"], [][]string{{"Ship", "Done"}, {"Test", "Open"}})
 }
 
 // a stored timestamp, as the fake keeps it (time.Time through JSON)

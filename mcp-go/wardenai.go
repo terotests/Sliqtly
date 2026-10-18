@@ -287,6 +287,9 @@ func (s *wardenService) assist(ctx context.Context, who wardenWho, a map[string]
 		return nil, err
 	}
 	q.Text = strings.TrimSpace(q.Text)
+	if q.Purpose == wardenInfoPurpose {
+		q.Text = wardenInfoAsk
+	}
 	pics := aiQuestion{Images: q.Images}.pictures()
 	if q.Text == "" && len(pics) == 0 {
 		return nil, roomErr{"Write something or add a picture."}

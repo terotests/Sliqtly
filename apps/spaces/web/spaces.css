@@ -99,6 +99,24 @@
 .sp-pill-tx { color: var(--muted); font-size: 13px; height: 18px; line-height: 18px; }
 .sp-pill-on-tx { color: var(--ink); font-weight: 600; }
 
+/* the info screen's button, beside the language */
+.sp-infobtn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  border-radius: 9px;
+  background-color: var(--soft);
+  cursor: pointer;
+}
+.sp-infobtn:hover { background-color: #ebe1d8; }
+.sp-infobtn:focus { background-color: #ebe1d8; }
+.sp-infobtn-on { background-color: var(--surface); }
+.sp-infobtn-tx { color: var(--muted); font-size: 14px; height: 18px; line-height: 18px; }
+.sp-infobtn-on-tx { color: var(--ink); }
+
 /* --- the body: navigation and the main column ---------------------------------- */
 
 .sp-body {
@@ -967,3 +985,21 @@
 /* --- the calendar-on-your-phone panel opened from the top bar ------------- */
 .sp-phonebtn { white-space: nowrap; }
 .sp-phonepop { display: flex; flex-direction: column; flex-wrap: nowrap; padding: 12px 16px; background-color: var(--soft); }
+
+/* --- the email summary's preview (Members page) ----------------------------- */
+.sp-mail {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background-color: var(--page);
+}
+.sp-mailhead { color: var(--muted); font-size: 12px; height: auto; line-height: 16px; }
+.sp-mailsubj { color: var(--ink); font-size: 16px; font-weight: 700; height: auto; line-height: 22px; margin-bottom: 4px; }
+.sp-mailsect { color: var(--accent); font-size: 14px; font-weight: 700; height: auto; line-height: 20px; margin-top: 8px; }
+.sp-mailday { color: var(--muted); font-size: 13px; font-weight: 700; height: auto; line-height: 18px; margin-top: 4px; }
+.sp-mailline { color: var(--ink); font-size: 14px; height: auto; line-height: 20px; }
+.sp-mailfoot { color: var(--faint); font-size: 12px; height: auto; line-height: 16px; margin-top: 10px; }

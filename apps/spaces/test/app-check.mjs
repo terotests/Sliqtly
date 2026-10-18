@@ -415,6 +415,17 @@ console.log("a space on a server");
   a.press("sp-phone-close");
   ok("and so does Close", !texts(a).includes("Calendar on your phone"));
   a.press("sp-nav-members");
+
+  // the email summary: the person's own choice, and a preview of the email
+  ok("the summary's card, off", texts(a).includes("✓ No summary") && texts(a).includes("Hi Mia,"));
+  a.press("sp-sum-week");
+  const sb = JSON.parse(a.outBody());
+  ok("choosing sends email_summary", a.outOp() === "email_summary" && sb.space_id === "sp1" && sb.period === "week", JSON.stringify(sb));
+  ok("and previews the week", texts(a).includes("✓ Monday mornings") && texts(a).some((t) => t.startsWith("Home crew: Your week ")));
+  a.answer(JSON.stringify({ space_id: "sp1", period: "week", email: "mia@example.com", sending: false }));
+  eq("kept", a.space.emailSummary, "week");
+  a.press("sp-sumprev-day");
+  ok("the day's preview", texts(a).some((t) => t.startsWith("Home crew: Today ")));
   for (const w of [1280, 390]) {
     a.setWidth(w, 700);
     for (const v of ["members", "spaces"]) {
@@ -1378,6 +1389,46 @@ console.log("the assistant on a server");
   a.press("sp-add");
 }
 
+console.log("the info screen");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [],
+    info_screen: { url: "", made: "", made_by: "", morning: false } };
+  a.answer(JSON.stringify({ space, events: [] }));
+  ok("a presentation button in the top bar", !!byId(a, "sp-info"));
+  a.press("sp-info");
+  eq("none to open yet", a.takeAction(), "");
+  ok("its panel opens", texts(a).includes("Info-näyttö") && texts(a).includes("Ei vielä tehty.") && !byId(a, "sp-info-open"));
+  a.press("sp-info-make");
+  eq("the assistant makes it", a.outOp(), "assist");
+  const body = JSON.parse(a.outBody());
+  ok("asked for the info screen", body.purpose === "info_screen" && body.space_id === "sp1", JSON.stringify(body));
+  ok("while it is made", texts(a).includes("Tehdään…"));
+  a.answer(JSON.stringify({ space_id: "sp1", text: "Info-näyttö tehty.", changed: true, event_ids: [], calls: [{ tool: "info_screen", ok: true }] }));
+  ok("said so", a.status === "Info-näyttö tehty." && !a.infoBusy);
+  eq("the space read again", a.outOp(), "get_space");
+  const made = { ...space, info_screen: { url: "https://sliqtly.com/s/abc", made: M.UiDate.isoOfDays(a.today) + "T06:00", made_by: "Mia", morning: false } };
+  a.answer(JSON.stringify({ space: made, events: [] }));
+  ok("the latest shown", texts(a).some((x) => x.startsWith("Viimeisin: ") && x.includes("klo 06:00 · Mia")), JSON.stringify(texts(a).filter((x) => x.startsWith("Viimeisin"))));
+  a.press("sp-info-open");
+  eq("opened in a new tab", a.takeAction(), "open:https://sliqtly.com/s/abc");
+  a.press("sp-info");
+  ok("the button closes the panel", !texts(a).includes("Ei vielä tehty.") && !byId(a, "sp-info-open"));
+  a.press("sp-info");
+  eq("and opens the latest", a.takeAction(), "open:https://sliqtly.com/s/abc");
+  a.press("sp-info-morning");
+  eq("every morning", a.outOp(), "info_screen");
+  eq("turned on", JSON.parse(a.outBody()).morning, true);
+  a.answer(JSON.stringify({ space_id: "sp1", url: "https://sliqtly.com/s/abc", morning: true }));
+  ok("kept on", a.space.infoMorning && texts(a).includes("✓ Tee joka aamu"));
+}
+
 console.log("questions between members");
 {
   const a = new M.SpacesApp();
@@ -1562,6 +1613,59 @@ console.log("changes made elsewhere, and the tab in the address");
   // the address names the tab
   ok("a tab by name", a.goTab("budget") && a.tab === "budget");
   ok("not a tab", !a.goTab("nowhere") && a.tab === "budget");
+}
+
+console.log("backups: the owner restores a copy, and a deleted space");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] };
+  a.answer(JSON.stringify({ space, events: [], event_watch: { active: false, finds: [] } }));
+  a.press("sp-nav-members");
+  ok("a card on the members page", texts(a).includes("Varmuuskopiot") && !!byId(a, "sp-backups-show"));
+  a.press("sp-backups-show");
+  ok("listed on asking", a.outOp() === "list_backups" && JSON.parse(a.outBody()).space_id === "sp1", a.outBody());
+  a.answer(JSON.stringify({ space_id: "sp1", backups: [{ backup_id: "sp1.2", when: "2026-10-17 14:05", reason: "delete_event", events: 3 }, { backup_id: "sp1.1", when: "2026-10-16 09:00", reason: "save_event", events: 0 }] }));
+  const t = texts(a);
+  ok("newest first, in Finnish", t.includes("17.10.2026 klo 14.05") && t.includes("3 merkintää · ennen poistoa"), t.join("|"));
+  a.press("sp-backuprestore-0");
+  ok("asks first", !!byId(a, "sp-backup-yes") && a.outCount() === 0);
+  a.press("sp-backup-yes");
+  ok("then restores", a.outOp() === "restore_backup" && JSON.parse(a.outBody()).backup_id === "sp1.2", a.outBody());
+  a.answer(JSON.stringify({ restored: "sp1.2", space_id: "sp1", events: 3 }));
+  ok("and reads the space again", a.status.includes("Palautettu: 3") && a.outOp() === "get_space", a.status + " " + a.outOp());
+  a.answer(JSON.stringify({ space, events: [], event_watch: { active: false, finds: [] } }));
+  ok("on the members page", a.tab === "members");
+
+  a.press("sp-nav-spaces");
+  a.press("sp-lost-show");
+  ok("the deleted spaces on asking", a.outOp() === "list_backups" && a.outBody() === "{}", a.outBody());
+  a.answer(JSON.stringify({ own: [], deleted_spaces: [{ space_id: "sp9", name: "Mökki", backups: [{ backup_id: "sp9.5", when: "2026-10-15 20:00", reason: "delete_space", events: 12 }] }] }));
+  ok("with the newest copy", texts(a).includes("Mökki") && texts(a).includes("15.10.2026 klo 20.00 · 12 merkintää · ennen tilan poistoa"), texts(a).join("|"));
+  a.press("sp-lostrestore-0");
+  a.press("sp-backup-yes");
+  ok("restores it", a.outOp() === "restore_backup" && JSON.parse(a.outBody()).backup_id === "sp9.5");
+  a.answer(JSON.stringify({ restored: "sp9.5", space_id: "sp9", events: 12 }));
+  ok("and lists the spaces again", a.outOp() === "list_spaces");
+}
+
+const memberOnly = new M.SpacesApp();
+{
+  const a = memberOnly;
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u2", name: "Leo", email: "leo@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "member" }] }));
+  a.answer(JSON.stringify({ space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "member", members: [], invites: [], wards: [] }, events: [], event_watch: { active: false, finds: [] } }));
+  a.press("sp-nav-members");
+  ok("a member sees no backups", !byId(a, "sp-backups-show"));
 }
 
 console.log(`passed=${passed} failed=${failed}`);

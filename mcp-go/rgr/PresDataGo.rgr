@@ -5,3 +5,48 @@
 ; datagrid's XmlLite and the deck model's XmlCore both define XmlAttr.
 
 Import "../presentation/PresData.rgr"
+
+; How the editor's reader sees a workbook's look, for the tests of
+; write_workbook's formats (xlsxwrite_test.go): per sheet the frozen rows,
+; the autofilter's first column (-1 none), the used columns' widths in
+; pixels, and each used cell's fill, text colour, bold and italic.
+class PresDataLook {
+    sfn looks:string (bytes:buffer) {
+        def book (new WorkbookModel())
+        def loader (new XlsxLoader())
+        if ((loader.loadBytes(bytes book)) == false) {
+            return (("{\"error\":" + (JVal.quote(loader.lastError))) + ",\"sheets\":[]}")
+        }
+        def parts:[string]
+        for book.sheets sh:SpreadsheetModel i {
+            def widths:[string]
+            def cells:[string]
+            def r:int 0
+            while (r <= (sh.usedRow())) {
+                def c:int 0
+                while (c <= (sh.usedCol())) {
+                    if (r == 0) {
+                        push widths (to_string (sh.colWidth(c)))
+                    }
+                    def st:CellStyle (sh.getCellStyle(r c))
+                    def fill:string ""
+                    if st.hasFill {
+                        fill = st.fillRgb
+                    }
+                    push cells ("{\"r\":" + (to_string r) + ",\"c\":" + (to_string c) + ",\"fill\":" + (JVal.quote(fill)) + ",\"color\":" + (JVal.quote(st.textRgb)) + ",\"bold\":" + (PresDataLook.flag(st.bold)) + ",\"italic\":" + (PresDataLook.flag(st.italic)) + "}")
+                    c = (c + 1)
+                }
+                r = (r + 1)
+            }
+            push parts ("{\"name\":" + (JVal.quote(sh.name)) + ",\"freeze\":" + (to_string sh.freezeRows) + ",\"filterCol\":" + (to_string sh.filterCol) + ",\"widths\":[" + (join widths ",") + "],\"cells\":[" + (join cells ",") + "]}")
+        }
+        return ("{\"error\":\"\",\"sheets\":[" + (join parts ",") + "]}")
+    }
+
+    sfn flag:string (b:boolean) {
+        if b {
+            return "true"
+        }
+        return "false"
+    }
+}

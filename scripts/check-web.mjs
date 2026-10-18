@@ -2059,17 +2059,21 @@ try {
     check("a shared deck's end panel closes to its last slide", end.shown && /Close/.test(end.exit) && !after.shown && after.mode === "present" && after.last, JSON.stringify({ end, after }));
     await pageE.close();
   }
-  // The bar fades when the pointer rests for 2.5 s, and a slow frame can
-  // take that long: each press moves the pointer first, and tries again if
-  // the bar faded before the click landed.
+  // The bar fades when the pointer rests for 2.5 s away from it, and on
+  // CI's software GL a presenting frame can take that long (a click waits
+  // for two frames): each press first rests the mouse on what it presses,
+  // which keeps the bar, gives the click time for slow frames, and tries
+  // again if the bar faded before the click landed.
   async function tapViewer(pg, sel) {
     for (let i = 0; ; i += 1) {
-      await pg.mouse.move(300 + i, 300);
+      const box = await pg.locator(sel).boundingBox();
+      if (box) await pg.mouse.move(box.x + box.width / 2 + (i % 2), box.y + box.height / 2);
+      else await pg.mouse.move(300 + i, 300);
       try {
-        await pg.click(sel, { timeout: 4000 });
+        await pg.click(sel, { timeout: 15000 });
         return;
       } catch (e) {
-        if (i >= 5) throw e;
+        if (i >= 2) throw e;
       }
     }
   }
@@ -2112,7 +2116,7 @@ try {
   await page4.close();
   const shownMd = await page3.evaluate(() => window.__app.source());
   await tapViewer(page3, "#vMore");
-  await Promise.all([page3.waitForEvent("load", { timeout: 30000 }), page3.click('#vMenu [data-act="new"]')]);
+  await Promise.all([page3.waitForEvent("load", { timeout: 90000 }), tapViewer(page3, '#vMenu [data-act="new"]')]);
   await page3.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
   const made = await page3.evaluate(() => ({ viewer: document.body.classList.contains("viewer"), mode: JSON.parse(window.__app.layoutJson()).mode, md: window.__app.source() }));
   check("Create New… opens the shown deck in the editor", !made.viewer && made.mode !== "present" && made.md === shownMd, JSON.stringify({ ...made, md: made.md.slice(0, 40) }));
@@ -4263,7 +4267,10 @@ try {
       const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
       const w = () => { const m = /"width": ?(\d+)/.exec(a.source()); return m ? +m[1] : 0; };
       const sl = walk(a.chart.host.lastPage, "ce-width");
-      let t = 500;
+      // after the page's own clock (frame() sets it from performance.now()),
+      // which an earlier drag left the chart's last live write at: a slow run
+      // passes 500 s before it gets here
+      let t = performance.now() / 1000 + 1;
       a.setUiTime(t);
       a.pointerDown(sl.calculatedX + sl.calculatedWidth * 0.5, sl.calculatedY + 8, false, 1);
       const seen = [];
@@ -4474,13 +4481,20 @@ try {
     });
     const res = await page.evaluate(async (path) => {
       if (path) await window.__fileRequest("unlink:" + path);
-      await new Promise((r) => setTimeout(r, 400));
-      const files = await window.__docFiles();
       const a = window.__app;
+      // the file is read on a frame, which a slow run takes seconds for
+      const barsNow = () => {
+        a.selectSlide(1);
+        const st = JSON.parse(a.stageJson());
+        return st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
+      };
+      let bars = 0;
+      for (let i = 0; i < 40 && bars !== 2; i += 1) {
+        await new Promise((r) => setTimeout(r, 400));
+        bars = barsNow();
+      }
+      const files = await window.__docFiles();
       const md = a.source();
-      a.selectSlide(1);
-      const st = JSON.parse(a.stageJson());
-      const bars = st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
       Object.assign(window.sliqtly, window.__was);
       a.showTab("md");
       return { file: files.includes("data/Budjetti-Syyskuu.csv"), copy: files.includes(path), md: /"url": ?"data\/Budjetti-Syyskuu\.csv"/.test(md), bars };
@@ -4707,8 +4721,12 @@ try {
     await page.evaluate(() => { const a = window.__app; a.showTab("files"); a.openFile("data/vfs-sales.csv", "kk,euroa\n"); });
     await page.waitForFunction(() => window.__app.openFilePath() === "data/vfs-sales.csv", null, { timeout: 5000 }).catch(() => {});
     await page.evaluate(() => { const a = window.__app; a.fileEditor.init("kk,euroa\ntammi,120\nhelmi,180\nmaalis,90\nhuhti,300\n"); a.syncEditor(); });
-    await page.waitForTimeout(1000);
-    const bars2 = await barsOf();
+    // the file is kept and read back over a few frames, which a slow run takes seconds for
+    let bars2 = [];
+    for (let i = 0; i < 30 && bars2.length !== 4; i += 1) {
+      await page.waitForTimeout(500);
+      bars2 = await barsOf();
+    }
     // the chart editor on a fence that names a file: it opens on the file's
     // spec, and its changes go into the file, not into the fence
     const viaFile = await page.evaluate(() => {
@@ -6538,6 +6556,51 @@ try {
     const p1 = await pg.evaluate((i) => ({ slide: window.__app.slideShown(), want: window.__app.toc.entryAt(i).slide, mode: JSON.parse(window.__app.layoutJson()).mode }), prow[4]);
     check("ToC: presenting, a row shows its slide", p1.slide === p1.want && p1.mode === "present", JSON.stringify(p1));
     check("ToC: without errors", terr.length === 0, terr.join(" | "));
+    await ctx.close();
+  }
+
+  // A code block on the View page: a drag over it shows its band over the
+  // block's panel (PresDocView.withBand), reading and editing, and a copy
+  // keeps its lines and indentation (PresApp.edDocCopyText)
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    await ctx.addInitScript(() => { try { localStorage.setItem("sliqtly.openIn", "view"); } catch (_) {} });
+    const pg = await ctx.newPage();
+    const cerr = [];
+    pg.on("pageerror", (e) => cerr.push(e.message));
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const md = "# D\n\n## Malli\n\nTeksti.\n\n```ts\nFamilyItem {\n  id, workspaceId\n  type, subtype\n}\n```\n\nLoppu.\n";
+    await pg.evaluate((m) => { window.__app.setSource(m); window.__app.setEditing(false, false); window.__app.showTab("view"); }, md);
+    await pg.waitForFunction((o) => window.__app.docScreenAt(o) !== "", md.indexOf("subtype"), { timeout: 30000 });
+    const xy = (o) => pg.evaluate((o) => window.__app.docScreenAt(o), o).then((s) => s.split(",").map(Number));
+    const drag = async () => {
+      const [x1, y1] = await xy(md.indexOf("FamilyItem"));
+      const [x2, y2] = await xy(md.indexOf("subtype"));
+      await pg.mouse.move(x1 + 1, y1);
+      await pg.mouse.down();
+      await pg.mouse.move(x1 + 20, y1, { steps: 4 });
+      await pg.mouse.move(x2 + 1, y2, { steps: 6 });
+      await pg.mouse.up();
+      await pg.waitForTimeout(300);
+    };
+    // the command painted just before the code's first line: the band
+    const bandUnder = () => pg.evaluate(() => {
+      const cmds = JSON.parse(window.__app.chromeJson()).list.cmds;
+      const i = cmds.findIndex((c) => c.k === 3 && c.text === "FamilyItem {");
+      const b = cmds[i - 1];
+      return !!(b && b.k === 0 && b.c && b.c[3] < 0.5);
+    });
+    await drag();
+    const read = await pg.evaluate(() => ({ text: window.__docSelected(), editing: window.__app.isEditing() }));
+    check("View code: a drag over a code block selects it, its band over the block's panel", !read.editing && await bandUnder(), JSON.stringify(read));
+    check("View code: …and the copy keeps its lines and indentation", read.text === "FamilyItem {\n  id, workspaceId\n  type, ", JSON.stringify(read.text));
+    await pg.evaluate(() => { window.__app.setEditing(true, false); window.__app.showTab("view"); });
+    await pg.waitForTimeout(300);
+    await drag();
+    const ed = await pg.evaluate(() => { const a = window.__app; return { editing: a.isEditing(), c: a.mdEditor.caretOffset(), a: a.mdEditor.anchorOffset() }; });
+    check("View code: editing, a drag selects in the code and its band shows over the panel", ed.editing && ed.c !== ed.a && await bandUnder(), JSON.stringify(ed));
+    check("View code: without errors", cerr.length === 0, cerr.join(" | "));
     await ctx.close();
   }
 

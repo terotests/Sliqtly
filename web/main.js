@@ -156,7 +156,6 @@ const stageEl = document.getElementById("stage");
 const keys = document.getElementById("keys");
 const loadNote = document.getElementById("loadNote");
 const errEl = document.getElementById("err");
-const statusEl = document.getElementById("status");
 const filePick = document.getElementById("filepick");
 const fileAdd = document.getElementById("fileadd");
 const sampleSel = document.getElementById("sample");
@@ -4647,7 +4646,6 @@ function paintOnce() {
   }
   // only when they change: the bar's observer reads every write as new
   // buttons, and a frame that writes them asks for the next frame
-  setText(statusEl, app.statusText());
   setText(playBtn, layout.playing && layout.mode === "edit" ? t("⏸ Pause") : t("▶ Play"));
   return layout;
 }
@@ -8468,12 +8466,19 @@ function playIntro() {
     timer = setTimeout(end, Math.max(0, INTRO_MS - (performance.now() - at)));
   });
 }
+// where a mouse rests, so the bar stays under it
+let restingAt = null;
+function overViewBar() {
+  if (!restingAt) return false;
+  const r = document.getElementById("viewBar").getBoundingClientRect();
+  return restingAt[0] >= r.left && restingAt[0] <= r.right && restingAt[1] >= r.top && restingAt[1] <= r.bottom;
+}
 function wakeViewer() {
   document.body.classList.remove("idle");
   clearTimeout(idleTimer);
-  // the bar stays while its menu is open
+  // the bar stays while its menu is open or the mouse rests on it
   idleTimer = setTimeout(() => {
-    if (vMenu.hidden && vGo.hidden && !app.navTyping()) document.body.classList.add("idle");
+    if (vMenu.hidden && vGo.hidden && !app.navTyping() && !overViewBar()) document.body.classList.add("idle");
     else wakeViewer();
   }, 2500);
 }
@@ -8498,6 +8503,8 @@ window.addEventListener("keydown", (ev) => {
 for (const ev of ["pointermove", "pointerdown", "keydown"]) {
   window.addEventListener(ev, () => { if (viewer || presentingNow()) wakeViewer(); }, { passive: true });
 }
+window.addEventListener("pointermove", (ev) => { restingAt = ev.pointerType === "mouse" ? [ev.clientX, ev.clientY] : null; }, { passive: true });
+document.documentElement.addEventListener("pointerleave", () => { restingAt = null; });
 document.getElementById("vFirst").addEventListener("click", () => { app.firstSlide(); afterInput(); });
 document.getElementById("vPrev").addEventListener("click", () => { app.prev(); afterInput(); });
 document.getElementById("vNext").addEventListener("click", () => { app.next(); afterInput(); });
@@ -10761,7 +10768,7 @@ window.addEventListener("keydown", (ev) => {
       done = true;
     }
   } else if (mod && (ev.key === "c" || ev.key === "C") && docSel.has()) {
-    navigator.clipboard?.writeText(docSel.selected()).catch(fail);
+    navigator.clipboard?.writeText(docCopied()).catch(fail);
     done = true;
   } else if (ev.key === "Escape" && docSel.has()) {
     docSel.clear();
@@ -10772,7 +10779,24 @@ window.addEventListener("keydown", (ev) => {
   ev.stopImmediatePropagation();
   docBandSync();
 }, true);
-window.__docSelected = () => docSel.selected();
+// What a copy takes: the words as the page shows them, but inside one code
+// block the code as written, its line breaks and indentation kept (the page
+// draws indentation as room, PresApp.edDocCopyText)
+function docCopied() {
+  const st = docText();
+  if (!st || !docSel.has()) return "";
+  const end = (i, after) => {
+    const r = st.runs.find((u) => (after ? u.start < i && i <= u.end : u.start <= i && i < u.end));
+    if (!r) return null;
+    const s = r.stops.findIndex((k) => k >= i - r.start);
+    return [r.xs[s < 0 ? r.xs.length - 1 : s], r.y + r.h / 2];
+  };
+  const a = end(docSel.start(), false);
+  const b = end(docSel.end(), true);
+  const code = a && b ? app.edDocCopyText(a[0], a[1], b[0], b[1]) : "";
+  return code || docSel.selected();
+}
+window.__docSelected = () => docCopied();
 
 // A realistic book's page taken by its corner while presenting: the
 // presses before the stage's own (capture), which do not see them.

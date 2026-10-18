@@ -774,6 +774,135 @@ class PresDocView {
         nl.boxes = out
     }
 
+    ; The page's commands with a selection's band under the words it
+    ; covers: each rectangle of `bands` ("x y w h" in fours, page units) goes
+    ; just before the first text it lies over, so it is drawn over whatever
+    ; that text stands on (a code block's panel, a table cell's fill, a code
+    ; span's chip) and under the text itself. Painted once over the paper,
+    ; those fills would hide it. A rectangle over no text (an empty line's
+    ; stop) goes at `head`, on the paper.
+    sfn withBand:EVGDisplayList (cmds:[EVGDrawCmd] head:int bands:[double] color:EVGColor) {
+        def out (new EVGDisplayList())
+        def n:int (to_int ((array_length bands) / 4))
+        def placed:[boolean]
+        def j:int 0
+        while (j < n) {
+            push placed false
+            j = (j + 1)
+        }
+        def i:int 0
+        while (i < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if (i == head) {
+                j = 0
+                while (j < n) {
+                    if ((PresDocView.bandOverText(cmds head bands j)) == false) {
+                        set placed j true
+                        out.addRect((itemAt bands (j * 4)) (itemAt bands ((j * 4) + 1)) (itemAt bands ((j * 4) + 2)) (itemAt bands ((j * 4) + 3)) color)
+                    }
+                    j = (j + 1)
+                }
+            }
+            if ((c.kind == 3) && (i >= head)) {
+                j = 0
+                while (j < n) {
+                    if (((itemAt placed j) == false) && (PresDocView.bandOver(c bands j))) {
+                        set placed j true
+                        out.addRect((itemAt bands (j * 4)) (itemAt bands ((j * 4) + 1)) (itemAt bands ((j * 4) + 2)) (itemAt bands ((j * 4) + 3)) color)
+                    }
+                    j = (j + 1)
+                }
+            }
+            out.addCmd((PresScriptApply.copyCmd(c)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; whether band `j` lies over text cmd `c`: level with its line (more
+    ; than half the lower one's height shared) and across its width
+    sfn bandOver:boolean (c:EVGDrawCmd bands:[double] j:int) {
+        def bx:double (itemAt bands (j * 4))
+        def by:double (itemAt bands ((j * 4) + 1))
+        def bw:double (itemAt bands ((j * 4) + 2))
+        def bh:double (itemAt bands ((j * 4) + 3))
+        def top:double (? (by > c.y) by c.y)
+        def bottom:double (? ((by + bh) < (c.y + c.h)) (by + bh) (c.y + c.h))
+        def least:double (? (bh < c.h) bh c.h)
+        if ((bottom - top) <= (least * 0.5)) {
+            return false
+        }
+        ; a run that does not say how wide it is reaches to the line's end
+        if (c.w <= 0.0) {
+            return ((bx + bw) > c.x)
+        }
+        return ((bx < (c.x + c.w)) && ((bx + bw) > c.x))
+    }
+
+    sfn bandOverText:boolean (cmds:[EVGDrawCmd] head:int bands:[double] j:int) {
+        def i:int head
+        while (i < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if ((c.kind == 3) && (PresDocView.bandOver(c bands j))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; What a selection on the page copies when both its ends (`a`, `b`,
+    ; offsets in the deck's Markdown) are in one code block: its code as
+    ; written, line breaks and indentation kept. The page draws a line's
+    ; indentation as room, not characters, and its lines level with each
+    ; other as a paragraph's, so read off the page the code would lose both.
+    ; "" when the ends are not in one code block.
+    sfn codeBetween:string (doc:MdNode a:int b:int) {
+        def lo:int (? (a < b) a b)
+        def hi:int (? (a < b) b a)
+        def found:[MdNode]
+        PresDocView.codeNodesAt(doc lo found)
+        if ((array_length found) == 0) {
+            return ""
+        }
+        def n:MdNode (itemAt found 0)
+        def len:int (strlen n.literal)
+        def la:int -1
+        def lb:int -1
+        def k:int 0
+        while (k <= len) {
+            def s:int (n.srcOfLiteral(k))
+            if ((s >= lo) && (la < 0)) {
+                la = k
+            }
+            if ((s >= hi) && (lb < 0)) {
+                lb = k
+            }
+            k = (k + 1)
+        }
+        ; the other end past the code (the closing fence or further)
+        if ((la < 0) || (lb < 0)) {
+            return ""
+        }
+        return (substring n.literal la lb)
+    }
+
+    ; the code blocks the source offset `at` is in (one at most)
+    sfn codeNodesAt:void (n:MdNode at:int out:[MdNode]) {
+        if ((at < n.srcStart) || ((at >= n.srcEnd) && (n.kind != "document"))) {
+            return
+        }
+        if (n.kind == "code_block") {
+            push out n
+            return
+        }
+        def i:int 0
+        while (i < (n.childCount())) {
+            PresDocView.codeNodesAt((n.childAt(i)) at out)
+            i = (i + 1)
+        }
+    }
+
     ; The page between top and bottom (page units): the paper and every
     ; segment that reaches into it.
     fn visible:EVGDisplayList (top:double bottom:double) {

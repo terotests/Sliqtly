@@ -179,6 +179,8 @@ class SpacesApp {
     ; their choice); the summary and the phone feed have them either way
     def showGets:boolean false
     def showPays:boolean false
+    ; which email summary the Members page previews (wardensummary.go)
+    def summaryShow:string "day"
     def loading:boolean false
     def outbox:[SpCall]
     ; when the space last changed on the server, as the page has it, and
@@ -213,12 +215,24 @@ class SpacesApp {
     def placeQuery:string ""
     def placeLooking:boolean false
     def found:[SpPlace]
+    ; the server's copies (wardenbackup.go): the open space's, listed for its
+    ; owner on the Members page, and the deleted spaces', on the Spaces page;
+    ; the copy whose restore waits for a second press
+    def backups:[SpBackup]
+    def backupsShown:boolean false
+    def lostSpaces:[SpBackup]
+    def lostShown:boolean false
+    def backupAsk:string ""
 
     ; --- entries ----------------------------------------------------------------------
     ; the entry types (the schema the server shares)
     def types:SpTypes (SpTypes.builtin())
     ; the Add menu is open
     def addOpen:boolean false
+    ; on a server: the info screen's panel open under the top bar, and its
+    ; presentation on its way from the assistant
+    def infoOpen:boolean false
+    def infoBusy:boolean false
     ; on a narrow page the navigation hides behind the menu button
     def menuOpen:boolean false
     ; the calendar-on-your-phone panel opened from the top bar
@@ -808,6 +822,9 @@ class SpacesApp {
         def main:EVGElement (UiTree.div("sp-main" "sp-main"))
         main.role = "main"
         UiTree.inline(main "width" (SpacesApp.px((this.mainW()))))
+        if ((infoOpen && server) && ((strlen spaceId) > 0)) {
+            main.addChild((this.infoCard()))
+        }
         def noSpace:boolean (server && (((strlen spaceId) == 0) && (loading == false)))
         if ((tab == "spaces") || noSpace) {
             main.addChild((this.spacesView()))
@@ -932,6 +949,17 @@ class SpacesApp {
             ph.a11yHasPopup = "dialog"
             ph.a11yExpanded = (SpacesApp.tri(phoneOpen))
             bar.addChild(ph)
+        }
+        ; the info screen: the latest presentation of the space
+        if (server && ((strlen spaceId) > 0)) {
+            def ic:string "sp-infobtn"
+            if infoOpen {
+                ic = "sp-infobtn sp-infobtn-on"
+            }
+            def ib:EVGElement (SpacesApp.btn("sp-info" ic "▶"))
+            ib.a11yLabel = (SpWords.pick(lang "Info screen" "Info-näyttö"))
+            ib.a11yExpanded = (SpacesApp.tri(infoOpen))
+            bar.addChild(ib)
         }
         def lg:EVGElement (SpacesApp.box("sp-pills"))
         lg.role = "group"
@@ -2078,6 +2106,190 @@ class SpacesApp {
         return box
     }
 
+    ; Omat asetukset: whether the space's summary comes by email every
+    ; morning or on Monday mornings, and what that email would say from the
+    ; space as it is now. Nothing is sent yet.
+    ; The info screen: the assistant makes a short presentation of the
+    ; space's day and the days ahead for a screen on the wall, by the button
+    ; or every morning (wardeninfo.go); the top bar's button opens the latest.
+    fn infoCard:EVGElement () {
+        def c:EVGElement (this.card("info" (SpWords.pick(lang "Info screen" "Info-näyttö"))))
+        c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "The assistant makes a short presentation of today's plans, what to remember and the week, for a screen on the wall." "Avustaja tekee tämän päivän menoista, muistettavista ja viikosta lyhyen esityksen seinänäytölle.")))))
+        if ((strlen space.infoUrl) > 0) {
+            def when:string space.infoMade
+            if ((strlen when) >= 16) {
+                def d:int (SpText.dayOf((substring when 0 10) (itemAt (SpSpace.ymdOf(today)) 0)))
+                when = ((SpWords.dayLabel(lang d)) + (SpWords.pick(lang " at " " klo ")) + (substring when 11 16))
+            }
+            if ((strlen space.infoBy) > 0) {
+                when = (when + " · " + space.infoBy)
+            }
+            c.addChild((SpacesApp.tx("sp-meta" ((SpWords.pick(lang "Latest: " "Viimeisin: ")) + when))))
+        } {
+            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "None made yet." "Ei vielä tehty.")))))
+        }
+        def row:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        if ((strlen space.infoUrl) > 0) {
+            row.addChild((SpacesApp.btn("sp-info-open" "sp-action" (SpWords.pick(lang "Open the presentation" "Avaa esitys")))))
+        }
+        def mk:string (SpWords.pick(lang "Make it now" "Tee nyt"))
+        if infoBusy {
+            mk = (SpWords.pick(lang "Making…" "Tehdään…"))
+        }
+        def mb:EVGElement (SpacesApp.btn("sp-info-make" "sp-action sp-action-primary" mk))
+        row.addChild(mb)
+        row.addChild((this.showSwitch("sp-info-morning" (SpWords.pick(lang "Make it every morning" "Tee joka aamu")) space.infoMorning)))
+        c.addChild(row)
+        c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Anyone with the presentation's link can see it." "Esityksen näkee kuka tahansa, jolla on sen linkki.")))))
+        return c
+    }
+
+    ; The info screen's buttons.
+    fn pressInfo:boolean (target:string) {
+        if (target == "sp-info") {
+            infoOpen = (infoOpen == false)
+            if (infoOpen && ((strlen space.infoUrl) > 0)) {
+                action = ("open:" + space.infoUrl)
+            }
+            return true
+        }
+        if (target == "sp-info-open") {
+            if ((strlen space.infoUrl) > 0) {
+                action = ("open:" + space.infoUrl)
+            }
+            return true
+        }
+        if (target == "sp-info-make") {
+            if (infoBusy || assistBusy) {
+                return true
+            }
+            def o:VlJson (VlJson.objectValue())
+            o.setMember("space_id" (SpRemote.str(spaceId)))
+            o.setMember("purpose" (SpRemote.str("info_screen")))
+            o.setMember("today" (SpRemote.str((SpSpace.dateText(today)))))
+            this.queue("assist" (SpRemote.write(o)) "info")
+            infoBusy = true
+            status = (SpWords.pick(lang "The assistant is making the info screen…" "Avustaja tekee info-näyttöä…"))
+            return true
+        }
+        if (target == "sp-info-morning") {
+            space.infoMorning = (space.infoMorning == false)
+            def o2:VlJson (VlJson.objectValue())
+            o2.setMember("space_id" (SpRemote.str(spaceId)))
+            o2.setMember("morning" (VlJson.boolValue(space.infoMorning)))
+            this.queue("info_screen" (SpRemote.write(o2)) spaceId)
+            return true
+        }
+        return false
+    }
+
+    fn summaryCard:EVGElement () {
+        def c:EVGElement (this.card("summary" (SpWords.pick(lang "My settings: email summary" "Omat asetukset: sähköpostikooste"))))
+        c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "A summary of the space's plans and reminders by email, every morning or on Monday mornings. Only you get it; each member picks their own." "Tilan menot ja muistutukset koosteena sähköpostiin joka aamu tai maanantaiaamuisin. Kooste tulee vain sinulle; jokainen jäsen valitsee omansa.")))))
+        def sw:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        sw.addChild((this.showSwitch("sp-sum-off" (SpWords.pick(lang "No summary" "Ei koostetta")) (space.emailSummary == "off"))))
+        sw.addChild((this.showSwitch("sp-sum-day" (SpWords.pick(lang "Every morning" "Joka aamu")) (space.emailSummary == "day"))))
+        sw.addChild((this.showSwitch("sp-sum-week" (SpWords.pick(lang "Monday mornings" "Maanantaiaamuisin")) (space.emailSummary == "week"))))
+        c.addChild(sw)
+        def to:string account.email
+        if ((strlen to) == 0) {
+            to = (SpWords.pick(lang "your account's address" "tilisi osoitteeseen"))
+        }
+        c.addChild((SpacesApp.tx("sp-meta" ((SpWords.pick(lang "It would go to " "Kooste lähtisi osoitteeseen ")) + to + (SpWords.pick(lang ". Sending is not on yet: below is what the email would say now." ". Lähetys ei ole vielä käytössä: alla näet, mitä viesti nyt sanoisi."))))))
+        def pv:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        pv.addChild((this.showSwitch("sp-sumprev-day" (SpWords.pick(lang "Preview: a day" "Esikatselu: päivä")) (summaryShow == "day"))))
+        pv.addChild((this.showSwitch("sp-sumprev-week" (SpWords.pick(lang "Preview: a week" "Esikatselu: viikko")) (summaryShow == "week"))))
+        c.addChild(pv)
+        c.addChild((this.summaryMail(summaryShow)))
+        return c
+    }
+
+    ; The email: its subject, each day's plans with their times and wards,
+    ; and the reminders that are due (late ones too).
+    fn summaryMail:EVGElement (kind:string) {
+        def m:EVGElement (UiTree.div("sp-card-mail" "sp-mail"))
+        m.role = "region"
+        def last:int today
+        def subj:string ((SpWords.pick(lang "Today " "Tänään ")) + (SpWords.dayLabel(lang today)))
+        if (kind == "week") {
+            last = (today + 6)
+            subj = ((SpWords.pick(lang "Your week " "Viikkosi ")) + (SpWords.dayLabel(lang today)) + "–" + (SpWords.dayLabel(lang last)))
+        }
+        m.a11yLabel = (SpWords.pick(lang "Email preview" "Sähköpostin esikatselu"))
+        m.addChild((SpacesApp.tx("sp-mailhead" ((SpWords.pick(lang "From: Warden · To: " "Lähettäjä: Warden · Vastaanottaja: ")) + account.email))))
+        m.addChild((SpacesApp.tx("sp-mailsubj" (space.name + ": " + subj))))
+        def hello:string (SpWords.pick(lang "Hi" "Hei"))
+        if ((strlen account.name) > 0) {
+            hello = (hello + " " + account.name)
+        }
+        m.addChild((SpacesApp.tx("sp-mailline" (hello + ","))))
+        m.addChild((SpacesApp.tx("sp-mailsect" (SpWords.pick(lang "Plans" "Menot")))))
+        def occ:[SpOccur] (space.occurrences(today last))
+        def n:int 0
+        def d:int today
+        while (d <= last) {
+            def first:boolean true
+            def i:int 0
+            while (i < (array_length occ)) {
+                def o:SpOccur (itemAt occ i)
+                if (o.day == d) {
+                    if (first && (kind == "week")) {
+                        m.addChild((SpacesApp.tx("sp-mailday" (SpWords.dayLabel(lang d)))))
+                    }
+                    first = false
+                    def line:string ((SpWords.timeOf(lang o)) + "  " + o.title)
+                    def ward:string (space.resourceName(o.resource))
+                    if ((strlen ward) > 0) {
+                        line = (line + " · " + ward)
+                    }
+                    m.addChild((SpacesApp.tx("sp-mailline" line)))
+                    n = (n + 1)
+                }
+                i = (i + 1)
+            }
+            d = (d + 1)
+        }
+        if (n == 0) {
+            m.addChild((SpacesApp.tx("sp-mailline" (SpWords.pick(lang "No plans." "Ei menoja.")))))
+        }
+        m.addChild((SpacesApp.tx("sp-mailsect" (SpWords.pick(lang "Remember" "Muista")))))
+        def r:int 0
+        def j:int 0
+        while (j < (array_length space.deadlines)) {
+            def dl:SpDeadline (itemAt space.deadlines j)
+            if ((dl.done == false) && (dl.day <= last)) {
+                m.addChild((SpacesApp.tx("sp-mailline" (this.summaryRemind(dl.title dl.day dl.resource)))))
+                r = (r + 1)
+            }
+            j = (j + 1)
+        }
+        def due:[SpEvent] (space.dueEntries(last))
+        def k:int 0
+        while (k < (array_length due)) {
+            def e:SpEvent (itemAt due k)
+            if ((SpacesApp.closed(e)) == false) {
+                m.addChild((SpacesApp.tx("sp-mailline" (this.summaryRemind(e.title e.day e.resource)))))
+                r = (r + 1)
+            }
+            k = (k + 1)
+        }
+        if (r == 0) {
+            m.addChild((SpacesApp.tx("sp-mailline" (SpWords.pick(lang "Nothing due." "Ei erääntyviä.")))))
+        }
+        m.addChild((SpacesApp.tx("sp-mailfoot" (SpWords.pick(lang "Open Warden: sliqtly.com/apps/warden · Change or stop the summary on the Members page." "Avaa Warden: sliqtly.com/apps/warden · Muuta tai lopeta kooste Jäsenet-sivulla.")))))
+        return m
+    }
+
+    ; "Laskun eräpäivä, ti 20.10. · Leevi"
+    fn summaryRemind:string (title:string day:int ward:string) {
+        def line:string (title + ", " + (this.whenText(day)))
+        def wn:string (space.resourceName(ward))
+        if ((strlen wn) > 0) {
+            line = (line + " · " + wn)
+        }
+        return line
+    }
+
     ; "tänään", "huomenna", "myöhässä · ma 12.10.", "ti 20.10."
     fn whenText:string (day:int) {
         if (day < today) {
@@ -2273,6 +2485,12 @@ class SpacesApp {
         if (((strlen space.feed) > 0) && (phoneOpen == false)) {
             v.addChild((this.feedCard()))
         }
+        if server {
+            v.addChild((this.summaryCard()))
+        }
+        if (owner && server) {
+            v.addChild((this.backupsCard()))
+        }
         return v
     }
 
@@ -2404,6 +2622,203 @@ class SpacesApp {
             c.addChild(res)
         }
         return c
+    }
+
+    ; The space's copies, for its owner: taken before a change, at most every
+    ; two hours, and before the space is deleted. Neither an assistant nor
+    ; the MCP server can remove or restore one: only this card restores.
+    fn backupsCard:EVGElement () {
+        def c:EVGElement (this.card("backups" (SpWords.pick(lang "Backups" "Varmuuskopiot"))))
+        c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Warden copies the space and its entries before they change, at most every two hours. An assistant cannot remove or restore a copy; the owner restores one here, and what there is now is copied first." "Warden kopioi tilan merkintöineen ennen muutoksia, enintään kahden tunnin välein. Avustaja ei voi poistaa eikä palauttaa kopiota; omistaja palauttaa sen täältä, ja nykyinen tila kopioidaan ensin.")))))
+        if (backupsShown == false) {
+            c.addChild((SpacesApp.btn("sp-backups-show" "sp-action" (SpWords.pick(lang "Show backups" "Näytä varmuuskopiot")))))
+            return c
+        }
+        if ((array_length backups) == 0) {
+            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "No copies yet." "Ei vielä kopioita.")))))
+        }
+        def i:int 0
+        while (i < (array_length backups)) {
+            def b:SpBackup (itemAt backups i)
+            this.backupRow(c b ("sp-backup-" + (to_string i)) ("sp-backuprestore-" + (to_string i)) (this.backupWhen(b.when)) (this.backupDetail(b)))
+            i = (i + 1)
+        }
+        return c
+    }
+
+    ; The deleted spaces the caller owned, each with its newest copy.
+    fn lostCard:EVGElement () {
+        def c:EVGElement (this.card("lost" (SpWords.pick(lang "Deleted spaces" "Poistetut tilat"))))
+        if (lostShown == false) {
+            c.addChild((SpacesApp.btn("sp-lost-show" "sp-action" (SpWords.pick(lang "Show deleted spaces" "Näytä poistetut tilat")))))
+            return c
+        }
+        if ((array_length lostSpaces) == 0) {
+            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "No deleted spaces with a backup." "Ei poistettuja tiloja, joista olisi kopio.")))))
+        }
+        def i:int 0
+        while (i < (array_length lostSpaces)) {
+            def b:SpBackup (itemAt lostSpaces i)
+            this.backupRow(c b ("sp-lost-" + (to_string i)) ("sp-lostrestore-" + (to_string i)) b.name ((this.backupWhen(b.when)) + " · " + (this.backupDetail(b))))
+            i = (i + 1)
+        }
+        return c
+    }
+
+    fn backupRow:void (c:EVGElement b:SpBackup id:string restoreId:string title:string detail:string) {
+        def row:EVGElement (this.personRow(id title detail "" ""))
+        row.addChild((SpacesApp.btn(restoreId "sp-action" (SpWords.pick(lang "Restore" "Palauta")))))
+        c.addChild(row)
+        if (backupAsk == b.id) {
+            def ask:EVGElement (SpacesApp.box("sp-formrow"))
+            ask.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Put the space back as it was then? Entries made since go away; what there is now is copied first." "Palautetaanko tila sellaiseksi kuin se silloin oli? Sen jälkeen tehdyt merkinnät poistuvat; nykyinen tila kopioidaan ensin.")))))
+            ask.addChild((SpacesApp.btn("sp-backup-yes" "sp-action sp-action-primary" (SpWords.pick(lang "Restore" "Palauta")))))
+            ask.addChild((SpacesApp.btn("sp-backup-no" "sp-action" (SpWords.ui(lang "cancel")))))
+            c.addChild(ask)
+        }
+    }
+
+    ; "2026-10-17 14:05" as the page's language writes it
+    fn backupWhen:string (when:string) {
+        if ((lang != "fi") || ((strlen when) < 16)) {
+            return when
+        }
+        def y:string (substring when 0 4)
+        def m@(optional):int (to_int (substring when 5 7))
+        def d@(optional):int (to_int (substring when 8 10))
+        if ((null? m) || (null? d)) {
+            return when
+        }
+        return ((to_string (unwrap d)) + "." + (to_string (unwrap m)) + "." + y + " klo " + (substring when 11 13) + "." + (substring when 14 16))
+    }
+
+    fn backupDetail:string (b:SpBackup) {
+        def why:string (SpWords.pick(lang "before a change" "ennen muutosta"))
+        if (b.reason == "delete_event") {
+            why = (SpWords.pick(lang "before a removal" "ennen poistoa"))
+        }
+        if (b.reason == "delete_space") {
+            why = (SpWords.pick(lang "before the space was deleted" "ennen tilan poistoa"))
+        }
+        if (b.reason == "before_restore") {
+            why = (SpWords.pick(lang "before a restore" "ennen palautusta"))
+        }
+        return ((to_string b.events) + (SpWords.pick(lang " entries · " " merkintää · ")) + why)
+    }
+
+    sfn readBackup:SpBackup (o:VlJson) {
+        def b (new SpBackup())
+        b.id = (o.stringOr("backup_id" ""))
+        b.when = (o.stringOr("when" ""))
+        b.reason = (o.stringOr("reason" ""))
+        b.events = (o.intOr("events" 0))
+        return b
+    }
+
+    ; A press about the backups: true when it was one.
+    fn pressBackups:boolean (target:string) {
+        if (target == "sp-backups-show") {
+            backupsShown = true
+            def none:[SpBackup]
+            backups = none
+            this.queue("list_backups" (SpRemote.body(([] _:string ( "space_id" spaceId )))) "space")
+            return true
+        }
+        if (target == "sp-lost-show") {
+            lostShown = true
+            def none2:[SpBackup]
+            lostSpaces = none2
+            this.queue("list_backups" "{}" "lost")
+            return true
+        }
+        if (target == "sp-backup-no") {
+            backupAsk = ""
+            return true
+        }
+        if (target == "sp-backup-yes") {
+            if ((strlen backupAsk) > 0) {
+                def where:string "space"
+                def k:int 0
+                while (k < (array_length lostSpaces)) {
+                    def l:SpBackup (itemAt lostSpaces k)
+                    if (l.id == backupAsk) {
+                        where = "lost"
+                    }
+                    k = (k + 1)
+                }
+                this.queue("restore_backup" (SpRemote.body(([] _:string ( "backup_id" backupAsk )))) where)
+                backupAsk = ""
+                status = (SpWords.pick(lang "Restoring…" "Palautetaan…"))
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-backuprestore-")) {
+            def n@(optional):int (to_int (substring target 17 (strlen target)))
+            if (!null? n) {
+                def i:int (unwrap n)
+                if ((i >= 0) && (i < (array_length backups))) {
+                    def b:SpBackup (itemAt backups i)
+                    backupAsk = b.id
+                }
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-lostrestore-")) {
+            def n2@(optional):int (to_int (substring target 15 (strlen target)))
+            if (!null? n2) {
+                def j:int (unwrap n2)
+                if ((j >= 0) && (j < (array_length lostSpaces))) {
+                    def b2:SpBackup (itemAt lostSpaces j)
+                    backupAsk = b2.id
+                }
+            }
+            return true
+        }
+        return false
+    }
+
+    ; list_backups' and restore_backup's answers
+    fn backupsAnswered:void (c:SpCall o:VlJson) {
+        if ((c.op == "list_backups") && (c.ref == "space")) {
+            def none:[SpBackup]
+            backups = none
+            def l:VlJson (o.get("backups"))
+            def i:int 0
+            while (i < (l.count())) {
+                push backups (SpacesApp.readBackup((l.at(i))))
+                i = (i + 1)
+            }
+        }
+        if ((c.op == "list_backups") && (c.ref == "lost")) {
+            def none2:[SpBackup]
+            lostSpaces = none2
+            def ds:VlJson (o.get("deleted_spaces"))
+            def k:int 0
+            while (k < (ds.count())) {
+                def d:VlJson (ds.at(k))
+                def bl:VlJson (d.get("backups"))
+                if ((bl.count()) > 0) {
+                    def b:SpBackup (SpacesApp.readBackup((bl.at(0))))
+                    b.space = (d.stringOr("space_id" ""))
+                    b.name = (d.stringOr("name" ""))
+                    push lostSpaces b
+                }
+                k = (k + 1)
+            }
+        }
+        if (c.op == "restore_backup") {
+            status = ((SpWords.pick(lang "Restored: " "Palautettu: ")) + (to_string (o.intOr("events" 0))) + (SpWords.pick(lang " entries" " merkintää")))
+            backupsShown = false
+            lostShown = false
+            def rid:string (o.stringOr("space_id" ""))
+            if (c.ref == "lost") {
+                prefer = rid
+                this.queue("list_spaces" "{}" "")
+            } {
+                this.openSpace(spaceId)
+                tab = "members"
+            }
+        }
     }
 
     fn placeForPill:EVGElement (id:string ward:string label:string) {
@@ -2774,6 +3189,9 @@ class SpacesApp {
         form.addChild((SpacesApp.btn("sp-create" "sp-action sp-action-primary" (SpWords.ui(lang "create")))))
         nw.addChild(form)
         v.addChild(nw)
+        if (server && (loading == false)) {
+            v.addChild((this.lostCard()))
+        }
         return v
     }
 
@@ -7826,6 +8244,10 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (server && (this.pressInfo(target))) {
+            this.rebuild()
+            return true
+        }
         if (UiTree.beginsWith(target "sp-wxplace-")) {
             def wn@(optional):int (to_int (substring target 11 (strlen target)))
             def all:[SpWeather] (this.shownWeather())
@@ -8303,6 +8725,14 @@ class SpacesApp {
         if (c.op == "own_budget") {
             own.read(text)
         }
+        if (c.op == "email_summary") {
+            if (c.ref == spaceId) {
+                space.emailSummary = (o.stringOr("period" space.emailSummary))
+            }
+        }
+        if ((c.op == "list_backups") || (c.op == "restore_backup")) {
+            this.backupsAnswered(c o)
+        }
         if (c.op == "save_own_item") {
             this.ownSaved(c.ref (o.stringOr("item_id" "")))
         }
@@ -8320,6 +8750,18 @@ class SpacesApp {
         if ((c.op == "add_place") || (c.op == "remove_place")) {
             if ((o.stringOr("space_id" "")) == spaceId) {
                 SpRemote.readPlaces(space o)
+            }
+        }
+        if ((c.op == "assist") && (c.ref == "info")) {
+            infoBusy = false
+            status = (o.stringOr("text" ""))
+            this.reload()
+            this.rebuild()
+            return
+        }
+        if (c.op == "info_screen") {
+            if (c.ref == spaceId) {
+                space.infoMorning = (o.boolOr("morning" space.infoMorning))
             }
         }
         if (c.op == "assist") {
@@ -8418,8 +8860,14 @@ class SpacesApp {
             this.openSpace(spaceId)
             tab = "members"
         }
-        if (c.op == "assist") {
+        if ((c.op == "assist") && (c.ref == "info")) {
+            infoBusy = false
+        }
+        if ((c.op == "assist") && (c.ref != "info")) {
             this.assistAnswered(c.ref message false)
+        }
+        if (c.op == "info_screen") {
+            this.reload()
         }
         if ((c.op == "add_ward") && (UiTree.beginsWith(c.ref "wnew-"))) {
             ; the server did not take it: nor does the page
@@ -8482,6 +8930,9 @@ class SpacesApp {
         if (this.pressPlaces(target)) {
             return true
         }
+        if (this.pressBackups(target)) {
+            return true
+        }
         if (target == "sp-assist-send") {
             this.sendAssist()
             return true
@@ -8542,6 +8993,21 @@ class SpacesApp {
         }
         if (target == "sp-feed-pays") {
             feedPays = (feedPays == false)
+            this.rebuild()
+            return true
+        }
+        if (((target == "sp-sum-off") || (target == "sp-sum-day")) || (target == "sp-sum-week")) {
+            def p:string (substring target 7 (strlen target))
+            space.emailSummary = p
+            this.queue("email_summary" (SpRemote.body(([] _:string ( "space_id" spaceId "period" p )))) spaceId)
+            if (p != "off") {
+                summaryShow = p
+            }
+            this.rebuild()
+            return true
+        }
+        if ((target == "sp-sumprev-day") || (target == "sp-sumprev-week")) {
+            summaryShow = (substring target 11 (strlen target))
             this.rebuild()
             return true
         }

@@ -66,6 +66,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "git" {
 		os.Exit(gitCmd(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "warden-morning" {
+		os.Exit(wardenMorningCmd())
+	}
 	if len(os.Args) > 1 && os.Args[1] == "figma-index" {
 		os.Exit(figmaIndexCmd(os.Args[2:]))
 	}

@@ -178,6 +178,20 @@ class SpPlace {
     }
 }
 
+; A copy of a space the server keeps (wardenbackup.go), as the page lists
+; it: when it was taken in the space's time ("YYYY-MM-DD HH:MM"), why, how
+; many entries it holds; a deleted space's also its name.
+class SpBackup {
+    def id:string ""
+    def when:string ""
+    def reason:string ""
+    def events:int 0
+    def space:string ""
+    def name:string ""
+    Constructor () {
+    }
+}
+
 ; Who looks after an event, and how: "Mia" who "takes".
 class SpWho {
     def name:string ""
@@ -1089,6 +1103,16 @@ class SpSpace {
     def myRole:string "owner"
     ; the address its calendar app subscribes to (wardenfeed.go), "" off a server
     def feed:string ""
+    ; whether the viewer's email summary of it comes every morning (day), on
+    ; Monday mornings (week) or not at all (off): theirs alone (wardensummary.go)
+    def emailSummary:string "off"
+    ; its info screen (wardeninfo.go): the latest presentation's link, when
+    ; it was made ("YYYY-MM-DDTHH:MM") and by whom, and whether it is made
+    ; again every morning
+    def infoUrl:string ""
+    def infoMade:string ""
+    def infoBy:string ""
+    def infoMorning:boolean false
     def resources:[SpResource]
     ; the usual places of the space and of its wards
     def places:[SpPlace]

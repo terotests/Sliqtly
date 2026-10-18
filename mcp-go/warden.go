@@ -88,6 +88,9 @@ type wardenService struct {
 	ai *wardenAssist
 	// the site's address, for the calendar feed's (wardenfeed.go)
 	base string
+	// the Sliqtly tools the info screen is made with (wardeninfo.go); nil:
+	// none
+	deck wardenDeckCall
 }
 
 func newWardenService(db DB) *wardenService {
@@ -209,7 +212,7 @@ func (sp *wardenSpace) json() map[string]any {
 	return map[string]any{
 		"space_id": sp.id, "name": docStr(sp.doc, "name"), "vocab": docStr(sp.doc, "vocab"), "lang": docStr(sp.doc, "lang"),
 		"time_zone": tz, "role": sp.role, "members": members, "invites": anys(docStrs(sp.doc, "invites")), "wards": wards,
-		"places": wardenPlacesJSON(sp.doc),
+		"places": wardenPlacesJSON(sp.doc), "info_screen": wardenInfoJSON(sp),
 	}
 }
 
@@ -1128,6 +1131,12 @@ func (s *wardenService) getSpace(ctx context.Context, sp *wardenSpace) (any, err
 	if space["calendar_feed"], err = s.feedURL(ctx, sp, false); err != nil {
 		return nil, err
 	}
+	// the caller's own email summary of it (wardensummary.go)
+	m, err := s.summaries(ctx, sp.who.uid)
+	if err != nil {
+		return nil, err
+	}
+	space["email_summary"] = wardenSummaryOf(m, sp.id)
 	return map[string]any{"space": space, "events": evs, "changed": wardenChanged(sp.doc)}, nil
 }
 
@@ -1414,10 +1423,27 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 	// the caller's own money, in no space (wardenown.go)
 	case "own_budget":
 		return s.ownBudget(ctx, who, a)
-	case "save_own_item":
-		return s.saveOwnItem(ctx, who, a)
-	case "delete_own_item":
+	case "save_own_item", "delete_own_item":
+		if who.uid != "" {
+			if err := s.backupOwn(ctx, who.uid, op, false); err != nil {
+				log.Printf("warden own %s: backup before %s: %v", who.uid, op, err)
+			}
+		}
+		if op == "save_own_item" {
+			return s.saveOwnItem(ctx, who, a)
+		}
 		return s.deleteOwnItem(ctx, who, a)
+	// the caller's own choice, kept under their account (wardensummary.go)
+	case "email_summary":
+		return s.emailSummary(ctx, who, a)
+	}
+	// the backups are the page's alone (wardenbackup.go): no tool, so no
+	// assistant reaches them
+	if page && op == wardenListBackupsOp {
+		return s.listBackups(ctx, who, a)
+	}
+	if page && op == wardenRestoreBackupOp {
+		return s.restoreBackup(ctx, who, a)
 	}
 	if op == wardenChangesOp && page {
 		sp, err := s.space(ctx, who, argStr(a, "space_id"))
@@ -1427,12 +1453,18 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 		by := docStr(sp.doc, "changed_by")
 		return map[string]any{"changed": wardenChanged(sp.doc), "mine": by != "" && by == who.client}, nil
 	}
-	if findWardenTool(op) == nil {
+	tool := findWardenTool(op)
+	if tool == nil {
 		return nil, roomErr{"no such operation: " + op}
 	}
 	sp, err := s.space(ctx, who, argStr(a, "space_id"))
 	if err != nil {
 		return nil, err
+	}
+	if !tool.readOnly {
+		if err := s.backupBefore(ctx, sp, op); err != nil {
+			return nil, err
+		}
 	}
 	out, err := s.run(ctx, sp, op, a)
 	if err == nil && wardenWrites[op] {
@@ -1511,6 +1543,8 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.answerQuestion(ctx, sp, a)
 	case "list_questions":
 		return s.listQuestions(ctx, sp, a)
+	case "info_screen":
+		return s.infoScreen(ctx, sp, a)
 	}
 	return nil, roomErr{"no such operation: " + op}
 }
