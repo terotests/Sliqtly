@@ -99,6 +99,24 @@
 .sp-pill-tx { color: var(--muted); font-size: 13px; height: 18px; line-height: 18px; }
 .sp-pill-on-tx { color: var(--ink); font-weight: 600; }
 
+/* the info screen's button, beside the language */
+.sp-infobtn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  border-radius: 9px;
+  background-color: var(--soft);
+  cursor: pointer;
+}
+.sp-infobtn:hover { background-color: #ebe1d8; }
+.sp-infobtn:focus { background-color: #ebe1d8; }
+.sp-infobtn-on { background-color: var(--surface); }
+.sp-infobtn-tx { color: var(--muted); font-size: 14px; height: 18px; line-height: 18px; }
+.sp-infobtn-on-tx { color: var(--ink); }
+
 /* --- the body: navigation and the main column ---------------------------------- */
 
 .sp-body {

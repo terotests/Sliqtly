@@ -1112,6 +1112,13 @@ class SpSpace {
     ; whether the viewer's email summary of it comes every morning (day), on
     ; Monday mornings (week) or not at all (off): theirs alone (wardensummary.go)
     def emailSummary:string "off"
+    ; its info screen (wardeninfo.go): the latest presentation's link, when
+    ; it was made ("YYYY-MM-DDTHH:MM") and by whom, and whether it is made
+    ; again every morning
+    def infoUrl:string ""
+    def infoMade:string ""
+    def infoBy:string ""
+    def infoMorning:boolean false
     def resources:[SpResource]
     ; the usual places of the space and of its wards
     def places:[SpPlace]

@@ -42,6 +42,13 @@ it, and how ("Takes: Juho", "Picks up: Mia").
   open question. The nav shows how many wait for the person's answer, and
   the summary's Today shows the first open question with a link to the
   rest; the budget lists the settlements apart from the costs.
+- **Info screen** (Warden): the ▶ button beside the language opens the
+  latest info screen, a short Sliqtly presentation of today's plans, what to
+  remember and the week, for a screen on the wall, and a panel to make it
+  now (the assistant writes it) or every morning (the job
+  `warden-morning`, started by `.github/workflows/warden-morning.yml`).
+  One presentation per space, made again in place; anyone with its link
+  sees it (`mcp-go/wardeninfo.go`, MCP `info_screen`).
 - **Calendar**: EVGUI's event calendar card (month, week, day, agenda,
   per-ward views). A move, a resize or a new event is written back to the
   space; one day of a repeating event becomes its own event.

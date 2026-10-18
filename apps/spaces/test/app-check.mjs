@@ -1427,6 +1427,46 @@ console.log("the assistant on a server");
   a.press("sp-add");
 }
 
+console.log("the info screen");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [],
+    info_screen: { url: "", made: "", made_by: "", morning: false } };
+  a.answer(JSON.stringify({ space, events: [] }));
+  ok("a presentation button in the top bar", !!byId(a, "sp-info"));
+  a.press("sp-info");
+  eq("none to open yet", a.takeAction(), "");
+  ok("its panel opens", texts(a).includes("Info-näyttö") && texts(a).includes("Ei vielä tehty.") && !byId(a, "sp-info-open"));
+  a.press("sp-info-make");
+  eq("the assistant makes it", a.outOp(), "assist");
+  const body = JSON.parse(a.outBody());
+  ok("asked for the info screen", body.purpose === "info_screen" && body.space_id === "sp1", JSON.stringify(body));
+  ok("while it is made", texts(a).includes("Tehdään…"));
+  a.answer(JSON.stringify({ space_id: "sp1", text: "Info-näyttö tehty.", changed: true, event_ids: [], calls: [{ tool: "info_screen", ok: true }] }));
+  ok("said so", a.status === "Info-näyttö tehty." && !a.infoBusy);
+  eq("the space read again", a.outOp(), "get_space");
+  const made = { ...space, info_screen: { url: "https://sliqtly.com/s/abc", made: M.UiDate.isoOfDays(a.today) + "T06:00", made_by: "Mia", morning: false } };
+  a.answer(JSON.stringify({ space: made, events: [] }));
+  ok("the latest shown", texts(a).some((x) => x.startsWith("Viimeisin: ") && x.includes("klo 06:00 · Mia")), JSON.stringify(texts(a).filter((x) => x.startsWith("Viimeisin"))));
+  a.press("sp-info-open");
+  eq("opened in a new tab", a.takeAction(), "open:https://sliqtly.com/s/abc");
+  a.press("sp-info");
+  ok("the button closes the panel", !texts(a).includes("Ei vielä tehty.") && !byId(a, "sp-info-open"));
+  a.press("sp-info");
+  eq("and opens the latest", a.takeAction(), "open:https://sliqtly.com/s/abc");
+  a.press("sp-info-morning");
+  eq("every morning", a.outOp(), "info_screen");
+  eq("turned on", JSON.parse(a.outBody()).morning, true);
+  a.answer(JSON.stringify({ space_id: "sp1", url: "https://sliqtly.com/s/abc", morning: true }));
+  ok("kept on", a.space.infoMorning && texts(a).includes("✓ Tee joka aamu"));
+}
+
 console.log("questions between members");
 {
   const a = new M.SpacesApp();

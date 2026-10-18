@@ -50,7 +50,6 @@
 }
 .theme-retro .tb-brand { color: var(--retro-btn-ink); }
 .theme-retro .tb-label,
-.theme-retro .tb-status { color: var(--retro-btn-ink); font-weight: 600; }
 .theme-retro .tb-sep { background-color: var(--retro-edge); }
 /* Present / Sign in: the lit play button */
 .theme-retro .tb-accent,
@@ -286,6 +285,8 @@
 .theme-retro .rm-ttitle,
 .theme-retro .rm-ctitle,
 .theme-retro .rm-glabel { color: var(--retro-ink); }
+.theme-retro .rm-ctitle:hover { color: var(--retro-ink); }
+.theme-retro .rm-cline:hover { background-color: var(--retro-ink); }
 .theme-retro .rm-tlabel,
 .theme-retro .rm-gcount,
 .theme-retro .rm-cmeta,

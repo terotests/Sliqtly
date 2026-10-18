@@ -91,6 +91,9 @@ type wardenService struct {
 	// removes every file under a prefix in Storage (a deleted document's,
 	// wardendocs.go); nil: none kept
 	removeFiles func(ctx context.Context, prefix string)
+	// the Sliqtly tools the info screen is made with (wardeninfo.go); nil:
+	// none
+	deck wardenDeckCall
 }
 
 func newWardenService(db DB) *wardenService {
@@ -212,7 +215,7 @@ func (sp *wardenSpace) json() map[string]any {
 	return map[string]any{
 		"space_id": sp.id, "name": docStr(sp.doc, "name"), "vocab": docStr(sp.doc, "vocab"), "lang": docStr(sp.doc, "lang"),
 		"time_zone": tz, "role": sp.role, "members": members, "invites": anys(docStrs(sp.doc, "invites")), "wards": wards,
-		"places": wardenPlacesJSON(sp.doc),
+		"places": wardenPlacesJSON(sp.doc), "info_screen": wardenInfoJSON(sp),
 	}
 }
 
@@ -1566,6 +1569,8 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.deleteDoc(ctx, sp, a)
 	case "doc_folder":
 		return s.docFolder(ctx, sp, a)
+	case "info_screen":
+		return s.infoScreen(ctx, sp, a)
 	}
 	return nil, roomErr{"no such operation: " + op}
 }

@@ -1,0 +1,32 @@
+# Warden's info screens made again every morning (mcp-go/wardeninfo.go):
+# starts the Cloud Run job sliqtly-warden-morning that Deploy MCP (Go)
+# deploys. It asks the assistant to make the info screen of each space that
+# has "every morning" on. 03:00 UTC is 06:00 in Finland in summer, 05:00 in
+# winter; GitHub may start it a little late.
+#
+# The FIREBASE_SERVICE_ACCOUNT secret's account runs the job (Cloud Run
+# Admin, as Deploy MCP (Go) needs). Run by hand: Actions → Warden morning.
+name: Warden morning
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warden-morning
+  cancel-in-progress: false
+
+jobs:
+  morning:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Make the info screens
+        run: gcloud run jobs execute sliqtly-warden-morning --region europe-west1 --project sliqtly --wait

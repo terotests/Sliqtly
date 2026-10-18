@@ -57,7 +57,7 @@ class Mcp {
         out.putStr("protocolVersion" version)
         out.put("capabilities" caps)
         out.put("serverInfo" info)
-        out.putStr("instructions" "Sliqtly turns Markdown into animated slide presentations. Call sliqtly_guide once for the syntax (Core and its list of topics), then create_presentation; sliqtly_guide with topic explains one subject. Always give the user the returned presentation link." + (Plugins.instructions(host)))
+        out.putStr("instructions" "Sliqtly turns Markdown into animated slide presentations. Call sliqtly_guide once for the syntax (Core and its list of topics), then create_presentation; sliqtly_guide with topic explains one subject (a chapter of the guide). In Sliqtly's editor a room is called a topic (or a project), a presentation in it a story, and both may have folders: when the user speaks of topics, stories or folders, use the room tools where they are offered (list_rooms, get_room, create_room, move_presentation, create_folder, set_story). Always give the user the returned presentation link." + (Plugins.instructions(host)))
         return out
     }
 

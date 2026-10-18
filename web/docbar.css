@@ -18,7 +18,9 @@
 .theme-db .ui-toolbar-button-state-on { background-color: #e0e7ff; }
 .theme-db .ui-toolbar-icon { stroke: #27272a; }
 .theme-db .ui-toolbar-button-disabled { opacity: 0.4; }
-.theme-db .ui-select-trigger { font-family: Open Sans; height: 28px; }
+/* base.css pads the trigger 7px top and foot for its own height; at 28px that
+   leaves the label less room than its line, so the padding is the sides only */
+.theme-db .ui-select-trigger { font-family: Open Sans; height: 28px; padding: 0px 10px; }
 .theme-db .ui-toolbar-separator { margin: 0px 3px; }
 /* the zoom pill floating at the page's foot: − 59 % + | Fit */
 .theme-db .db-zoom {

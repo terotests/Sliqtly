@@ -42,7 +42,6 @@
   #bar button:hover, #bar select:hover { border-color: var(--accent); }
   #bar button.primary { background: var(--accent); border-color: var(--accent); color: #fafafa; font-weight: 600; }
   #bar .sepbar { width: 1px; height: 22px; background: var(--line); }
-  #status { color: var(--dim); white-space: nowrap; }
   /* The app is laid out for at least 320×240 (main.js resize); a smaller
      window (a browser zoomed to 500%) scrolls rather than squeezing it. */
   #stage { position: relative; flex: 1; min-width: 320px; min-height: 240px; }
@@ -466,7 +465,6 @@
   <button id="pro" data-canvas="accent" title="Sign in with Google" data-i18n-title><span data-i18n>Sign in</span></button>
   <select id="lang" aria-label="Language" data-i18n-aria></select>
   <span class="grow"></span>
-  <span id="status"></span>
 </div>
 <main id="stage">
   <canvas id="c" aria-label="Presentation editor" data-i18n-aria></canvas>

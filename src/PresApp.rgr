@@ -1703,15 +1703,7 @@ class PresApp {
         def dw:double (docView.width())
         def sc:double (edDocPane.scale(dw))
         def l:EVGDisplayList (docView.visible(((edDocPane.viewTop()) - 40.0) ((edDocPane.viewBottom(dw)) + 40.0)))
-        def placed (new EVGDisplayList())
-        def i:int 0
-        while (i < (array_length l.cmds)) {
-            if (i == docView.headCmds) {
-                this.edDocBandInto(placed)
-            }
-            placed.addCmd((PresScriptApply.copyCmd((itemAt l.cmds i))))
-            i = (i + 1)
-        }
+        def placed:EVGDisplayList (PresDocView.withBand(l.cmds docView.headCmds (this.edDocBands()) (EVGColor.rgba(56 132 255 0.32))))
         this.docPeersInto(placed sc)
         this.docPicInto(placed sc)
         this.docCaretInto(placed sc)
@@ -1738,6 +1730,20 @@ class PresApp {
         return (docView.list.toJson())
     }
 
+    ; The text a selection on the page between the page points (ax, ay) and
+    ; (bx, by) copies, when the page's own reading of it would lose what it
+    ; stands for: inside one code block, the code as written
+    ; (PresDocView.codeBetween). "" otherwise: the words as the page shows them.
+    fn edDocCopyText:string (ax:double ay:double bx:double by:double) {
+        this.edDocEnsure()
+        def a:int (docView.caret.offsetAt(ax ay))
+        def b:int (docView.caret.offsetAt(bx by))
+        if ((a < 0) || (b < 0)) {
+            return ""
+        }
+        return (PresDocView.codeBetween(deck.md.edit.doc a b))
+    }
+
     ; Where the page is on the screen: "left,top,scale" (screen = left +
     ; page × scale), "" when the screen point is not on the View page.
     fn edDocAt:string (x:double y:double) {
@@ -1749,25 +1755,16 @@ class PresApp {
         return ((EVGDisplayList.num((edDocPane.left(dw)))) + "," + (EVGDisplayList.num((edDocPane.top(dw)))) + "," + (EVGDisplayList.num((edDocPane.scale(dw)))))
     }
 
-    ; the selection's band, on the paper and under the words (page units)
-    fn edDocBandInto:void (placed:EVGDisplayList) {
+    ; the selection's band (page units, "x y w h" in fours): editing, the
+    ; Markdown editor's own selection as the page shows it; reading, the
+    ; page's (setDocBand)
+    fn edDocBands:[double] () {
         if (this.docEditing()) {
-            ; editing: the Markdown editor's own selection, as the page shows it
             def a:int (mdEditor.anchorOffset())
             def c:int (mdEditor.caretOffset())
-            def rs:[double] (docView.caret.bands((? (a < c) a c) (? (a < c) c a)))
-            def k:int 0
-            while ((k + 3) < (array_length rs)) {
-                placed.addRect((itemAt rs k) (itemAt rs (k + 1)) (itemAt rs (k + 2)) (itemAt rs (k + 3)) (EVGColor.rgba(56 132 255 0.32)))
-                k = (k + 4)
-            }
-            return
+            return (docView.caret.bands((? (a < c) a c) (? (a < c) c a)))
         }
-        def b:int 0
-        while ((b + 3) < (array_length edDocBand)) {
-            placed.addRect((itemAt edDocBand b) (itemAt edDocBand (b + 1)) (itemAt edDocBand (b + 2)) (itemAt edDocBand (b + 3)) (EVGColor.rgba(56 132 255 0.32)))
-            b = (b + 4)
-        }
+        return edDocBand
     }
 
     ; The band: "x,y,w,h" per run, page units, comma separated ("" none).
@@ -9416,7 +9413,7 @@ class PresApp {
             toolbar.h = H
             toolbar.rebuild()
         }
-        toolbar.setState(playing (this.statusText()))
+        toolbar.setState(playing)
         ; Rooms and Review's list of comments stay open; the rest act at once
         toolbar.setRailState((? (this.reviewListOpen()) "review" "") (review.on && ((review.model.openCount()) > 0)) (this.docTitle()))
         return true
@@ -11747,9 +11744,12 @@ class PresApp {
             return
         }
         ; a card pressed: dragged by the bar (onto a folder or a room of the
-        ; rail), opened when let go where it was pressed
+        ; rail); let go where it was pressed, its title opens it and the
+        ; rest of it ticks it
         if (((itemAt f 0) == "topic:drag") && ((array_length f) >= 5)) {
-            toolbar.deckDragBegin((itemAt f 1) (itemAt f 2) (?? (str2double (itemAt f 3)) 0.0) (?? (str2double (itemAt f 4)) 0.0))
+            def pick:boolean (((array_length f) >= 6) && ((itemAt f 5) == "pick"))
+            def shift:boolean (((array_length f) >= 7) && ((itemAt f 6) == "1"))
+            toolbar.deckDragBegin((itemAt f 1) (itemAt f 2) (?? (str2double (itemAt f 3)) 0.0) (?? (str2double (itemAt f 4)) 0.0) pick shift)
             return
         }
         if (((itemAt f 0) == "topic:bulkmenu") && ((array_length f) >= 3)) {
@@ -17687,6 +17687,15 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        ; a Stories card let go unmoved outside its title (PresToolbar.roomDragEnd)
+        if ((indexOf r "topic:tick") == 0) {
+            def tf:[string] (strsplit r (strfromcode 9))
+            if ((array_length tf) >= 2) {
+                room.topicTick((itemAt tf 1) (((array_length tf) >= 3) && ((itemAt tf 2) == "1")))
+            }
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; File → Rename… (a presentation's menu, once it is open): the name at
         ; the start of the bar as a field
         if (r == "rename") {
@@ -18504,10 +18513,6 @@ class PresApp {
 
 
 
-    fn statusText:string () {
-        def n:int (deck.slideCount())
-        return ((to_string n) + (PresI18n.t(" slides · ")) + (PresApp.secs((PresTimeline.total(deck)))))
-    }
 }
 
 ; a picture named in a line: its path and the columns it takes

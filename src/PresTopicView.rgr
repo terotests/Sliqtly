@@ -10,15 +10,20 @@
 ; stories it has, + New story, Group by (Type, Phase, Tag, None) and Sort
 ; (Updated, Title, Created), then a group a type (or phase, or tag) with its
 ; cards. A card has its type's colour only as an accent: the line down its
-; left edge and its Type pill; the Phase pill is grey. A card opens its
-; story; a pill opens the menu that changes it.
+; left edge and its Type pill; the Phase pill is grey. A card's title is
+; the link that opens its story; the rest of the card ticks it, like its
+; box; a pill opens the menu that changes it.
 ;
 ; What it shows the page works out (web/stories.js groupStories) and hands
 ; over as JSON (`setData`): the words already in the reader's language. What
 ; the reader asked for goes back as requests (`take`):
-;   topic:drag\t<deck>\t<name>\t<x>\t<y>   a card pressed: the toolbar
-;                                drags it (onto a folder or a room of the
-;                                rail) and opens it when let go unmoved
+;   topic:drag\t<deck>\t<name>\t<x>\t<y>\t<open|pick>\t<1 shift>
+;                                a card pressed: the toolbar drags it (onto
+;                                a folder or a room of the rail); let go
+;                                unmoved, its title ("open") opens it and
+;                                the rest of it ("pick") ticks it
+;                                (topic:tick back, `tick`), so a press just
+;                                beside the box never opens the story
 ;   topic:open\t<deck>           a card opened another way
 ;   topic:by\t<type|phase|tag|none>, topic:sort\t<updated|title|created>
 ;   topic:new                    + New story
@@ -320,7 +325,15 @@ class PresTopicView {
         UiKit.put(host pp top)
         inner.addChild(top)
 
-        inner.addChild((UiKit.words("rm-ctitle" (UiText.fit(eng name "Open Sans" 14.0 (cw - 34.0))))))
+        ; the title is the story's link, as wide as its words: underlined
+        ; under the pointer (its line an id-less part, hovered with it)
+        def tb:ButtonCtl (UiKit.button(("rm-ctit-" + n) ((PresI18n.t("Open ")) + name) "ghost"))
+        def tbe:EVGElement (unwrap tb.rootEl)
+        UiTree.clearChildren(tbe)
+        UiTree.addClass(tbe "rm-clink")
+        UiKit.put(host tb inner)
+        tbe.addChild((UiKit.words("rm-ctitle" (UiText.fit(eng name "Open Sans" 14.0 (cw - 34.0))))))
+        tbe.addChild((UiKit.div("rm-cline")))
         ; the folder of the room it is in, before when it was changed
         def meta:string (s.stringOr("when" ""))
         def fol:string (s.stringOr("folder" ""))
@@ -410,11 +423,7 @@ class PresTopicView {
         }
         def bi:int (this.cardOf(tid "rm-chk-"))
         if (bi >= 0) {
-            if shift {
-                picks.pick.extendTo((itemAt ids bi))
-            } {
-                picks.pick.toggle((itemAt ids bi))
-            }
+            picks.tick((itemAt ids bi) shift)
             return true
         }
         if (tid == "rm-bulk-all") {
@@ -458,12 +467,23 @@ class PresTopicView {
             push requests ("topic:menu\t" + (itemAt ids i) + "\t" + part + "\t" + (itemAt types i) + "\t" + (itemAt phases i) + "\t" + x + "\t" + y + "\t" + (itemAt names i))
             return true
         }
-        i = (this.cardOf(tid "rm-card-"))
+        ; the title opens, the rest of the card ticks (both drag)
+        def how:string "open"
+        i = (this.cardOf(tid "rm-ctit-"))
+        if (i < 0) {
+            how = "pick"
+            i = (this.cardOf(tid "rm-card-"))
+        }
         if (i >= 0) {
-            push requests ("topic:drag\t" + (itemAt ids i) + "\t" + (itemAt names i) + "\t" + (EVGDisplayList.num(px)) + "\t" + (EVGDisplayList.num(py)))
+            push requests ("topic:drag\t" + (itemAt ids i) + "\t" + (itemAt names i) + "\t" + (EVGDisplayList.num(px)) + "\t" + (EVGDisplayList.num(py)) + "\t" + how + "\t" + (? shift "1" ""))
             return true
         }
         return false
+    }
+
+    ; a card let go unmoved outside its title (the toolbar's topic:tick)
+    fn tick:void (id:string shift:boolean) {
+        picks.tick(id shift)
     }
 
     ; Actions' row chosen (the toolbar's menu): named on the button
@@ -475,6 +495,9 @@ class PresTopicView {
     ; was over a card.
     fn menuAt:boolean (tid:string px:double py:double) {
         def i:int (this.cardOf(tid "rm-card-"))
+        if (i < 0) {
+            i = (this.cardOf(tid "rm-ctit-"))
+        }
         if (i < 0) {
             i = (this.cardOf(tid "rm-sty-"))
         }

@@ -135,6 +135,12 @@ class PresRoomView {
         this.changed()
     }
 
+    ; a card let go unmoved outside its title: ticked as its box would be
+    fn topicTick:void (id:string shift:boolean) {
+        topic.tick(id shift)
+        this.changed()
+    }
+
     ; the Stories or the Chat tab
     fn showView:void (v:string) {
         if (v != view) {
