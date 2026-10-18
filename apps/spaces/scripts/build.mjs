@@ -47,7 +47,7 @@ export function buildSpaces({ warden = false, ranger } = {}) {
   for (const f of ["evg-webgl.js", "evg-a11y.js", "evg-measure.js", "evg-textinput.js"]) {
     fs.copyFileSync(path.join(ranger, "lib/evg/gl", f), path.join(out, "gl", f));
   }
-  fs.copyFileSync(path.join(appDir, "..", "..", "brand", "sliqtly-icon.svg"), path.join(out, "favicon.svg"));
+  fs.copyFileSync(path.join(appDir, "..", "..", "brand", warden ? "warden-icon.svg" : "sliqtly-icon.svg"), path.join(out, "favicon.svg"));
   // every URL the page loads carries the build's hash
   const h = crypto.createHash("sha1");
   for (const f of fs.readdirSync(out, { recursive: true }).sort()) {
