@@ -53,7 +53,7 @@ func (s *wardenService) calendarFeed(ctx context.Context, sp *wardenSpace, a map
 	}
 	return map[string]any{
 		"url": u, "webcal": "webcal://" + strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://"),
-		"how": "iPhone: open the webcal address, or Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar and paste the url. Mac Calendar: File → New Calendar Subscription. Google Calendar: Other calendars → From URL. Each entry carries alarms (VALARM) on the days its type reminds of (Apple's calendars show them; Google Calendar leaves a subscribed calendar's alarms out). Add ?get=0, ?pay=0 or ?alarm=0 (joined with &) to leave out the windows to get things in, the payment days or the alarms. The address is the space's secret: anyone with it sees the events.",
+		"how": "iPhone: open the webcal address, or Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar and paste the url. Mac Calendar: File → New Calendar Subscription. Google Calendar: Other calendars → From URL. Each entry carries alarms (VALARM) on the days its type reminds of (Apple's calendars show them; Google Calendar leaves a subscribed calendar's alarms out). Add ?get=0, ?pay=0 or ?alarm=0 (joined with &) to leave out the windows to get things in, the payment days or the alarms. Add ?ward=<ward id> (or ward=none, the entries of no ward) or ?group=<type group: activity, care, health, travel, booking, deadline, reminder, financial, asset_action, event> for a calendar of only those entries, with its own name and suggested colour; subscribe to several to show, hide and colour them apart on the phone. The address is the space's secret: anyone with it sees the events.",
 	}, nil
 }
 
@@ -87,10 +87,98 @@ func serveWardenFeed(env *Env, w http.ResponseWriter, r *http.Request, p string)
 		return
 	}
 	// ?get=0, ?pay=0, ?alarm=0: without the windows to get things in, the
-	// payment days, the alarms
+	// payment days, the alarms; ?ward=, ?group=: only one ward's entries
+	// ("none": those of no ward) or one type group's, a calendar of their own
 	q := r.URL.Query()
-	opt := icsOptions{feed: true, gets: q.Get("get") != "0", pays: q.Get("pay") != "0", alarms: q.Get("alarm") != "0"}
-	wardenICSOut(w, "", env.warden.icsCalendar(sp, evs, eids, evs, opt))
+	opt := icsOptions{feed: true, gets: q.Get("get") != "0", pays: q.Get("pay") != "0", alarms: q.Get("alarm") != "0",
+		ward: q.Get("ward"), group: q.Get("group")}
+	docs, dids := evs, eids
+	if opt.ward != "" || opt.group != "" {
+		docs, dids = nil, nil
+		for i, d := range evs {
+			if wardenFeedHas(d, opt) {
+				docs, dids = append(docs, d), append(dids, eids[i])
+			}
+		}
+	}
+	wardenICSOut(w, "", env.warden.icsCalendar(sp, docs, dids, evs, opt))
+}
+
+// whether an entry is in a feed of one ward or one type group
+func wardenFeedHas(d Doc, opt icsOptions) bool {
+	if opt.ward != "" {
+		wd := docStr(d, "ward")
+		if opt.ward == "none" && wd != "" || opt.ward != "none" && wd != opt.ward {
+			return false
+		}
+	}
+	if opt.group != "" && wardenGroupOf(docStr(d, "type")) != opt.group {
+		return false
+	}
+	return true
+}
+
+// an entry type's group, as the page's colours and Add menu group them
+// ("event" for a plain event or an unknown type)
+func wardenGroupOf(typ string) string {
+	if t := wardenTypeOf(typ); t != nil && t.Group != "" {
+		if _, ok := wardenGroupNames[t.Group]; ok {
+			return t.Group
+		}
+	}
+	return "event"
+}
+
+// the type groups' names in the calendar's title, and the colours the
+// page draws them in (spaces.css .sp-c-g-*), suggested to the phone
+var wardenGroupNames = map[string][2]string{
+	"event": {"Tapahtumat", "Events"}, "activity": {"Harrastukset", "Hobbies"}, "care": {"Hoito ja arki", "Care and daily routine"},
+	"health": {"Terveys", "Health"}, "travel": {"Matkat", "Travel"}, "booking": {"Varaukset", "Bookings"},
+	"deadline": {"Määräpäivät", "Deadlines"}, "reminder": {"Muistutukset", "Reminders"}, "financial": {"Raha ja hankinnat", "Money and purchases"},
+	"asset_action": {"Koti ja tavarat", "Home and things"}, "question": {"Kyselyt", "Questions"},
+}
+
+var wardenGroupColors = map[string]string{
+	"event": "#d9573f", "activity": "#0d9488", "care": "#db2777", "health": "#16a34a", "travel": "#0284c7", "booking": "#a16207",
+	"deadline": "#b91c1c", "reminder": "#ca8a04", "financial": "#475569", "asset_action": "#78716c", "question": "#7c3aed",
+}
+
+// the wards' colours as the page draws them (spaces.css .sp-c-*)
+var wardenColorHex = map[string]string{
+	"blue": "#3b82f6", "emerald": "#10b981", "violet": "#8b5cf6", "amber": "#f59e0b", "rose": "#f43f5e", "cyan": "#06b6d4",
+	"indigo": "#6366f1", "orange": "#f97316", "green": "#10b981", "red": "#f43f5e", "purple": "#8b5cf6", "teal": "#06b6d4",
+	"pink": "#f43f5e", "yellow": "#f59e0b", "gray": "#64748b",
+}
+
+// a feed's name and suggested colour: the space's, or with the ward's or
+// the group's after it
+func (s *wardenService) feedTitle(sp *wardenSpace, opt icsOptions) (string, string) {
+	name, color := docStr(sp.doc, "name"), "#d9573f"
+	fi := docStr(sp.doc, "lang") != "en"
+	var parts []string
+	if opt.ward == "none" {
+		parts = append(parts, map[bool]string{true: "Yhteiset", false: "Shared"}[fi])
+	} else if opt.ward != "" {
+		for _, wd := range docMaps(sp.doc, "wards") {
+			if docStr(wd, "id") == opt.ward {
+				parts = append(parts, docStr(wd, "name"))
+				c := docStr(wd, "color")
+				if h, ok := wardenColorHex[c]; ok {
+					color = h
+				} else if wardenHexRe.MatchString(c) {
+					color = c
+				}
+			}
+		}
+	}
+	if n, ok := wardenGroupNames[opt.group]; ok {
+		parts = append(parts, map[bool]string{true: n[0], false: n[1]}[fi])
+		color = wardenGroupColors[opt.group]
+	}
+	if len(parts) > 0 {
+		name += " · " + strings.Join(parts, " · ")
+	}
+	return name, color
 }
 
 func serveWardenEventICS(env *Env, w http.ResponseWriter, r *http.Request, p string) {
@@ -151,7 +239,11 @@ func wardenICSOut(w http.ResponseWriter, title, text string) {
 // often to read it again); gets and pays, the windows to get things in and
 // the payment days, as the page's calendar shows them; alarms, a VALARM on
 // each day an entry reminds of
-type icsOptions struct{ feed, gets, pays, alarms bool }
+type icsOptions struct {
+	feed, gets, pays, alarms bool
+	// the feed of one ward ("none": of no ward) or one type group
+	ward, group string
+}
 
 // the space's dated entries as one VCALENDAR; all: the space's entries, for
 // the days a timetable skips
@@ -176,7 +268,9 @@ func (s *wardenService) icsCalendar(sp *wardenSpace, docs []Doc, ids []string, a
 	line("CALSCALE:GREGORIAN")
 	if opt.feed {
 		line("METHOD:PUBLISH")
-		line("X-WR-CALNAME:" + icsEsc(docStr(sp.doc, "name")))
+		name, color := s.feedTitle(sp, opt)
+		line("X-WR-CALNAME:" + icsEsc(name))
+		line("X-APPLE-CALENDAR-COLOR:" + strings.ToUpper(color))
 		line("X-WR-TIMEZONE:" + tz)
 		line("REFRESH-INTERVAL;VALUE=DURATION:PT1H")
 		line("X-PUBLISHED-TTL:PT1H")

@@ -248,6 +248,13 @@ class SpacesApp {
     def infoBusy:boolean false
     ; on a narrow page the navigation hides behind the menu button
     def menuOpen:boolean false
+    ; the calendar-on-your-phone panel opened from the top bar
+    def phoneOpen:boolean false
+    ; the feed card's share choices are open
+    def feedShare:boolean false
+    ; which calendar the feed card subscribes to: "" all, "w:<ward id>",
+    ; "w:none" (no ward) or "g:<type group>"
+    def feedPick:string ""
     ; in it: the types to pick by hand shown (on a server the assistant comes
     ; first), what is searched for, the group picked, and the assistant's
     ; answer asked from it (-1 for none)
@@ -813,6 +820,16 @@ class SpacesApp {
         shown = none
         def shell:EVGElement (UiTree.div("sp-shell" "sp-shell"))
         shell.addChild((this.topBar()))
+        if (phoneOpen && ((strlen space.feed) > 0)) {
+            def pop:EVGElement (SpacesApp.box("sp-phonepop"))
+            def pc:EVGElement (this.feedCard())
+            pc.role = "dialog"
+            def cr:EVGElement (SpacesApp.box("sp-formrow"))
+            cr.addChild((SpacesApp.btn("sp-phone-close" "sp-action" (SpWords.pick(lang "Close" "Sulje")))))
+            pc.addChild(cr)
+            pop.addChild(pc)
+            shell.addChild(pop)
+        }
         def body:EVGElement (SpacesApp.box("sp-body"))
         if (this.narrow()) {
             body = (SpacesApp.box("sp-body sp-body-narrow"))
@@ -934,6 +951,22 @@ class SpacesApp {
         }
         if wordsOn {
             bar.addChild(pills)
+        }
+        if ((strlen space.feed) > 0) {
+            def phw:string (SpWords.pick(lang "Add to phone" "Liitä puhelimeen"))
+            def phc:string "sp-action sp-phonebtn"
+            if phoneOpen {
+                phc = "sp-action sp-phonebtn sp-action-primary"
+            }
+            def phs:string ("📱 " + phw)
+            if (this.narrow()) {
+                phs = "📱"
+            }
+            def ph:EVGElement (SpacesApp.btn("sp-phone" phc phs))
+            ph.a11yLabel = phw
+            ph.a11yHasPopup = "dialog"
+            ph.a11yExpanded = (SpacesApp.tri(phoneOpen))
+            bar.addChild(ph)
         }
         ; the info screen: the latest presentation of the space
         if (server && ((strlen spaceId) > 0)) {
@@ -2467,19 +2500,8 @@ class SpacesApp {
             }
             v.addChild(iv)
         }
-        if ((strlen space.feed) > 0) {
-            def fc:EVGElement (this.card("feed" (SpWords.pick(lang "Calendar on your phone" "Kalenteri puhelimeen"))))
-            fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe and the space's events show in Apple's, Google's or Outlook's calendar, and change there when they change here. Apple's calendar also alerts of the reminders; Google's leaves the alerts out. Anyone with the address sees the events." "Tilaa, niin tilan menot näkyvät Applen, Googlen tai Outlookin kalenterissa ja muuttuvat siellä, kun ne muuttuvat täällä. Applen kalenteri myös hälyttää muistutuksista; Googlen kalenteri jättää hälytykset pois. Jokainen, jolla on osoite, näkee menot.")))))
-            def sw:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
-            sw.addChild((this.showSwitch("sp-feed-gets" (SpWords.ui(lang "showGets")) feedGets)))
-            sw.addChild((this.showSwitch("sp-feed-pays" (SpWords.ui(lang "showPays")) feedPays)))
-            sw.addChild((this.showSwitch("sp-feed-alarms" (SpWords.pick(lang "Alerts" "Hälytykset")) feedAlarms)))
-            fc.addChild(sw)
-            def fr:EVGElement (SpacesApp.box("sp-formrow"))
-            fr.addChild((SpacesApp.btn("sp-feed-open" "sp-action sp-action-primary" (SpWords.pick(lang "Subscribe" "Tilaa kalenteriin")))))
-            fr.addChild((SpacesApp.btn("sp-feed-copy" "sp-action" (SpWords.pick(lang "Copy the address" "Kopioi osoite")))))
-            fc.addChild(fr)
-            v.addChild(fc)
+        if (((strlen space.feed) > 0) && (phoneOpen == false)) {
+            v.addChild((this.feedCard()))
         }
         if server {
             v.addChild((this.summaryCard()))
@@ -2488,6 +2510,110 @@ class SpacesApp {
             v.addChild((this.backupsCard()))
         }
         return v
+    }
+
+    ; Subscribing to the space's calendar feed: on the members page and in
+    ; the panel the top bar's phone button opens.
+    fn feedCard:EVGElement () {
+        def fc:EVGElement (this.card("feed" (SpWords.pick(lang "Calendar on your phone" "Kalenteri puhelimeen"))))
+        fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe and the space's events show in Apple's, Google's or Outlook's calendar, and change there when they change here. Apple's calendar also alerts of the reminders; Google's leaves the alerts out. Anyone with the address sees the events." "Tilaa, niin tilan menot näkyvät Applen, Googlen tai Outlookin kalenterissa ja muuttuvat siellä, kun ne muuttuvat täällä. Applen kalenteri myös hälyttää muistutuksista; Googlen kalenteri jättää hälytykset pois. Jokainen, jolla on osoite, näkee menot.")))))
+        def sw:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        sw.addChild((this.showSwitch("sp-feed-gets" (SpWords.ui(lang "showGets")) feedGets)))
+        sw.addChild((this.showSwitch("sp-feed-pays" (SpWords.ui(lang "showPays")) feedPays)))
+        sw.addChild((this.showSwitch("sp-feed-alarms" (SpWords.pick(lang "Alerts" "Hälytykset")) feedAlarms)))
+        fc.addChild(sw)
+        this.feedPicks(fc)
+        def fr:EVGElement (SpacesApp.box("sp-formrow"))
+        fr.addChild((SpacesApp.btn("sp-feed-open" "sp-action sp-action-primary" (SpWords.pick(lang "Subscribe" "Tilaa kalenteriin")))))
+        def sh:EVGElement (SpacesApp.btn("sp-feed-share" "sp-action" (SpWords.pick(lang "Share" "Jaa"))))
+        sh.a11yExpanded = (SpacesApp.tri(feedShare))
+        fr.addChild(sh)
+        fc.addChild(fr)
+        ; sharing copies the address in the form the receiver's calendar takes
+        if feedShare {
+            def so:EVGElement (SpacesApp.box("sp-formrow"))
+            so.role = "group"
+            so.a11yLabel = (SpWords.pick(lang "Share" "Jaa"))
+            so.addChild((SpacesApp.btn("sp-feed-copy" "sp-opt" (SpWords.pick(lang "Copy iCal address" "Kopioi iCal-osoite")))))
+            so.addChild((SpacesApp.btn("sp-feed-copyapple" "sp-opt" (SpWords.pick(lang "Copy Apple subscription link" "Kopioi Apple-tilauslinkki")))))
+            fc.addChild(so)
+            fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "iCal works in Google and Outlook; the Apple link opens the subscription straight in an iPhone's or Mac's calendar." "iCal-osoite käy Googleen ja Outlookiin; Apple-linkki avaa tilauksen suoraan iPhonen tai Macin kalenterissa.")))))
+        }
+        return fc
+    }
+
+    ; Which calendar to subscribe to: all of the space's, or one ward's, the
+    ; entries of no ward, or one type group's (those the space has). Each is
+    ; a calendar of its own on the phone, with its own name and colour.
+    fn feedPicks:void (fc:EVGElement) {
+        def pills:EVGElement (SpacesApp.box("sp-pills sp-wrap"))
+        pills.role = "group"
+        pills.a11yLabel = (SpWords.pick(lang "Which calendar" "Mikä kalenteri"))
+        pills.addChild((this.feedPickPill("sp-feedpick-all" "" (SpWords.pick(lang "All" "Kaikki")))))
+        def i:int 0
+        while (i < (array_length space.resources)) {
+            def r:SpResource (itemAt space.resources i)
+            pills.addChild((this.feedPickPill(("sp-feedpick-w-" + (to_string i)) ("w:" + r.id) r.name)))
+            i = (i + 1)
+        }
+        pills.addChild((this.feedPickPill("sp-feedpick-shared" "w:none" (SpWords.noun(lang pack "together")))))
+        def groups:[string] (this.feedGroups())
+        def k:int 0
+        while (k < (array_length groups)) {
+            def g:string (itemAt groups k)
+            pills.addChild((this.feedPickPill(("sp-feedpick-g-" + g) ("g:" + g) (SpWords.groupName(lang g)))))
+            k = (k + 1)
+        }
+        fc.addChild(pills)
+        fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe to each one apart and the phone shows them as calendars of their own, in their own colours, each one to show or hide." "Tilaa jokainen erikseen, niin puhelin näyttää ne omina kalentereinaan omilla väreillään, ja kunkin voi näyttää tai piilottaa.")))))
+    }
+
+    fn feedPickPill:EVGElement (id:string key:string label:string) {
+        def on:boolean (key == feedPick)
+        def pc:string "sp-pill"
+        if on {
+            pc = "sp-pill sp-pill-on"
+        }
+        def b:EVGElement (SpacesApp.btn(id pc label))
+        b.a11yPressed = (SpacesApp.tri(on))
+        return b
+    }
+
+    ; the type groups the space's entries are in, in the Add menu's order
+    fn feedGroups:[string] () {
+        def res:[string]
+        def all:[string] (SpTypes.groups())
+        def i:int 0
+        while (i < (array_length all)) {
+            def g:string (itemAt all i)
+            def found:boolean false
+            def k:int 0
+            while ((k < (array_length space.events)) && (found == false)) {
+                def e:SpEvent (itemAt space.events k)
+                if ((this.groupOfType(e.typeId)) == g) {
+                    found = true
+                }
+                k = (k + 1)
+            }
+            if found {
+                push res g
+            }
+            i = (i + 1)
+        }
+        return res
+    }
+
+    ; the group of an entry type ("event" when unknown), as the feed groups it
+    fn groupOfType:string (id:string) {
+        def t@(optional):SpType (this.typeOf(id))
+        if (null? t) {
+            return "event"
+        }
+        def ty:SpType (unwrap t)
+        if (SpacesApp.knownGroup(ty.group)) {
+            return ty.group
+        }
+        return "event"
     }
 
     ; The wards; the owner removes one with a second press that says what
@@ -8599,6 +8725,17 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (target == "sp-phone") {
+            phoneOpen = (phoneOpen == false)
+            this.rebuild()
+            return true
+        }
+        if (target == "sp-phone-close") {
+            phoneOpen = false
+            focused = "sp-phone"
+            this.rebuild()
+            return true
+        }
         if (target == "sp-menu") {
             menuOpen = (menuOpen == false)
             this.rebuild()
@@ -9390,9 +9527,49 @@ class SpacesApp {
             }
             return true
         }
+        if (UiTree.beginsWith(target "sp-feedpick-")) {
+            def pk:string (substring target 12 (strlen target))
+            if (pk == "all") {
+                feedPick = ""
+            }
+            if (pk == "shared") {
+                feedPick = "w:none"
+            }
+            if (UiTree.beginsWith(pk "g-")) {
+                feedPick = ("g:" + (substring pk 2 (strlen pk)))
+            }
+            if (UiTree.beginsWith(pk "w-")) {
+                def wi@(optional):int (to_int (substring pk 2 (strlen pk)))
+                if (!null? wi) {
+                    def wk:int (unwrap wi)
+                    if ((wk >= 0) && (wk < (array_length space.resources))) {
+                        def wr:SpResource (itemAt space.resources wk)
+                        feedPick = ("w:" + wr.id)
+                    }
+                }
+            }
+            this.rebuild()
+            return true
+        }
+        if (target == "sp-feed-share") {
+            feedShare = (feedShare == false)
+            this.rebuild()
+            return true
+        }
         if (target == "sp-feed-copy") {
             copyText = (this.feedAddress())
             action = "copy"
+            return true
+        }
+        ; the webcal address: tapped on an iPhone or a Mac it opens the
+        ; subscription in Apple's calendar
+        if (target == "sp-feed-copyapple") {
+            def ua:string (this.feedAddress())
+            def uat:int (indexOf ua "://")
+            if (uat > 0) {
+                copyText = ("webcal" + (substring ua uat (strlen ua)))
+                action = "copy"
+            }
             return true
         }
         if (target == "sp-invite") {
@@ -9603,6 +9780,12 @@ class SpacesApp {
         }
         if (feedAlarms == false) {
             push q "alarm=0"
+        }
+        if (UiTree.beginsWith(feedPick "w:")) {
+            push q ("ward=" + (substring feedPick 2 (strlen feedPick)))
+        }
+        if (UiTree.beginsWith(feedPick "g:")) {
+            push q ("group=" + (substring feedPick 2 (strlen feedPick)))
         }
         if ((array_length q) == 0) {
             return space.feed
@@ -9883,6 +10066,12 @@ class SpacesApp {
                     return true
                 }
             }
+        }
+        if ((k == "Escape") && phoneOpen) {
+            phoneOpen = false
+            focused = "sp-phone"
+            this.rebuild()
+            return true
         }
         if ((k == "Escape") && (editing || addOpen)) {
             editing = false

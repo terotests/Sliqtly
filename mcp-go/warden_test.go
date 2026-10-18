@@ -387,6 +387,25 @@ func TestWardenFeed(t *testing.T) {
 	}
 	eq(t, strings.Count(ics, "BEGIN:VEVENT"), 2, "the entry without a day is left out")
 
+	// a calendar of one ward, of the entries of no ward, of one type group:
+	// each its own name and suggested colour
+	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
+	leevi := ""
+	for _, wd := range out["space"].(map[string]any)["wards"].([]any) {
+		if wd.(map[string]any)["name"] == "Leevi" {
+			leevi = wd.(map[string]any)["id"].(string)
+		}
+	}
+	_, wl := get(path+"?ward="+leevi, "")
+	eq(t, []any{strings.Count(wl, "BEGIN:VEVENT"), strings.Contains(wl, "Leevin jumppa"), strings.Contains(wl, "X-WR-CALNAME:Kotona · Leevi"), strings.Contains(wl, "X-APPLE-CALENDAR-COLOR:#")},
+		[]any{1, true, true, true}, "Leevi's calendar")
+	_, none := get(path+"?ward=none", "")
+	eq(t, []any{strings.Count(none, "BEGIN:VEVENT"), strings.Contains(none, "Lapset Terolla"), strings.Contains(none, "X-WR-CALNAME:Kotona · Yhteiset")}, []any{1, true, true}, "the shared calendar")
+	_, grp := get(path+"?group=health", "")
+	eq(t, []any{strings.Count(grp, "BEGIN:VEVENT"), strings.Contains(grp, "X-WR-CALNAME:Kotona · Terveys"), strings.Contains(grp, "X-APPLE-CALENDAR-COLOR:#16A34A")}, []any{0, true, true}, "the health calendar, empty")
+	_, ev := get(path+"?group=event", "")
+	eq(t, strings.Count(ev, "BEGIN:VEVENT"), 2, "plain events")
+
 	// read back as an import reads it: the same days and times
 	loc, _ := time.LoadLocation(wardenTZ)
 	evs, _, err := icsToEvents(ics, loc)
