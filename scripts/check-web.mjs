@@ -6559,6 +6559,51 @@ try {
     await ctx.close();
   }
 
+  // A code block on the View page: a drag over it shows its band over the
+  // block's panel (PresDocView.withBand), reading and editing, and a copy
+  // keeps its lines and indentation (PresApp.edDocCopyText)
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    await ctx.addInitScript(() => { try { localStorage.setItem("sliqtly.openIn", "view"); } catch (_) {} });
+    const pg = await ctx.newPage();
+    const cerr = [];
+    pg.on("pageerror", (e) => cerr.push(e.message));
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const md = "# D\n\n## Malli\n\nTeksti.\n\n```ts\nFamilyItem {\n  id, workspaceId\n  type, subtype\n}\n```\n\nLoppu.\n";
+    await pg.evaluate((m) => { window.__app.setSource(m); window.__app.setEditing(false, false); window.__app.showTab("view"); }, md);
+    await pg.waitForFunction((o) => window.__app.docScreenAt(o) !== "", md.indexOf("subtype"), { timeout: 30000 });
+    const xy = (o) => pg.evaluate((o) => window.__app.docScreenAt(o), o).then((s) => s.split(",").map(Number));
+    const drag = async () => {
+      const [x1, y1] = await xy(md.indexOf("FamilyItem"));
+      const [x2, y2] = await xy(md.indexOf("subtype"));
+      await pg.mouse.move(x1 + 1, y1);
+      await pg.mouse.down();
+      await pg.mouse.move(x1 + 20, y1, { steps: 4 });
+      await pg.mouse.move(x2 + 1, y2, { steps: 6 });
+      await pg.mouse.up();
+      await pg.waitForTimeout(300);
+    };
+    // the command painted just before the code's first line: the band
+    const bandUnder = () => pg.evaluate(() => {
+      const cmds = JSON.parse(window.__app.chromeJson()).list.cmds;
+      const i = cmds.findIndex((c) => c.k === 3 && c.text === "FamilyItem {");
+      const b = cmds[i - 1];
+      return !!(b && b.k === 0 && b.c && b.c[3] < 0.5);
+    });
+    await drag();
+    const read = await pg.evaluate(() => ({ text: window.__docSelected(), editing: window.__app.isEditing() }));
+    check("View code: a drag over a code block selects it, its band over the block's panel", !read.editing && await bandUnder(), JSON.stringify(read));
+    check("View code: …and the copy keeps its lines and indentation", read.text === "FamilyItem {\n  id, workspaceId\n  type, ", JSON.stringify(read.text));
+    await pg.evaluate(() => { window.__app.setEditing(true, false); window.__app.showTab("view"); });
+    await pg.waitForTimeout(300);
+    await drag();
+    const ed = await pg.evaluate(() => { const a = window.__app; return { editing: a.isEditing(), c: a.mdEditor.caretOffset(), a: a.mdEditor.anchorOffset() }; });
+    check("View code: editing, a drag selects in the code and its band shows over the panel", ed.editing && ed.c !== ed.a && await bandUnder(), JSON.stringify(ed));
+    check("View code: without errors", cerr.length === 0, cerr.join(" | "));
+    await ctx.close();
+  }
+
   // Editing on the View page (src/PresDocCaret.rgr, PresApp "editing on the
   // View page"): the page is a picture of the Markdown and the Markdown the
   // only document; a press puts the Markdown's caret on the character
