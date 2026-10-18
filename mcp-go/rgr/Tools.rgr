@@ -462,6 +462,26 @@ class Tools {
         sp.put("name" (Tools.prop("string" "Sheet name (at most 31 characters, none of \\ / : * ? [ ])")))
         sp.put("rows" rowsP)
         sp.put("csv" (Tools.prop("string" "The sheet as CSV text instead of rows")))
+        def fmp:MfJ (MfJ.newObj())
+        fmp.put("range" (Tools.prop("string" "Cells it colours: \"A2:J2\", one cell \"B5\", whole rows \"2:4\" or whole columns \"C:C\" (as far as the sheet's data goes)")))
+        fmp.put("fill" (Tools.prop("string" "Background colour, \"#RRGGBB\"")))
+        fmp.put("color" (Tools.prop("string" "Text colour, \"#RRGGBB\"")))
+        fmp.put("bold" (Tools.prop("boolean" "")))
+        fmp.put("italic" (Tools.prop("boolean" "")))
+        def fmItem:MfJ (MfJ.newObj())
+        fmItem.putStr("type" "object")
+        fmItem.put("properties" fmp)
+        fmItem.put("required" (J.strs(([] _:string ("range")))))
+        def fmtsP:MfJ (Tools.prop("array" "Cell formats in order; a later one wins for the properties it sets. E.g. a task list: [{range: \"A2:E2\", fill: \"#C8E6C9\"} for a done row, {range: \"A3:E3\", fill: \"#FFCDD2\", bold: true} for an urgent one]. The header row is bold unless a format says bold: false."))
+        fmtsP.put("items" fmItem)
+        sp.put("formats" fmtsP)
+        def wnum:MfJ (MfJ.newObj())
+        wnum.put("type" (J.strs(([] _:string ("number" "null")))))
+        def widthsP:MfJ (Tools.prop("array" "Column widths in characters, the first for column A (null or 0 keeps the default), e.g. [30, 12, 12]"))
+        widthsP.put("items" wnum)
+        sp.put("widths" widthsP)
+        sp.put("freeze" (Tools.prop("integer" "Header rows kept in view while scrolling (default 0)")))
+        sp.put("filter" (Tools.prop("boolean" "true puts filter buttons on the header row over the data")))
         def sitem:MfJ (MfJ.newObj())
         sitem.putStr("type" "object")
         sitem.put("properties" sp)
@@ -471,7 +491,7 @@ class Tools {
         sheetsP.putInt("minItems" 1)
         sheetsP.putInt("maxItems" 20)
         wp.put("sheets" sheetsP)
-        tools.add((Tools.tool("write_workbook" "Write a presentation's workbook" "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text; a cell may be a formula { f: \"=SUM(C2:C13)\", v: 1234.5 }. Use this rather than sending an .xlsx as base64, which gets corrupted when long. Formatting, colours, filters and column widths are not kept. Needs sign-in." (Tools.schema(wp ([] _:string ("deck_id" "path" "sheets")))) (Tools.annotations(false 1 true false)) eitherMeta)))
+        tools.add((Tools.tool("write_workbook" "Write a presentation's workbook" "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text; a cell may be a formula { f: \"=SUM(C2:C13)\", v: 1234.5 }. Use this rather than sending an .xlsx as base64, which gets corrupted when long. Each sheet may also give its look: formats (cell fill and text colours, bold, italic by range, e.g. rows coloured by status or priority), column widths, header rows frozen (freeze) and a filter on the header row; these are kept in the .xlsx. Other formatting of an earlier workbook (number formats, borders, merged cells, charts) is not. Needs sign-in." (Tools.schema(wp ([] _:string ("deck_id" "path" "sheets")))) (Tools.annotations(false 1 true false)) eitherMeta)))
 
         def nrp:MfJ (MfJ.newObj())
         nrp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>: the presentation whose files the program reads and writes")))
@@ -2998,6 +3018,45 @@ class Tools {
             def o:MfJ (MfJ.newObj())
             o.putStr("name" sn)
             o.put("rows" out)
+            ; the sheet's look: each format's range and colours are checked
+            ; by the writer (xlsxwrite.go), the kinds here
+            def fmts:MfJ (s.field("formats"))
+            if ((fmts.kind != 0) && (fmts.kind != 4)) {
+                return (Tools.fail(("Sheet \"" + sn + "\": formats is a list of { range, fill, color, bold, italic }.")))
+            }
+            if (fmts.kind == 4) {
+                for fmts.arr fe:MfJ fi {
+                    if ((fe.isObj()) == false) {
+                        return (Tools.fail(("Sheet \"" + sn + "\", formats[" + (to_string fi) + "]: a format is an object { range, fill, color, bold, italic }.")))
+                    }
+                }
+                o.put("formats" fmts)
+            }
+            def widths:MfJ (s.field("widths"))
+            if ((widths.kind != 0) && (widths.kind != 4)) {
+                return (Tools.fail(("Sheet \"" + sn + "\": widths is a list of column widths in characters, the first for column A.")))
+            }
+            if (widths.kind == 4) {
+                o.put("widths" widths)
+            }
+            def frz:MfJ (s.field("freeze"))
+            if (frz.kind != 0) {
+                if (((frz.kind != 2) || (frz.num < 0.0)) || (frz.num > 1000.0)) {
+                    return (Tools.fail(("Sheet \"" + sn + "\": freeze is the number of header rows to keep in view, 0 to 1000 (e.g. 1).")))
+                }
+                def frows:int (floor frz.num)
+                if ((to_double frows) != frz.num) {
+                    return (Tools.fail(("Sheet \"" + sn + "\": freeze is a whole number of rows.")))
+                }
+                o.putInt("freeze" frows)
+            }
+            def flt:MfJ (s.field("filter"))
+            if (flt.kind != 0) {
+                if (flt.kind != 1) {
+                    return (Tools.fail(("Sheet \"" + sn + "\": filter is true or false.")))
+                }
+                o.putBool("filter" flt.flag)
+            }
             book.add(o)
         }
         def made:MfJ (J.parse((host_xlsx_write host (JOut.text(book)))))
@@ -3033,7 +3092,7 @@ class Tools {
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "write_workbook" (host_error host)))
         }
-        def note:string "Formatting is not kept. Renamed or removed sheets change the CSV names the deck reads; check the deck's charts and tables still name them."
+        def note:string "Only the formats, widths, freeze and filter given are kept; other formatting is not. Renamed or removed sheets change the CSV names the deck reads; check the deck's charts and tables still name them."
         return (Tools.withData(host (Tools.updated(host caller id saved note)) kept))
     }
 

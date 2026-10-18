@@ -1357,7 +1357,7 @@ func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
 		t.Fatal(textOf(w))
 	}
 	match(t, textOf(w), `data/risk\.xlsx: sheet "Menot" \(2 rows; columns "Kuukausi", "Vuokra", "Sähkö"\) read as data/risk-Menot\.csv`)
-	match(t, textOf(w), `Formatting is not kept`)
+	match(t, textOf(w), `other formatting is not`)
 	paths := []any{}
 	for _, x := range list(f.db.doc("shares/" + id)["files"]) {
 		paths = append(paths, mapOf(x)["path"])
@@ -1389,6 +1389,12 @@ func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
 		{map[string]any{"sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}, map[string]any{"name": "a", "rows": []any{[]any{"y"}}}}}, `Two sheets are named`},
 		{map[string]any{"sheets": []any{map[string]any{"name": "A"}}}, `give rows or csv`},
 		{map[string]any{"path": "data/x.csv", "sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}}}, `ending in \.xlsx`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "Tasks", "rows": []any{[]any{"x"}}, "formats": []any{map[string]any{"range": "A1", "fill": "red"}}}}}, `Sheet "Tasks", formats\[0\]: fill "red" is not a colour like "#RRGGBB"`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "Tasks", "rows": []any{[]any{"x"}}, "formats": map[string]any{"range": "A1"}}}}, `Sheet "Tasks": formats is a list`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "Tasks", "rows": []any{[]any{"x"}}, "formats": []any{"A1"}}}}, `Sheet "Tasks", formats\[0\]: a format is an object`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "Tasks", "rows": []any{[]any{"x"}}, "widths": 20}}}, `Sheet "Tasks": widths is a list`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "Tasks", "rows": []any{[]any{"x"}}, "freeze": 1.5}}}, `Sheet "Tasks": freeze is a whole number`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "Tasks", "rows": []any{[]any{"x"}}, "filter": "yes"}}}, `Sheet "Tasks": filter is true or false`},
 	} {
 		r := write(bad.args)
 		if !r.IsError {
@@ -1396,6 +1402,22 @@ func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
 		}
 		match(t, textOf(r), bad.why)
 	}
+	// a task list coloured by status, kept in the .xlsx the editor opens
+	w = write(map[string]any{"sheets": []any{map[string]any{"name": "Tasks",
+		"rows":    []any{[]any{"Task", "Status"}, []any{"Ship", "Done"}, []any{"Test", "Open"}},
+		"formats": []any{map[string]any{"range": "A2:B2", "fill": "#C8E6C9"}, map[string]any{"range": "A3:B3", "fill": "#FFCDD2", "color": "#B71C1C", "bold": true}},
+		"widths":  []any{24, 10}, "freeze": 1, "filter": true}}})
+	if w.IsError {
+		t.Fatal(textOf(w))
+	}
+	tasks := editorLooks(t, f.bucket.saved["shares/"+id+"/data/risk.xlsx"].data)[0]
+	eq(t, tasks.Freeze, 1)
+	eq(t, tasks.FilterCol, 0)
+	eq(t, cellAt(t, tasks, 1, 1).Fill, cellAt(t, tasks, 1, 0).Fill)
+	match(t, strings.ToUpper(cellAt(t, tasks, 1, 0).Fill), `C8E6C9`)
+	match(t, strings.ToUpper(cellAt(t, tasks, 2, 1).Color), `B71C1C`)
+	eq(t, cellAt(t, tasks, 2, 1).Bold, true)
+	eq(t, sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk.xlsx", "sheet": "Tasks"}))["rows"], [][]string{{"Ship", "Done"}, {"Test", "Open"}})
 }
 
 // a stored timestamp, as the fake keeps it (time.Time through JSON)

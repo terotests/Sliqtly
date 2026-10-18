@@ -1078,8 +1078,15 @@ safe-area: 8mm; } deck { crop-marks: on; } }` (topic `export`).
   `path` and every sheet in full (`{ "name": "Costs", "rows": [["Month",
   "Rent"], ["2026-01", 950]] }`, or `csv` text) writes a new .xlsx in its
   place. A cell can be a formula with the value it gives:
-  `{ "f": "=SUM(B2:B13)", "v": 11400 }`. Formatting, colours, filters and
-  column widths are not kept. If sheets are renamed, update the charts and
+  `{ "f": "=SUM(B2:B13)", "v": 11400 }`. A sheet may give its look:
+  `formats` colour cells by range, later entries winning
+  (`[{ "range": "A2:E2", "fill": "#C8E6C9" }, { "range": "A3:E3",
+  "fill": "#FFCDD2", "color": "#B71C1C", "bold": true }]`, e.g. a task list
+  by status and priority; also whole rows `"2:2"` and columns `"C:C"`),
+  `widths` in characters (`[30, 12]`), `freeze: 1` keeps the header in
+  view and `filter: true` puts filter buttons on it. Other formatting of an
+  earlier workbook (number formats, borders, merges) is not kept, so give
+  the formats again when rewriting one. If sheets are renamed, update the charts and
   tables that read them. Write workbooks you made yourself this way too:
   an .xlsx sent as `data_base64` is easily corrupted when it is long. A
   workbook in a deck that only lives in the user's browser is not
