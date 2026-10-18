@@ -127,17 +127,18 @@
     <pre><code id="cursor-json">{
   "mcpServers": {
     "sliqtly": {
-      "url": "https://sliqtly.com/mcp"
+      "url": "https://sliqtly.com/mcp/account"
     }
   }
 }</code><button class="copy" data-copy="cursor-json">Copy</button></pre>
+    <p class="note">Cursor signs in only when the server asks, and <code>/mcp/account</code> asks: Cursor shows <b>Needs login</b> (or <b>Connect</b>) next to Sliqtly; click it and continue with Google. Your presentations, topics and folders are then the account's. <code>https://sliqtly.com/mcp</code> works without sign-in, for text-only presentations.</p>
     <p class="note">In Agent mode, ask for a presentation; Cursor asks before calling the tool.</p>
     <p class="note local">Running Sliqtly locally? Use <code>"url": "http://localhost:8080/mcp"</code> (<a href="/local.html">how to run it locally</a>).</p>
   </section>
 
   <section id="others">
     <h2>Other MCP clients</h2>
-    <p>Any client that speaks MCP over Streamable HTTP works with the URL above. They connect without sign-in; clients that support MCP's OAuth sign-in can also sign in.</p>
+    <p>Any client that speaks MCP over Streamable HTTP works with the URL above. They connect without sign-in; clients that support MCP's OAuth sign-in can also sign in. A client that signs in only when the server asks (as Cursor does) signs in at <code>https://sliqtly.com/mcp/account</code>.</p>
     <h3>VS Code (GitHub Copilot)</h3>
     <pre><code id="vscode">// .vscode/mcp.json
 {

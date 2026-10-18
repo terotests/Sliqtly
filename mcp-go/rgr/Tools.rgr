@@ -239,7 +239,7 @@ class Tools {
         exportMeta.putBool("openai/widgetAccessible" true)
         def tools:MfJ (MfJ.newArr())
         def gp:MfJ (MfJ.newObj())
-        def topic:MfJ (Tools.prop("string" "One topic of the guide (the list is in Core). Without it, Core: the deck's syntax, the work loop, themes and the topics."))
+        def topic:MfJ (Tools.prop("string" "One topic (chapter) of this guide, the list is in Core; not one of the user's topics, which are rooms (list_rooms). Without it, Core: the deck's syntax, the work loop, themes and the topics."))
         topic.put("enum" (J.strs((Guide.names((host_asset host "guide.md"))))))
         gp.put("topic" topic)
         tools.add((Tools.tool("sliqtly_guide" "Sliqtly syntax guide" "How to write a Sliqtly deck. Without topic: Core (slide structure, the work loop, themes, the list of topics); read it before the first create_presentation. With topic: one subject (layout, text, charts, diagrams, figures, smartart, pictures, css, data, editing, export, limits…). A warning ending with → topic=x names the topic that explains it." (Tools.schema(gp none)) (Tools.annotations(true -1 false false)) eitherMeta)))
@@ -5620,7 +5620,7 @@ class Tools {
 
     sfn listMine:MfJ (host:McpHost caller:Caller args:MfJ) {
         if (caller.signedIn == false) {
-            def r:MfJ (Tools.fail("Listing presentations needs sign-in. Connect Sliqtly with sign-in (Google) to keep presentations in your own account."))
+            def r:MfJ (Tools.fail("Listing presentations needs sign-in. Connect Sliqtly with sign-in (Google) to keep presentations in your own account; a client that signs in only when the server asks (Cursor, for one) connects to " + (host_base_url host) + "/mcp/account instead of /mcp."))
             if ((strlen caller.signIn) > 0) {
                 def meta:MfJ (MfJ.newObj())
                 meta.put("mcp/www_authenticate" (J.strs(([] _:string (("Bearer resource_metadata=\"" + caller.signIn + "\", error=\"insufficient_scope\", error_description=\"Sign in to Sliqtly to list your presentations\""))))))

@@ -357,8 +357,10 @@ class App {
                 return
             }
         }
-        if (path == "/mcp") {
-            App.serveMcp(host req res method)
+        ; /mcp/account: the same server, but a client without a token is asked
+        ; to sign in (401), for clients that sign in only when asked (Cursor)
+        if ((path == "/mcp") || (path == "/mcp/account")) {
+            App.serveMcp(host req res method path)
             return
         }
         if ((path == "/api/hit") && (method == "POST")) {
@@ -396,7 +398,11 @@ class App {
     sfn serveOAuth:boolean (host:McpHost req:HttpRequest res:HttpResponse method:string path:string) {
         if (method == "GET") {
             if ((path == "/.well-known/oauth-protected-resource") || (path == "/.well-known/oauth-protected-resource/mcp")) {
-                App.sendJson(res 200 (JOut.text((OAuth.resourceMetadata((App.originOf(host req)))))))
+                App.sendJson(res 200 (JOut.text((OAuth.resourceMetadata((App.originOf(host req)) "/mcp")))))
+                return true
+            }
+            if (path == "/.well-known/oauth-protected-resource/mcp/account") {
+                App.sendJson(res 200 (JOut.text((OAuth.resourceMetadata((App.originOf(host req)) "/mcp/account")))))
                 return true
             }
             if ((path == "/.well-known/oauth-authorization-server") || (path == "/.well-known/openid-configuration")) {
@@ -432,7 +438,7 @@ class App {
         return true
     }
 
-    sfn serveMcp:void (host:McpHost req:HttpRequest res:HttpResponse method:string) {
+    sfn serveMcp:void (host:McpHost req:HttpRequest res:HttpResponse method:string path:string) {
         def accept:string (http_get_header req "Accept")
         if ((method == "GET") && ((indexOf accept "text/event-stream") < 0)) {
             App.redirect(res ((host_base_url host) + "/connect.html"))
@@ -459,6 +465,7 @@ class App {
         def caller (new Caller)
         if (host_oauth host) {
             def origin:string (App.originOf(host req))
+            def meta:string (origin + "/.well-known/oauth-protected-resource" + path)
             def w:Who (OAuth.who(host (http_get_header req "Authorization")))
             if (w.state == 3) {
                 host_log host ("token check failed: " + (host_error host))
@@ -466,8 +473,13 @@ class App {
                 return
             }
             if (w.state == 2) {
-                http_set_header res "WWW-Authenticate" ("Bearer error=\"invalid_token\", resource_metadata=\"" + origin + "/.well-known/oauth-protected-resource/mcp\"")
+                http_set_header res "WWW-Authenticate" ("Bearer error=\"invalid_token\", resource_metadata=\"" + meta + "\"")
                 App.sendJson(res 401 (App.rpcError(-32001 "The sign-in has expired.")))
+                return
+            }
+            if (((w.state == 0) && (path == "/mcp/account")) && ((strlen (host_local_user host)) == 0)) {
+                http_set_header res "WWW-Authenticate" ("Bearer resource_metadata=\"" + meta + "\", scope=\"decks\"")
+                App.sendJson(res 401 (App.rpcError(-32001 "Sign in to Sliqtly (Google) to use this address; https://sliqtly.com/mcp works without sign-in.")))
                 return
             }
             if (w.state == 1) {
@@ -475,7 +487,7 @@ class App {
                 caller.uid = w.uid
                 caller.name = w.name
             }
-            caller.signIn = (origin + "/.well-known/oauth-protected-resource/mcp")
+            caller.signIn = meta
         }
         def local:string (host_local_user host)
         if ((strlen local) > 0) {

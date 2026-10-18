@@ -271,7 +271,7 @@ func NewApp(env *Env) http.Handler {
 		}()
 		// who is working where (presence.go): only where a page reads it,
 		// from the server (rooms) or from Firestore (the cloud's pub)
-		if r.URL.Path == "/mcp" && (env.rooms != nil || env.agents.pub != nil) {
+		if (r.URL.Path == "/mcp" || r.URL.Path == "/mcp/account") && (env.rooms != nil || env.agents.pub != nil) {
 			env.agents.watchMcp(w, r, func(w http.ResponseWriter) { App_static_serve(h, r, w) })
 			return
 		}

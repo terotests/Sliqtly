@@ -944,6 +944,30 @@ func TestOptionalSignIn(t *testing.T) {
 	eq(t, r401.StatusCode, 401)
 	match(t, r401.Header.Get("www-authenticate"), `resource_metadata="https://sliqtly\.test/\.well-known/oauth-protected-resource/mcp"`)
 
+	// /mcp/account asks a client without a token to sign in (Cursor signs
+	// in only when asked); with one it is the same server
+	acct := func(auth string) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest("POST", root+"/mcp/account", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+		req.Header.Set("content-type", "application/json")
+		req.Header.Set("accept", "application/json, text/event-stream")
+		if auth != "" {
+			req.Header.Set("authorization", "Bearer "+auth)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+	ra := acct("")
+	eq(t, ra.StatusCode, 401, "no token: sign in")
+	match(t, ra.Header.Get("www-authenticate"), `resource_metadata="https://sliqtly\.test/\.well-known/oauth-protected-resource/mcp/account"`)
+	eq(t, acct("nope").StatusCode, 401, "a token that does not hold")
+	eq(t, acct(tok["access_token"].(string)).StatusCode, 200, "signed in")
+	eq(t, getJSON(root + "/.well-known/oauth-protected-resource/mcp/account")["resource"], BASE+"/mcp/account")
+
 	// refresh rotates
 	r1 := formPost("/oauth/token", map[string]string{"grant_type": "refresh_token", "refresh_token": tok["refresh_token"].(string), "client_id": clientID})
 	if r1["access_token"] == nil || r1["refresh_token"] == tok["refresh_token"] {

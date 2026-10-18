@@ -146,11 +146,16 @@ func strProp(desc string) map[string]any {
 }
 
 // what a room is, for the assistant choosing where work goes
-const roomIdea = "A room is one whole piece of work: a task, a Jira ticket, a user story, or another whole such as a project or a theme. It holds that work's presentations, members and links."
+const roomIdea = "A room is one whole piece of work: a task, a Jira ticket, a user story, or another whole such as a project or a theme. It holds that work's presentations, members and links. " + roomWords
+
+// The words people see in the editor for what the tools call rooms and
+// presentations (web/i18n.js term, web/stories.js): an assistant told
+// "topic" or "story" by the user finds the tools by them.
+const roomWords = "Sliqtly's editor calls a room a topic (or a project or room, as the user chooses; in Finnish aihe, projekti or huone) and each presentation in it a story of that topic: when the user speaks of topics, stories or folders, these are the rooms, presentations and folders of these tools."
 
 var roomTools = []roomTool{
-	{name: "list_rooms", title: "List rooms", readOnly: true,
-		desc: "List the rooms you are in (people may see them called projects), with your role, description, how many presentations each holds and when it was last active. " + roomIdea + " Every presentation has one home room; new ones start in General unless create_presentation is given a room_id, and there is a Playground for trying things. Before making a presentation, look for the room it belongs to: query with a ticket code (e.g. \"N11-1234\") or words of its name, or order \"active\" for the rooms worked in lately; then suggest the room (or two) to the user, or ask for a name for a new one (create_room). Pages of at most 1000 rooms: give offset next_offset for the next.",
+	{name: "list_rooms", title: "List topics (rooms)", readOnly: true,
+		desc: "List the rooms (topics) you are in, with your role, description, how many presentations each holds and when it was last active. " + roomIdea + " Every presentation has one home room; new ones start in General unless create_presentation is given a room_id, and there is a Playground for trying things. Before making a presentation, look for the room it belongs to: query with a ticket code (e.g. \"N11-1234\") or words of its name, or order \"active\" for the rooms worked in lately; then suggest the room (or two) to the user, or ask for a name for a new one (create_room). Pages of at most 1000 rooms: give offset next_offset for the next.",
 		props: map[string]any{
 			"archived": map[string]any{"type": "boolean", "description": "Also list archived rooms"},
 			"order":    map[string]any{"type": "string", "enum": []string{"created", "active", "title"}, "description": "created: General and Playground first, then the newest (default); active: the latest worked in first (presentations changed, chat); title: by name"},
@@ -162,27 +167,27 @@ var roomTools = []roomTool{
 		desc:     "Find the presentations you may see whose name or text holds every word of query (any case): the words a reader sees, not front matter, {attributes}, link or picture addresses, CSS or diagram source. → each one's deck_id, name, room_id and room, folder_id, and the text around the first word found, last changed first, at most limit (default and at most 50).",
 		props:    map[string]any{"query": strProp("Words to find, e.g. a customer's name or a phrase from a slide"), "limit": map[string]any{"type": "integer", "description": "At most this many (default and at most 50)"}},
 		required: []string{"query"}},
-	{name: "get_room", title: "Show a room", readOnly: true,
+	{name: "get_room", title: "Show a topic (room)", readOnly: true,
 		desc:     "A room's members, folders (folder_id, name, how many presentations), presentations (deck_id, name and folder_id, \"\" at the room's top) and links.",
 		props:    map[string]any{"room_id": strProp("room_id from list_rooms")},
 		required: []string{"room_id"}},
-	{name: "create_room", title: "Create a room",
+	{name: "create_room", title: "Create a topic (room)",
 		desc:     "Make a room for one whole piece of work, with you as its owner. " + roomIdea + " Name it as the work is known (e.g. \"PROJ-123 Checkout retry\" or the story's title) and put the ticket's link or the story in the description; then move its presentations there with move_presentation. → room_id",
 		props:    map[string]any{"title": strProp("The room's name, as the task, ticket or story is known"), "description": strProp("What the work is: the ticket's or story's summary, a link to it"), "kind": strProp("What sort of room: task, ticket, story, project, team, … (free text)")},
 		required: []string{"title"}},
-	{name: "update_room", title: "Rename or describe a room",
+	{name: "update_room", title: "Rename or describe a topic (room)",
 		desc:     "Change a room's name or description (owners only; not General or Playground, nor a room in the archive). Leave out what stays as it is.",
 		props:    map[string]any{"room_id": strProp("The room"), "title": strProp("Its new name"), "description": strProp("Its new description (\"\" clears it)")},
 		required: []string{"room_id"}},
-	{name: "delete_room", title: "Delete a room", destructive: true,
+	{name: "delete_room", title: "Delete a topic (room)", destructive: true,
 		desc:     "Delete a room (owners only; not General or Playground). Its presentations are not deleted: they move to General. To keep the room's history, archive it with archive_room instead.",
 		props:    map[string]any{"room_id": strProp("The room")},
 		required: []string{"room_id"}},
-	{name: "move_presentation", title: "Move a presentation to a room",
-		desc:     "Make room_id the presentation's home room, at its top or into one of its folders (folder_id); a presentation just made goes into a folder of its room this way when one fits (sliqtly_guide topic rooms). Needs editor rights in both rooms. Its files stay its own; the room's files are not shared with it. The open pages show it in its new place at once. → the room and folder it came from (from_room_id, from_folder_id), the new room's and folder's names, and moved false when it was there already",
+	{name: "move_presentation", title: "Move a presentation to a topic (room)",
+		desc:     "Make room_id (a topic) the presentation's home room, at its top or into one of its folders (folder_id); a presentation just made goes into a folder of its room this way when one fits (sliqtly_guide topic rooms). Needs editor rights in both rooms. Its files stay its own; the room's files are not shared with it. The open pages show it in its new place at once. → the room and folder it came from (from_room_id, from_folder_id), the new room's and folder's names, and moved false when it was there already",
 		props:    map[string]any{"deck_id": strProp("The presentation's deck_id"), "room_id": strProp("The room to move it to"), "folder_id": strProp("A folder of that room (get_room lists them, create_folder makes one); leave out for the room's top")},
 		required: []string{"deck_id", "room_id"}},
-	{name: "set_story", title: "Set a presentation's type, phase or tags",
+	{name: "set_story", title: "Set a story's type, phase or tags",
 		desc: "A presentation is a story of its room (people see rooms called topics): its type says what kind of story it is (" + strings.Join(store.StoryTypes, ", ") + "; story when nothing fits), its phase where it is in its life (" + strings.Join(store.StoryPhases, ", ") + "), tags are free words for search and grouping, and color (#rrggbb) goes over the type's colour (\"\" back to the type's). Give only what changes. A new presentation is a draft; one from before stories is active. Suggest a type from what the presentation is (a code review is review, a pitch deck pitch), and set phase only when the user says so. → the story as it is now",
 		props: map[string]any{"deck_id": strProp("The presentation's deck_id"), "type": strProp("One of " + strings.Join(store.StoryTypes, ", ")), "phase": strProp("One of " + strings.Join(store.StoryPhases, ", ")),
 			"tags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "All of its tags (replaces them), at most 20"},
@@ -192,7 +197,7 @@ var roomTools = []roomTool{
 		desc:     "The presentation's agent access (store/agents.go): " + strings.Join(store.AgentModes, ", ") + ". Its owner's, from Document settings; never an assistant's.",
 		props:    map[string]any{"deck_id": strProp("The presentation's deck_id"), "agents": map[string]any{"type": "string", "enum": store.AgentModes}},
 		required: []string{"deck_id", "agents"}},
-	{name: "create_folder", title: "Create a folder in a room",
+	{name: "create_folder", title: "Create a folder in a topic (room)",
 		desc:     "Make a folder in a room (one level, no folders in folders), e.g. \"Testing\" for a room's test presentations, then move them there with move_presentation folder_id. Folders are optional: use one of the room's own (get_room) when it fits, make one only when it clearly helps (many presentations of one kind), and ask the user when that is unclear. Editors of the room, General and Playground too. A name the room has already (any case) is that folder. → folder_id, made false when it was there",
 		props:    map[string]any{"room_id": strProp("The room"), "name": strProp("The folder's name, at most 100 characters")},
 		required: []string{"room_id", "name"}},
@@ -208,7 +213,7 @@ var roomTools = []roomTool{
 		desc:     "Give a user or group a role in a room (owners only): viewer reads, editor also changes presentations, owner also manages members. An empty role removes them; the last owner stays.",
 		props:    map[string]any{"room_id": strProp("The room"), "member": strProp("user:<id>, group:<id> or email:<address> (whoever signs in with that address)"), "role": map[string]any{"type": "string", "enum": []string{"viewer", "editor", "owner", ""}}},
 		required: []string{"room_id", "member", "role"}},
-	{name: "archive_room", title: "Archive a room", destructive: true,
+	{name: "archive_room", title: "Archive a topic (room)", destructive: true,
 		desc:     "Archive a room (owners only): it becomes read only for everyone and nothing in it is removed. archived false takes it out of the archive.",
 		props:    map[string]any{"room_id": strProp("The room"), "archived": map[string]any{"type": "boolean", "description": "false to take it out of the archive (default true)"}},
 		required: []string{"room_id"}},
