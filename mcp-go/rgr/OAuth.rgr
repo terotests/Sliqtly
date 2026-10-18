@@ -5,7 +5,7 @@
 ; use for PRO (Firebase Auth) on /oauth.html. Without a token every tool still
 ; works; with one, presentations are the person's own.
 ;
-;   /.well-known/oauth-protected-resource[/mcp]   RFC 9728
+;   /.well-known/oauth-protected-resource[/mcp[/account]]   RFC 9728
 ;   /.well-known/oauth-authorization-server       RFC 8414
 ;   POST /oauth/register     dynamic client registration (RFC 7591)
 ;   GET  /oauth/authorize    checks the request, sends the browser to /oauth.html
@@ -244,9 +244,10 @@ class OAuth {
         return m
     }
 
-    sfn resourceMetadata:MfJ (origin:string) {
+    ; path: the MCP address it describes, /mcp or /mcp/account (sign-in asked)
+    sfn resourceMetadata:MfJ (origin:string path:string) {
         def m:MfJ (MfJ.newObj())
-        m.putStr("resource" (origin + "/mcp"))
+        m.putStr("resource" (origin + path))
         m.put("authorization_servers" (J.strs(([] _:string (origin)))))
         m.put("scopes_supported" (J.strs(([] _:string ("decks")))))
         m.put("bearer_methods_supported" (J.strs(([] _:string ("header")))))

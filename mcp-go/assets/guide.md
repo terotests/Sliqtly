@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-16b.** If a result names a newer version, read Core
+**Guide version 2026-10-18.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -2021,8 +2021,9 @@ pictures under 300 dpi in print ("media/x.jpg: 180 dpi in print, under
 
 On this server the presentations are kept in rooms. A room is one whole
 piece of work: a task, a Jira ticket, a user story, or another whole such
-as a project. People may see rooms called projects (a setting in the
-editor). Every presentation has one home room; one made without `room_id`
+as a project. The editor calls rooms topics (or projects or rooms, a
+setting) and a room's presentations its stories; the tools say room and
+presentation. Every presentation has one home room; one made without `room_id`
 lands in General, and the user then has to move it by hand.
 
 - Before `create_presentation`, find the room it belongs to: `list_rooms`

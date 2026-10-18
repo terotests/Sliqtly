@@ -476,7 +476,7 @@ func (s *layoutService) call(ctx context.Context, uid, op string, a map[string]a
 		return nil, roomErr{"no such operation: " + op}
 	}
 	if uid == "" {
-		return nil, roomErr{"topics need sign-in: connect Sliqtly with your Google account"}
+		return nil, roomErr{"topics need sign-in: connect Sliqtly with sign-in (Google). A client that signs in only when the server asks (Cursor, for one) connects to this server's …/mcp/account address instead of …/mcp."}
 	}
 	t, _ := roomToolOf(op)
 	for _, k := range t.required {

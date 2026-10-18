@@ -19,6 +19,20 @@ func TestLayoutTools(t *testing.T) {
 	ctx := context.Background()
 	md := "# Deck\n\n## One\n\nText"
 
+	// the editor's words (topic, story) lead to the room tools
+	_, init := rpc(t, s.root, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`)
+	match(t, mapOf(mapOf(init["result"]))["instructions"].(string), `a room is called a topic \(or a project\), a presentation in it a story[\s\S]*list_rooms`)
+	lt, err := s.session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range lt.Tools {
+		if tl.Name == "list_rooms" {
+			eq(t, tl.Title, "List topics (rooms)")
+			match(t, tl.Description, `calls a room a topic .*aihe.* each presentation in it a story`)
+		}
+	}
+
 	r := call(t, s, "create_presentation", map[string]any{"title": "Plain", "markdown": md})
 	plain := sc(r)["deck_id"].(string)
 	rooms := sc(call(t, s, "list_rooms", map[string]any{}))["rooms"].([]any)
