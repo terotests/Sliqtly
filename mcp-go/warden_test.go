@@ -387,6 +387,18 @@ func TestWardenFeed(t *testing.T) {
 	}
 	eq(t, strings.Count(ics, "BEGIN:VEVENT"), 2, "the entry without a day is left out")
 
+	// what the address answers to, and its reads kept for calendar_feed
+	res, _ := editorDo(t, "OPTIONS", base+path, "", "", "")
+	eq(t, []any{res.StatusCode, res.Header.Get("Allow")}, []any{200, "GET, HEAD, OPTIONS"}, "OPTIONS says what it takes")
+	res, _ = editorDo(t, "PROPFIND", base+path, "", "", "")
+	eq(t, res.StatusCode, 405, "and nothing else")
+	_, out = wardenCall(t, base, "tero", "calendar_feed", map[string]any{"space_id": sid})
+	reads := out["reads"].([]any)
+	eq(t, len(reads), 3, "three reads kept")
+	last := reads[0].(map[string]any)
+	first := reads[2].(map[string]any)
+	eq(t, []any{last["method"], last["status"], first["method"], first["status"]}, []any{"PROPFIND", float64(405), "GET", float64(200)}, "newest first, with how and the answer")
+
 	// a calendar of one ward, of the entries of no ward, of one type group:
 	// each its own name and suggested colour
 	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})

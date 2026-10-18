@@ -51,20 +51,36 @@ func (s *wardenService) calendarFeed(ctx context.Context, sp *wardenSpace, a map
 	if err != nil {
 		return nil, err
 	}
+	reads := []any{}
+	if d, _ := s.db.Get(ctx, wardenFeedLogs, docStr(sp.doc, "feed")); d != nil {
+		if rs, ok := d["reads"].([]any); ok {
+			reads = rs
+		}
+	}
 	return map[string]any{
-		"url": u, "webcal": "webcal://" + strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://"),
-		"how": "iPhone: open the webcal address, or Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar and paste the url. Mac Calendar: File → New Calendar Subscription. Google Calendar: Other calendars → From URL. Each entry carries alarms (VALARM) on the days its type reminds of (Apple's calendars show them; Google Calendar leaves a subscribed calendar's alarms out). Add ?get=0, ?pay=0 or ?alarm=0 (joined with &) to leave out the windows to get things in, the payment days or the alarms. Add ?ward=<ward id> (or ward=none, the entries of no ward) or ?group=<type group: activity, care, health, travel, booking, deadline, reminder, financial, asset_action, event> for a calendar of only those entries, with its own name and suggested colour; subscribe to several to show, hide and colour them apart on the phone. The address is the space's secret: anyone with it sees the events.",
+		"reads": reads,
+		"url":   u, "webcal": "webcal://" + strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://"),
+		"how": "iPhone: open the webcal address, or Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar and paste the url. Mac Calendar: File → New Calendar Subscription. Google Calendar: Other calendars → From URL. Each entry carries alarms (VALARM) on the days its type reminds of (Apple's calendars show them; Google Calendar leaves a subscribed calendar's alarms out). Add ?get=0, ?pay=0 or ?alarm=0 (joined with &) to leave out the windows to get things in, the payment days or the alarms. Add ?ward=<ward id> (or ward=none, the entries of no ward) or ?group=<type group: activity, care, health, travel, booking, deadline, reminder, financial, asset_action, event> for a calendar of only those entries, with its own name and suggested colour; subscribe to several to show, hide and colour them apart on the phone. The address is the space's secret: anyone with it sees the events. reads: the feed's last reads (when, how, by which app, with which status), to tell a calendar that will not subscribe from one that never reaches the server.",
 	}, nil
 }
 
 func serveWardenFeed(env *Env, w http.ResponseWriter, r *http.Request, p string) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
-		return
-	}
 	tok, ok := strings.CutSuffix(strings.TrimPrefix(p, wardenFeedPath), ".ics")
 	if !ok || len(tok) < 16 || !wardenIDRe.MatchString(tok) {
 		http.NotFound(w, r)
+		return
+	}
+	rec := &wardenFeedStatus{ResponseWriter: w, code: http.StatusOK}
+	defer func() { wardenFeedLog(env, r, tok, rec.code) }()
+	w = rec
+	// a calendar app may ask what the address answers to before it reads it
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
 	if why := wardenLimit("feed:" + tok); why != "" {
@@ -102,6 +118,48 @@ func serveWardenFeed(env *Env, w http.ResponseWriter, r *http.Request, p string)
 		}
 	}
 	wardenICSOut(w, "", env.warden.icsCalendar(sp, docs, dids, evs, opt))
+}
+
+// the status a feed's read was answered with
+type wardenFeedStatus struct {
+	http.ResponseWriter
+	code int
+}
+
+func (s *wardenFeedStatus) WriteHeader(code int) {
+	s.code = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+const wardenFeedLogs = "warden_feedlog"
+
+// The feed's last reads (wardenFeedLogN of them), by the address's token:
+// when, how, by which app and with what answer, so that a calendar that
+// will not subscribe can be told from one that never reaches the server.
+const wardenFeedLogN = 20
+
+func wardenFeedLog(env *Env, r *http.Request, tok string, code int) {
+	if env.DB == nil {
+		return
+	}
+	ua := r.UserAgent()
+	if len(ua) > 160 {
+		ua = ua[:160]
+	}
+	e := map[string]any{"at": time.Now().UTC().Format(time.RFC3339), "method": r.Method, "status": int64(code), "agent": ua, "query": r.URL.RawQuery}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d, _ := env.DB.Get(ctx, wardenFeedLogs, tok)
+	reads := []any{e}
+	if d != nil {
+		if old, ok := d["reads"].([]any); ok {
+			reads = append(reads, old...)
+		}
+	}
+	if len(reads) > wardenFeedLogN {
+		reads = reads[:wardenFeedLogN]
+	}
+	env.DB.Set(ctx, wardenFeedLogs, tok, Doc{"reads": reads})
 }
 
 // whether an entry is in a feed of one ward or one type group
