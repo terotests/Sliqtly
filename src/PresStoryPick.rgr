@@ -4,7 +4,8 @@
 ; PresStoryPick.rgr — the stories ticked in a topic, and what to do to them
 ; ============================================================================
 ;
-; The Stories tab (PresTopicView) has a box on each card. Which are ticked
+; The Stories tab (PresTopicView) has a box on each card; a press on the
+; card outside its title ticks it too (only the title opens the story). Which are ticked
 ; is a UiPick over the decks' ids (a deck listed under two tags is one key);
 ; a deck no longer listed (moved away, deleted) is dropped when the cards
 ; are built again. An action chosen from Actions — a row of the toolbar's
@@ -41,6 +42,17 @@ class PresStoryPick {
             i = (i + 1)
         }
         pick.setKeys(once)
+    }
+
+    ; A card's box pressed, or the card let go where it was pressed outside
+    ; its title: ticked or unticked; with shift every card from the last one
+    ; ticked up to it.
+    fn tick:void (id:string shift:boolean) {
+        if shift {
+            pick.extendTo(id)
+        } {
+            pick.toggle(id)
+        }
     }
 
     ; another topic: nothing ticked or chosen
