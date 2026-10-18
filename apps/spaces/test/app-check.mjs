@@ -411,6 +411,22 @@ console.log("a space on a server");
   ok("each row says how much it brings", texts(a).includes("6 in 30 days") && texts(a).includes("0 in 30 days"));
   a.press("sp-feedpick-all");
   ok("the preview lists what is coming", texts(a).includes("Preview: All") && texts(a).includes("Wed Oct 21 15:00") && texts(a).includes("Dentist"));
+  const prevRows = () => texts(a).filter((t) => /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) [A-Z][a-z]{2} \d+( \d\d:\d\d)?$/.test(t)).length;
+  const extra = [];
+  for (let k = 0; k < 4; k++) {
+    const e = new M.SpEvent();
+    e.id = "fx" + k; e.title = "Extra " + k; e.day = a.today + 2 + k;
+    a.space.events.push(e); extra.push(e);
+  }
+  a.press("sp-feedpick-all");
+  ok("eight at first, and how many more", prevRows() === 8 && !!byId(a, "sp-feedmore"), String(prevRows()));
+  const moreN = Number(texts(a).find((t) => /^and \d+ more$/.test(t)).split(" ")[1]);
+  a.press("sp-feedmore");
+  ok("pressing it lists them all", prevRows() === 8 + moreN && texts(a).includes("Show fewer"), String(prevRows()));
+  a.press("sp-feedmore");
+  ok("and Show fewer folds them again", prevRows() === 8);
+  a.space.events = a.space.events.filter((e) => !extra.includes(e));
+  a.press("sp-feedpick-all");
   // the same card from the top bar, on any page
   a.press("sp-nav-calendar");
   ok("the top bar has the phone button", !!byId(a, "sp-phone"));
