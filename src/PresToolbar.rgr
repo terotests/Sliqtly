@@ -193,6 +193,10 @@ class PresToolbar {
     ; moves there, let go where it was pressed it opens
     def dragDeck:string ""
     def dragName:string ""
+    ; a Stories card pressed outside its title: let go unmoved it is ticked
+    ; (with shift, the run up to it), not opened
+    def dragPick:boolean false
+    def dragShift:boolean false
     def dragX0:double 0.0
     def dragY0:double 0.0
     def dragX:double 0.0
@@ -935,6 +939,7 @@ class PresToolbar {
         this.closeMenus()
         drawerOpen = false
         dragDeck = ""
+        dragPick = false
         dragOn = false
         ctxX = x
         ctxY = y
@@ -965,14 +970,18 @@ class PresToolbar {
     }
 
     ; A card of a topic's Stories tab pressed at px, py: dragged as a
-    ; presentation of the rail's list is (onto a folder, another room), and
-    ; opened when let go where it was pressed (roomDragEnd).
-    fn deckDragBegin:void (id:string name:string px:double py:double) {
+    ; presentation of the rail's list is (onto a folder, another room). Let
+    ; go where it was pressed (roomDragEnd), its title opens it; anywhere
+    ; else on it (`pick`) ticks it, so a press just beside the box does not
+    ; open the story.
+    fn deckDragBegin:void (id:string name:string px:double py:double pick:boolean shift:boolean) {
         if ((strlen id) == 0) {
             return
         }
         dragDeck = id
         dragName = name
+        dragPick = pick
+        dragShift = shift
         dragX0 = px
         dragY0 = py
         dragX = px
@@ -2330,10 +2339,16 @@ class PresToolbar {
                     }
                 }
             } {
-                push requests ("room:deck:" + dragDeck)
+                if dragPick {
+                    push requests ("topic:tick" + (strfromcode 9) + dragDeck + (strfromcode 9) + (? dragShift "1" ""))
+                } {
+                    push requests ("room:deck:" + dragDeck)
+                }
             }
         }
         dragDeck = ""
+        dragPick = false
+        dragShift = false
         dragRoom = ""
         dragOn = false
         dropRoom = ""

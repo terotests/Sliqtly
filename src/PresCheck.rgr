@@ -2857,11 +2857,36 @@ class PresCheck {
         this.ok(((tb.bulkLabel("mvf-f1")) == "Move to folder Tests") ("story pick: a folder's row, " + (tb.bulkLabel("mvf-f1"))))
         this.ok(((tb.bulkLabel("mvf-top")) == "Out of the folder") "story pick: out of the folder")
         this.ok(((tb.bulkLabel("stp-done")) == "Phase: Done") ("story pick: a phase, " + (tb.bulkLabel("stp-done"))))
-        tb.deckDragBegin("d7" "Seven" 100.0 100.0)
+        tb.deckDragBegin("d7" "Seven" 100.0 100.0 false false)
         this.ok((tb.roomDragging()) "story card: pressed, the bar holds it")
         tb.roomDragEnd()
-        this.ok((((array_length tb.requests) == 1) && ((itemAt tb.requests 0) == "room:deck:d7")) "story card: let go unmoved, it opens")
+        this.ok((((array_length tb.requests) == 1) && ((itemAt tb.requests 0) == "room:deck:d7")) "story card: its title let go unmoved, it opens")
         this.ok(((tb.roomDragging()) == false) "story card: and is let go")
+        def none1:[string]
+        tb.requests = none1
+        tb.deckDragBegin("d7" "Seven" 100.0 100.0 true false)
+        tb.roomDragEnd()
+        this.ok((((array_length tb.requests) == 1) && ((itemAt tb.requests 0) == ("topic:tick" + tab + "d7" + tab))) ("story card: beside its title let go unmoved, it is ticked, not opened, " + (itemAt tb.requests 0)))
+        def none2:[string]
+        tb.requests = none2
+        tb.deckDragBegin("d7" "Seven" 100.0 100.0 true true)
+        tb.roomDragEnd()
+        this.ok(((itemAt tb.requests 0) == ("topic:tick" + tab + "d7" + tab + "1")) "story card: with shift, the run up to it")
+        ; a rail presentation pressed after a card still opens
+        def none3:[string]
+        tb.requests = none3
+        tb.dragDeck = "d8"
+        tb.roomDragEnd()
+        this.ok(((itemAt tb.requests 0) == "room:deck:d8") "story card: the pick is not left over for the next drag")
+
+        def q (new PresStoryPick())
+        q.setDecks(([] _:string ("a" "b" "c" "d")))
+        q.tick("b" false)
+        this.ok(((q.pick.count()) == 1) "story tick: a card ticked")
+        q.tick("d" true)
+        this.ok(((q.pick.count()) == 3) ("story tick: shift ticks the run b..d, " + (to_string (q.pick.count()))))
+        q.tick("b" false)
+        this.ok(((q.pick.has("b")) == false) "story tick: pressed again, unticked")
     }
 
     fn roomTerm:void () {
