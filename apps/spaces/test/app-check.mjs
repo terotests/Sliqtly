@@ -393,6 +393,18 @@ console.log("a space on a server");
   a.press("sp-feed-gets");
   a.press("sp-feed-open");
   eq("nor the windows to get things in", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0");
+  // a calendar of one ward, of no ward, of one type group: each one its own
+  ok("the calendars to pick", !!byId(a, "sp-feedpick-all") && !!byId(a, "sp-feedpick-w-0") && !!byId(a, "sp-feedpick-shared") && !!byId(a, "sp-feedpick-g-event"));
+  a.press("sp-feedpick-w-0");
+  a.press("sp-feed-open");
+  eq("one ward's calendar", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0&ward=" + a.space.resources[0].id);
+  a.press("sp-feedpick-shared");
+  a.press("sp-feed-open");
+  eq("the shared entries' calendar", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0&ward=none");
+  a.press("sp-feedpick-g-event");
+  a.press("sp-feed-open");
+  eq("a type group's calendar", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0&group=event");
+  a.press("sp-feedpick-all");
   // the same card from the top bar, on any page
   a.press("sp-nav-calendar");
   ok("the top bar has the phone button", !!byId(a, "sp-phone"));
