@@ -119,7 +119,8 @@ var wardenClothingProps = map[string]any{
 		}, "required": []string{"item"}}},
 }
 
-var wardenTools = []roomTool{
+// the documents' tools come last (wardendocs.go)
+var wardenTools = append([]roomTool{
 	{name: "list_spaces", title: "List spaces", readOnly: true,
 		desc: "The Warden spaces you are a member of: each with its members, pending invites and wards (the people or things the group is responsible for: children, pets, a car, clients, players). Start here."},
 	{name: "create_space", title: "Create a space",
@@ -252,7 +253,7 @@ var wardenTools = []roomTool{
 		desc:     "The space's questions between members, the open ones first: each with what is asked (fields.ask), of whom (ask_to) and by whom (asked_by), the answer when there is one, and whether it is to_me or by_me.",
 		props:    map[string]any{"space_id": spaceIDProp, "open_only": map[string]any{"type": "boolean", "description": "Only those not answered yet"}, "mine": strProp("to: only those asked of you; by: only those you asked")},
 		required: []string{"space_id"}},
-}
+}, wardenDocTools...)
 
 func findWardenTool(name string) *roomTool {
 	for i := range wardenTools {

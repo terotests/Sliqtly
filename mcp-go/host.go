@@ -225,6 +225,15 @@ func NewApp(env *Env) http.Handler {
 	if env.warden != nil && env.warden.base == "" {
 		env.warden.base = wardenOrigin(env)
 	}
+	if env.warden != nil && env.warden.removeFiles == nil {
+		if r, ok := env.Bucket.(prefixRemover); ok {
+			env.warden.removeFiles = func(ctx context.Context, prefix string) {
+				if err := r.RemovePrefix(ctx, prefix); err != nil {
+					log.Printf("warden: removing %s: %v", prefix, err)
+				}
+			}
+		}
+	}
 	// the info screen is a presentation of the person's own (wardeninfo.go)
 	if env.warden != nil && env.warden.deck == nil {
 		env.warden.deck = func(ctx context.Context, uid, op string, args map[string]any) (map[string]any, error) {

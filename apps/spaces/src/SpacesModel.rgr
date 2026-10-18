@@ -735,6 +735,12 @@ class SpDoc {
     ; Markdown
     def body:string ""
     def day:int 0
+    ; on a server: a Sliqtly document of the space (list_docs), its folder
+    ; ("" at the top), where it opens in Sliqtly and who made it
+    def remote:boolean false
+    def folder:string ""
+    def url:string ""
+    def madeBy:string ""
     Constructor () {
     }
 }

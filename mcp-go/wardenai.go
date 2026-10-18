@@ -9,10 +9,11 @@
 //
 //	POST /apps/warden/api/assist
 //	  {space_id, text, images: [{mimeType, data}], history: [{role, text}], today}
-//	  {text, changed, event_ids, deleted, calls: [{tool, ok}]}
+//	  {text, changed, event_ids, deleted, doc_ids, calls: [{tool, ok}]}
 //
 // event_ids are the entries it made or changed, deleted the ones it removed:
-// the page shows them under the answer.
+// the page shows them under the answer; doc_ids the documents it wrote or
+// changed (wardendocs.go), which the Documents view opens.
 //
 // The model is the editor's (aimodel.go, SLIQTLY_AI); WARDEN_AI_MODEL names
 // another of the same kind.
@@ -209,6 +210,7 @@ How to work:
 - Before adding, look at what is there already (list_events for the dates in question) and change an existing entry (save_event with its event_id) rather than adding it twice. For several new entries at once use import_events, each with an ext_id made of the source and the entry (e.g. "assist:school-letter-2026-11:retki"), so giving the same letter again changes them instead of doubling them.
 - A child's clothing sizes (what it wears now in shoes, clothes, outerwear…, the next size and by when) and its clothing list (what it should have, how many it has) are the ward's: set_ward with sizes and clothes, each list given whole (the ward's present lists are in <wards>). Clothing to buy may also be a need entry when the person asks for one.
 - A question to another member ("ask Anna whether she can pick Leo up on Tuesday", "kysy käykö hoitoaika", "pyydä maksamaan 40 € tasaukseksi") is ask_question with the fitting kind, to that member (<members>), or with no to when no one is named (everyone else then, the first to answer does it), the child as ward and the day and times; not a calendar entry, which the answer makes. A plain question ("moneltako neuvola on?") is kind free. To change an open question of the person's own, ask_question with its event_id. Answering a question asked of the person is answer_question (list_questions shows them).
+- Documents (the page's Documents view) are the space's longer texts on any subject: plans, notes, lists to keep, home decorating, a trip, a summary or a plan you are asked to write down. Each is a Sliqtly document in Markdown: list_docs lists them and the folders, get_doc reads one, save_doc writes a new one or changes one (read it first; edits for small changes, the whole markdown for a rewrite), doc_folder makes, renames and removes folders. Begin a new document with "# Title"; each "## Heading" starts a new page, so keep a page to about a screenful. When the message starts with a document's name and id, it is about that document. Calendar entries still go to the calendar; a document only when one is asked for or the text is one to keep as it is.
 - Do not delete anything unless the person asks.
 - If a call is refused, read why, mend it and call again.
 - This is a conversation: the earlier turns are in it, and the person's next message may answer what you asked. When something you need is unclear and neither the message nor the space tells it (which child, which of several entries to change, a time or a place that is not said), make what is already clear and ask one short, concrete question about the rest instead of guessing.
@@ -327,6 +329,7 @@ func (s *wardenService) assist(ctx context.Context, who wardenWho, a map[string]
 	calls := []wardenAssistCall{}
 	ids := []any{}
 	deleted := []any{}
+	docs := []any{}
 	changed := false
 	r := &aiReader{Tools: wardenAssistToolList(), Rounds: 14, Run: func(ctx context.Context, name string, args map[string]any) aiRead {
 		if !slices.Contains(wardenAssistTools, name) {
@@ -354,6 +357,9 @@ func (s *wardenService) assist(ctx context.Context, who wardenWho, a map[string]
 					deleted = append(deleted, id)
 				}
 			} else if m, ok := out.(map[string]any); ok {
+				if id, ok := m["doc_id"].(string); ok && name == "save_doc" {
+					docs = append(docs, id)
+				}
 				if id, ok := m["event_id"].(string); ok {
 					ids = append(ids, id)
 				}
@@ -377,5 +383,5 @@ func (s *wardenService) assist(ctx context.Context, who wardenWho, a map[string]
 	if answer == "" && changed {
 		answer = fmt.Sprintf("Saved %d entries.", len(ids))
 	}
-	return map[string]any{"space_id": sp.id, "text": answer, "changed": changed, "event_ids": ids, "deleted": deleted, "calls": calls}, nil
+	return map[string]any{"space_id": sp.id, "text": answer, "changed": changed, "event_ids": ids, "deleted": deleted, "doc_ids": docs, "calls": calls}, nil
 }

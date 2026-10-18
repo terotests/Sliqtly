@@ -1227,6 +1227,69 @@ console.log("list tabs: one line each, inside the page");
   }
 }
 
+console.log("documents on a server: Sliqtly documents in folders");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia" }, spaces: [{ space_id: "sp1", name: "Koti", vocab: "family", lang: "fi", role: "owner" }] }));
+  a.answer(JSON.stringify({ space: { space_id: "sp1", name: "Koti", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] }, events: [] }));
+  a.press("sp-nav-docs");
+  eq("the view asks for the documents", a.outOp(), "list_docs");
+  ok("with their text", JSON.parse(a.outBody()).with_text === true);
+  const docs = {
+    space_id: "sp1", folders: [{ name: "Sisustus", docs: 1 }],
+    docs: [
+      { doc_id: "d2", title: "Olohuone", folder: "Sisustus", made_by: "Mia", day: M.UiDate.isoOfDays(a.today), url: "https://sliqtly.com/editor/d/d2#tab=view", markdown: "# Olohuone\n\n## Värit\n\n- Matto: sininen" },
+      { doc_id: "d1", title: "Muistiinpanot", folder: "", made_by: "Mia", url: "https://sliqtly.com/editor/d/d1#tab=view", markdown: "# Muistiinpanot" },
+    ],
+  };
+  a.answer(JSON.stringify(docs));
+  let t = texts(a);
+  ok("the newest is open", t.includes("• Matto: sininen") && t.includes("Avaa Sliqtlyssä ↗"), t.slice(0, 50).join(","));
+  ok("the folders", t.includes("▸ Sisustus") && t.includes("Kaikki"));
+  a.press("sp-docopen");
+  eq("it opens in Sliqtly", a.action, "open:https://sliqtly.com/editor/d/d2#tab=view");
+  a.action = "";
+  a.press("sp-docf-0");
+  ok("a folder shows its own", byId(a, "sp-doc-d2") && !byId(a, "sp-doc-d1"));
+  a.press("sp-docf-all");
+  a.press("sp-doc-d1");
+  a.press("sp-docmove");
+  a.press("sp-docmv-0");
+  eq("moved to a folder", a.outOp(), "save_doc");
+  let body = JSON.parse(a.outBody());
+  ok("only its folder", body.doc_id === "d1" && body.folder === "Sisustus" && body.markdown === undefined, JSON.stringify(body));
+  a.answer(JSON.stringify({ doc_id: "d1", title: "Muistiinpanot", folder: "Sisustus" }));
+  eq("then read again", a.outOp(), "list_docs");
+  a.answer(JSON.stringify(docs));
+  a.press("sp-docfolder-new");
+  a.press("sp-docfolder-save");
+  ok("a folder needs a name", a.outCount() === 0 && a.status.includes("nimi"), a.status);
+  a.press("sp-docdel");
+  eq("Delete asks first", a.outCount(), 0);
+  a.press("sp-docdel");
+  eq("then deletes", a.outOp(), "delete_doc");
+  a.answer(JSON.stringify({ deleted: "d1" }));
+  a.answer(JSON.stringify(docs));
+  a.press("sp-docai");
+  eq("Edit with the assistant", a.tab, "assistant");
+  a.press("sp-nav-docs");
+  a.answer(JSON.stringify(docs));
+  a.press("sp-write-plan");
+  eq("a plan is a Sliqtly document", a.outOp(), "save_doc");
+  body = JSON.parse(a.outBody());
+  ok("with its title and Markdown", body.title.length > 0 && body.markdown.startsWith("# "), JSON.stringify(body).slice(0, 200));
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const probs = a.a11yProblems();
+    ok(`${w}: the documents lint clean`, probs.length === 0, probs.join(" | "));
+  }
+}
+
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();

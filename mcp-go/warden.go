@@ -88,6 +88,9 @@ type wardenService struct {
 	ai *wardenAssist
 	// the site's address, for the calendar feed's (wardenfeed.go)
 	base string
+	// removes every file under a prefix in Storage (a deleted document's,
+	// wardendocs.go); nil: none kept
+	removeFiles func(ctx context.Context, prefix string)
 	// the Sliqtly tools the info screen is made with (wardeninfo.go); nil:
 	// none
 	deck wardenDeckCall
@@ -375,6 +378,9 @@ func (s *wardenService) deleteSpace(ctx context.Context, sp *wardenSpace, a map[
 			return nil, err
 		}
 	}
+	if err := s.releaseDocs(ctx, sp); err != nil {
+		return nil, err
+	}
 	if err := s.db.Delete(ctx, wardenSpaces, sp.id); err != nil {
 		return nil, err
 	}
@@ -449,6 +455,16 @@ func (s *wardenService) removeMember(ctx context.Context, sp *wardenSpace, a map
 	}
 	if err := s.save(ctx, sp); err != nil {
 		return nil, err
+	}
+	// the documents are no longer theirs to open in Sliqtly (wardendocs.go)
+	if uid != "" {
+		docs, ids, err := s.docs(ctx, sp)
+		if err == nil {
+			err = s.syncDocEditors(ctx, sp, docs, ids)
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	return sp.json(), nil
 }
@@ -1478,7 +1494,7 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 var wardenWrites = map[string]bool{
 	"set_space": true, "invite_member": true, "remove_member": true, "add_ward": true, "set_ward": true, "remove_ward": true,
 	"save_event": true, "delete_event": true, "import_events": true, "import_ics": true,
-	"ask_question": true, "answer_question": true,
+	"ask_question": true, "answer_question": true, "save_doc": true, "delete_doc": true, "doc_folder": true,
 }
 
 // the page asks for this now and then (wardenChangesOp): when the space last
@@ -1543,6 +1559,16 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.answerQuestion(ctx, sp, a)
 	case "list_questions":
 		return s.listQuestions(ctx, sp, a)
+	case "list_docs":
+		return s.listDocs(ctx, sp, a)
+	case "get_doc":
+		return s.getDoc(ctx, sp, a)
+	case "save_doc":
+		return s.saveDoc(ctx, sp, a)
+	case "delete_doc":
+		return s.deleteDoc(ctx, sp, a)
+	case "doc_folder":
+		return s.docFolder(ctx, sp, a)
 	case "info_screen":
 		return s.infoScreen(ctx, sp, a)
 	}
