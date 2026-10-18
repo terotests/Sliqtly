@@ -5590,6 +5590,37 @@ class PresCheck {
         this.ok(((array_length kept.cmds) == 4) ("docview: the run outside left out, got " + (to_string (array_length kept.cmds))))
         def cl:EVGDrawCmd (itemAt kept.cmds 2)
         this.ok(((cl.kind == 4) && ((cl.w == 50.0) && (cl.h == 40.0))) "docview: a clip inside narrowed to it")
+        ; a selection's band goes under the words it covers, over what they
+        ; stand on (a code block's panel), not under that panel on the paper
+        def pg (new EVGDisplayList())
+        pg.addRect(0.0 0.0 300.0 300.0 (EVGColor.parse("#ffffff")))
+        pg.addRect(10.0 100.0 200.0 60.0 (EVGColor.parse("#f6f8fa")))
+        pg.addText("code" 20.0 110.0 10.0 (EVGColor.parse("#000000")) "Open Sans" false false 40.0 12.0)
+        def bands:[double]
+        push bands 20.0
+        push bands 110.0
+        push bands 30.0
+        push bands 12.0
+        push bands 20.0
+        push bands 250.0
+        push bands 5.0
+        push bands 12.0
+        def banded:EVGDisplayList (PresDocView.withBand(pg.cmds 1 bands (EVGColor.rgba(56 132 255 0.32))))
+        def order:string ""
+        for banded.cmds bc:EVGDrawCmd bci {
+            order = (order + (? (bc.kind == 3) "T" (? (bc.a < 0.5) "B" "R")))
+        }
+        this.ok((order == "RBRBT") ("docview: the band over the panel, under its text; one over no text on the paper, got " + order))
+        ; a copy inside a code block: the code as written
+        def ct:string "# A\n\n```\nFamilyItem {\n  id, workspaceId\n  type\n}\n```\n\nLoppu.\n"
+        def cd (new PresDeck())
+        cd.setText(ct)
+        def from:int (indexOf ct "FamilyItem")
+        def till:int ((indexOf ct "type") + 4)
+        def got:string (PresDocView.codeBetween(cd.md.edit.doc from till))
+        this.ok((got == "FamilyItem {\n  id, workspaceId\n  type") ("docview: code copied with its lines and indentation, got " + got))
+        this.ok(((PresDocView.codeBetween(cd.md.edit.doc from (indexOf ct "Loppu"))) == "") "docview: …not when the selection goes past the block")
+        this.ok(((PresDocView.codeBetween(cd.md.edit.doc 0 from)) == "") "docview: …nor when it starts before it")
     }
 
     ; The View page on A4 sheets (PresDocPages, PresDocView.sheet): a sheet

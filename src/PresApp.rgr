@@ -1703,15 +1703,7 @@ class PresApp {
         def dw:double (docView.width())
         def sc:double (edDocPane.scale(dw))
         def l:EVGDisplayList (docView.visible(((edDocPane.viewTop()) - 40.0) ((edDocPane.viewBottom(dw)) + 40.0)))
-        def placed (new EVGDisplayList())
-        def i:int 0
-        while (i < (array_length l.cmds)) {
-            if (i == docView.headCmds) {
-                this.edDocBandInto(placed)
-            }
-            placed.addCmd((PresScriptApply.copyCmd((itemAt l.cmds i))))
-            i = (i + 1)
-        }
+        def placed:EVGDisplayList (PresDocView.withBand(l.cmds docView.headCmds (this.edDocBands()) (EVGColor.rgba(56 132 255 0.32))))
         this.docPeersInto(placed sc)
         this.docPicInto(placed sc)
         this.docCaretInto(placed sc)
@@ -1738,6 +1730,20 @@ class PresApp {
         return (docView.list.toJson())
     }
 
+    ; The text a selection on the page between the page points (ax, ay) and
+    ; (bx, by) copies, when the page's own reading of it would lose what it
+    ; stands for: inside one code block, the code as written
+    ; (PresDocView.codeBetween). "" otherwise: the words as the page shows them.
+    fn edDocCopyText:string (ax:double ay:double bx:double by:double) {
+        this.edDocEnsure()
+        def a:int (docView.caret.offsetAt(ax ay))
+        def b:int (docView.caret.offsetAt(bx by))
+        if ((a < 0) || (b < 0)) {
+            return ""
+        }
+        return (PresDocView.codeBetween(deck.md.edit.doc a b))
+    }
+
     ; Where the page is on the screen: "left,top,scale" (screen = left +
     ; page × scale), "" when the screen point is not on the View page.
     fn edDocAt:string (x:double y:double) {
@@ -1749,25 +1755,16 @@ class PresApp {
         return ((EVGDisplayList.num((edDocPane.left(dw)))) + "," + (EVGDisplayList.num((edDocPane.top(dw)))) + "," + (EVGDisplayList.num((edDocPane.scale(dw)))))
     }
 
-    ; the selection's band, on the paper and under the words (page units)
-    fn edDocBandInto:void (placed:EVGDisplayList) {
+    ; the selection's band (page units, "x y w h" in fours): editing, the
+    ; Markdown editor's own selection as the page shows it; reading, the
+    ; page's (setDocBand)
+    fn edDocBands:[double] () {
         if (this.docEditing()) {
-            ; editing: the Markdown editor's own selection, as the page shows it
             def a:int (mdEditor.anchorOffset())
             def c:int (mdEditor.caretOffset())
-            def rs:[double] (docView.caret.bands((? (a < c) a c) (? (a < c) c a)))
-            def k:int 0
-            while ((k + 3) < (array_length rs)) {
-                placed.addRect((itemAt rs k) (itemAt rs (k + 1)) (itemAt rs (k + 2)) (itemAt rs (k + 3)) (EVGColor.rgba(56 132 255 0.32)))
-                k = (k + 4)
-            }
-            return
+            return (docView.caret.bands((? (a < c) a c) (? (a < c) c a)))
         }
-        def b:int 0
-        while ((b + 3) < (array_length edDocBand)) {
-            placed.addRect((itemAt edDocBand b) (itemAt edDocBand (b + 1)) (itemAt edDocBand (b + 2)) (itemAt edDocBand (b + 3)) (EVGColor.rgba(56 132 255 0.32)))
-            b = (b + 4)
-        }
+        return edDocBand
     }
 
     ; The band: "x,y,w,h" per run, page units, comma separated ("" none).
