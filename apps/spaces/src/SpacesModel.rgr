@@ -1103,6 +1103,9 @@ class SpSpace {
     def myRole:string "owner"
     ; the address its calendar app subscribes to (wardenfeed.go), "" off a server
     def feed:string ""
+    ; whether the viewer's email summary of it comes every morning (day), on
+    ; Monday mornings (week) or not at all (off): theirs alone (wardensummary.go)
+    def emailSummary:string "off"
     def resources:[SpResource]
     ; the usual places of the space and of its wards
     def places:[SpPlace]

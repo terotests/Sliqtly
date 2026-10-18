@@ -1128,6 +1128,12 @@ func (s *wardenService) getSpace(ctx context.Context, sp *wardenSpace) (any, err
 	if space["calendar_feed"], err = s.feedURL(ctx, sp, false); err != nil {
 		return nil, err
 	}
+	// the caller's own email summary of it (wardensummary.go)
+	m, err := s.summaries(ctx, sp.who.uid)
+	if err != nil {
+		return nil, err
+	}
+	space["email_summary"] = wardenSummaryOf(m, sp.id)
 	return map[string]any{"space": space, "events": evs, "changed": wardenChanged(sp.doc)}, nil
 }
 
@@ -1424,6 +1430,9 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 			return s.saveOwnItem(ctx, who, a)
 		}
 		return s.deleteOwnItem(ctx, who, a)
+	// the caller's own choice, kept under their account (wardensummary.go)
+	case "email_summary":
+		return s.emailSummary(ctx, who, a)
 	}
 	// the backups are the page's alone (wardenbackup.go): no tool, so no
 	// assistant reaches them
