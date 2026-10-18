@@ -1018,3 +1018,5 @@
 .sp-feedprow { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
 .sp-feedpday { color: var(--faint); font-size: 12px; height: 18px; line-height: 18px; width: 110px; flex-shrink: 0; }
 .sp-feedptitle { color: var(--ink); font-size: 13px; height: 18px; line-height: 18px; flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-feedmore { display: flex; flex-direction: row; align-items: center; height: 28px; }
+.sp-feedmore-tx { color: var(--accent); font-size: 12px; font-weight: 600; height: 16px; line-height: 16px; }

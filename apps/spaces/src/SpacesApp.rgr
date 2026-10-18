@@ -255,6 +255,8 @@ class SpacesApp {
     ; which calendar the feed card subscribes to: "" all, "w:<ward id>",
     ; "w:none" (no ward) or "g:<type group>"
     def feedPick:string ""
+    ; the preview lists all of the picked calendar's items, not only the first eight
+    def feedAll:boolean false
     ; in it: the types to pick by hand shown (on a server the assistant comes
     ; first), what is searched for, the group picked, and the assistant's
     ; answer asked from it (-1 for none)
@@ -2612,7 +2614,11 @@ class SpacesApp {
         pv.a11yLabel = (SpWords.pick(lang "Preview" "Esikatselu"))
         pv.addChild((SpacesApp.tx("sp-pills-label" ((SpWords.pick(lang "Preview: " "Esikatselu: ")) + (this.feedPickName())))))
         def i:int 0
-        while ((i < (array_length mine)) && (i < 8)) {
+        def cap:int 8
+        if feedAll {
+            cap = (array_length mine)
+        }
+        while ((i < (array_length mine)) && (i < cap)) {
             def o:SpOccur (itemAt mine i)
             def row:EVGElement (SpacesApp.box("sp-feedprow"))
             row.role = "listitem"
@@ -2638,7 +2644,13 @@ class SpacesApp {
         }
         if ((array_length mine) > 8) {
             def more:int ((array_length mine) - 8)
-            pv.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang ("and " + (to_string more) + " more") ("ja " + (to_string more) + " muuta"))))))
+            def ml:string (SpWords.pick(lang ("and " + (to_string more) + " more") ("ja " + (to_string more) + " muuta")))
+            if feedAll {
+                ml = (SpWords.pick(lang "Show fewer" "Näytä vähemmän"))
+            }
+            def mb:EVGElement (SpacesApp.btn("sp-feedmore" "sp-feedmore" ml))
+            mb.a11yExpanded = (SpacesApp.tri(feedAll))
+            pv.addChild(mb)
         }
         fc.addChild(pv)
     }
@@ -9737,8 +9749,14 @@ class SpacesApp {
             }
             return true
         }
+        if (target == "sp-feedmore") {
+            feedAll = (feedAll == false)
+            this.rebuild()
+            return true
+        }
         if (UiTree.beginsWith(target "sp-feedpick-")) {
             feedPick = (this.feedKeyOf((substring target 12 (strlen target))))
+            feedAll = false
             this.rebuild()
             return true
         }
