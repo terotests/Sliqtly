@@ -404,7 +404,13 @@ console.log("a space on a server");
   a.press("sp-feedpick-g-event");
   a.press("sp-feed-open");
   eq("a type group's calendar", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0&group=event");
+  // each calendar's own Subscribe, and a preview of what the picked one brings
+  a.press("sp-feedsub-shared");
+  eq("a row's Subscribe opens that calendar", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0&ward=none");
+  ok("and picks it for the preview", texts(a).includes("Preview: Whole family") && texts(a).includes("Nothing in the next 30 days."));
+  ok("each row says how much it brings", texts(a).includes("6 in 30 days") && texts(a).includes("0 in 30 days"));
   a.press("sp-feedpick-all");
+  ok("the preview lists what is coming", texts(a).includes("Preview: All") && texts(a).includes("Wed Oct 21 15:00") && texts(a).includes("Dentist"));
   // the same card from the top bar, on any page
   a.press("sp-nav-calendar");
   ok("the top bar has the phone button", !!byId(a, "sp-phone"));

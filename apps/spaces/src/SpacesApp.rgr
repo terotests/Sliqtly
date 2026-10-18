@@ -2542,41 +2542,251 @@ class SpacesApp {
         return fc
     }
 
-    ; Which calendar to subscribe to: all of the space's, or one ward's, the
-    ; entries of no ward, or one type group's (those the space has). Each is
-    ; a calendar of its own on the phone, with its own name and colour.
+    ; The calendars to subscribe to, one row each: all of the space's, each
+    ; ward's, the entries of no ward and each type group's (those the space
+    ; has). Each is a calendar of its own on the phone, with its own address,
+    ; name and colour; picking a row previews what it brings.
     fn feedPicks:void (fc:EVGElement) {
-        def pills:EVGElement (SpacesApp.box("sp-pills sp-wrap"))
-        pills.role = "group"
-        pills.a11yLabel = (SpWords.pick(lang "Which calendar" "Mikä kalenteri"))
-        pills.addChild((this.feedPickPill("sp-feedpick-all" "" (SpWords.pick(lang "All" "Kaikki")))))
+        def occ:[SpOccur] (this.feedItems(today (today + 30)))
+        fc.addChild((SpacesApp.tx("sp-pills-label" (SpWords.pick(lang "Calendars" "Kalenterit")))))
+        def ls:EVGElement (SpacesApp.box("sp-feedlist"))
+        ls.role = "list"
+        ls.a11yLabel = (SpWords.pick(lang "Calendars" "Kalenterit"))
+        ls.addChild((this.feedRow("all" "" (SpWords.pick(lang "All" "Kaikki")) "all" occ)))
         def i:int 0
         while (i < (array_length space.resources)) {
             def r:SpResource (itemAt space.resources i)
-            pills.addChild((this.feedPickPill(("sp-feedpick-w-" + (to_string i)) ("w:" + r.id) r.name)))
+            ls.addChild((this.feedRow(("w-" + (to_string i)) ("w:" + r.id) r.name r.color occ)))
             i = (i + 1)
         }
-        pills.addChild((this.feedPickPill("sp-feedpick-shared" "w:none" (SpWords.noun(lang pack "together")))))
+        ls.addChild((this.feedRow("shared" "w:none" (SpWords.noun(lang pack "together")) "all" occ)))
         def groups:[string] (this.feedGroups())
         def k:int 0
         while (k < (array_length groups)) {
             def g:string (itemAt groups k)
-            pills.addChild((this.feedPickPill(("sp-feedpick-g-" + g) ("g:" + g) (SpWords.groupName(lang g)))))
+            ls.addChild((this.feedRow(("g-" + g) ("g:" + g) (SpWords.groupName(lang g)) (SpacesApp.groupColor(g)) occ)))
             k = (k + 1)
         }
-        fc.addChild(pills)
+        fc.addChild(ls)
         fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe to each one apart and the phone shows them as calendars of their own, in their own colours, each one to show or hide." "Tilaa jokainen erikseen, niin puhelin näyttää ne omina kalentereinaan omilla väreillään, ja kunkin voi näyttää tai piilottaa.")))))
+        this.feedPreview(fc occ)
     }
 
-    fn feedPickPill:EVGElement (id:string key:string label:string) {
+    ; one calendar's row: its colour, name and how much the next 30 days
+    ; bring; the name picks it for the preview, Subscribe subscribes to it
+    fn feedRow:EVGElement (id:string key:string label:string color:string occ:[SpOccur]) {
         def on:boolean (key == feedPick)
-        def pc:string "sp-pill"
+        def rc:string "sp-feedrow"
         if on {
-            pc = "sp-pill sp-pill-on"
+            rc = "sp-feedrow sp-feedrow-on"
         }
-        def b:EVGElement (SpacesApp.btn(id pc label))
-        b.a11yPressed = (SpacesApp.tri(on))
-        return b
+        def row:EVGElement (SpacesApp.box(rc))
+        row.role = "listitem"
+        def dot:EVGElement (SpacesApp.box(("sp-feeddot sp-c-" + color)))
+        dot.a11yHidden = true
+        row.addChild(dot)
+        def n:int (array_length (this.feedOf(key occ)))
+        def ct:string (SpWords.pick(lang ((to_string n) + " in 30 days") ((to_string n) + " / 30 pv")))
+        def nc:string "sp-feedname"
+        if on {
+            nc = "sp-feedname sp-feedname-on"
+        }
+        def pick:EVGElement (SpacesApp.btn(("sp-feedpick-" + id) nc label))
+        pick.a11yPressed = (SpacesApp.tri(on))
+        pick.a11yLabel = (label + ", " + ct)
+        row.addChild(pick)
+        def cn:EVGElement (SpacesApp.tx("sp-feedcount" ct))
+        cn.a11yHidden = true
+        row.addChild(cn)
+        def sub:EVGElement (SpacesApp.btn(("sp-feedsub-" + id) "sp-action sp-feedsub" (SpWords.pick(lang "Subscribe" "Tilaa"))))
+        sub.a11yLabel = ((SpWords.pick(lang "Subscribe: " "Tilaa: ")) + label)
+        row.addChild(sub)
+        return row
+    }
+
+    ; what the picked calendar brings in the next 30 days with these settings
+    fn feedPreview:void (fc:EVGElement occ:[SpOccur]) {
+        def mine:[SpOccur] (this.feedOf(feedPick occ))
+        def pv:EVGElement (SpacesApp.box("sp-feedprev"))
+        pv.role = "list"
+        pv.a11yLabel = (SpWords.pick(lang "Preview" "Esikatselu"))
+        pv.addChild((SpacesApp.tx("sp-pills-label" ((SpWords.pick(lang "Preview: " "Esikatselu: ")) + (this.feedPickName())))))
+        def i:int 0
+        while ((i < (array_length mine)) && (i < 8)) {
+            def o:SpOccur (itemAt mine i)
+            def row:EVGElement (SpacesApp.box("sp-feedprow"))
+            row.role = "listitem"
+            def when:string (SpWords.dayLabel(lang o.day))
+            if (o.startMin >= 0) {
+                when = (when + " " + (SpSpace.timeText(o.startMin)))
+            }
+            row.a11yLabel = (when + " " + o.title)
+            def dot:EVGElement (SpacesApp.box(("sp-feeddot sp-c-" + (this.colorOf(o)))))
+            dot.a11yHidden = true
+            row.addChild(dot)
+            def wt:EVGElement (SpacesApp.tx("sp-feedpday" when))
+            wt.a11yHidden = true
+            row.addChild(wt)
+            def tt:EVGElement (SpacesApp.tx("sp-feedptitle" o.title))
+            tt.a11yHidden = true
+            row.addChild(tt)
+            pv.addChild(row)
+            i = (i + 1)
+        }
+        if ((array_length mine) == 0) {
+            pv.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Nothing in the next 30 days." "Ei mitään seuraavan 30 päivän aikana.")))))
+        }
+        if ((array_length mine) > 8) {
+            def more:int ((array_length mine) - 8)
+            pv.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang ("and " + (to_string more) + " more") ("ja " + (to_string more) + " muuta"))))))
+        }
+        fc.addChild(pv)
+    }
+
+    ; the picked calendar's name, as the row shows it
+    fn feedPickName:string () {
+        if (feedPick == "w:none") {
+            return (SpWords.noun(lang pack "together"))
+        }
+        if (UiTree.beginsWith(feedPick "w:")) {
+            return (space.resourceName((substring feedPick 2 (strlen feedPick))))
+        }
+        if (UiTree.beginsWith(feedPick "g:")) {
+            return (SpWords.groupName(lang (substring feedPick 2 (strlen feedPick))))
+        }
+        return (SpWords.pick(lang "All" "Kaikki"))
+    }
+
+    ; What the feed carries between from and to, by day: the entries'
+    ; occurrences and, when switched on, the windows to get things in and
+    ; the payment days, and the days things are planned on, as the server
+    ; writes them.
+    fn feedItems:[SpOccur] (from:int to:int) {
+        def out:[SpOccur] (space.occurrences(from to))
+        def all:[SpEvent] (space.events)
+        def i:int 0
+        while (i < (array_length all)) {
+            def e:SpEvent (itemAt all i)
+            if (SpacesApp.closed(e)) {
+                i = (i + 1)
+                continue
+            }
+            if feedGets {
+                def gw:[int] (space.getWindow(e))
+                if ((array_length gw) == 2) {
+                    def gb:int (itemAt gw 1)
+                    def gf:int (itemAt gw 0)
+                    if ((gb >= from) && (gf <= to)) {
+                        def gd:int gf
+                        if (gd < from) {
+                            gd = from
+                        }
+                        out = (this.feedInsert(out (this.feedExtra(e gd (SpWords.pick(lang "Get: " "Hanki: "))))))
+                    }
+                }
+            }
+            if feedPays {
+                def pd:[int] (space.payDays(e))
+                def k:int 0
+                while (k < (array_length pd)) {
+                    def d:int (itemAt pd k)
+                    if ((d >= from) && (d <= to)) {
+                        out = (this.feedInsert(out (this.feedExtra(e d (SpWords.pick(lang "Payment: " "Maksu: "))))))
+                    }
+                    k = (k + 1)
+                }
+            }
+            def pl:[int] (space.plannedDays(e))
+            def m:int 0
+            while (m < (array_length pl)) {
+                def d2:int (itemAt pl m)
+                if ((d2 >= from) && (d2 <= to)) {
+                    out = (this.feedInsert(out (this.feedExtra(e d2 (SpWords.pick(lang "Planned: " "Suunniteltu: "))))))
+                }
+                m = (m + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn feedExtra:SpOccur (e:SpEvent day:int prefix:string) {
+        def o (new SpOccur())
+        o.id = e.id
+        o.eventId = e.id
+        o.title = (prefix + e.title)
+        o.day = day
+        o.endDay = day
+        o.resource = e.resource
+        o.color = (this.colorOfEvent(e))
+        o.typeId = e.typeId
+        return o
+    }
+
+    ; the list with o put after the items of its day or before
+    fn feedInsert:[SpOccur] (list:[SpOccur] o:SpOccur) {
+        def out:[SpOccur]
+        def put:boolean false
+        def i:int 0
+        while (i < (array_length list)) {
+            def x:SpOccur (itemAt list i)
+            if ((put == false) && (x.day > o.day)) {
+                push out o
+                put = true
+            }
+            push out x
+            i = (i + 1)
+        }
+        if (put == false) {
+            push out o
+        }
+        return out
+    }
+
+    ; the items of one calendar ("" all, "w:<ward>", "w:none", "g:<group>")
+    fn feedOf:[SpOccur] (key:string occ:[SpOccur]) {
+        def out:[SpOccur]
+        def i:int 0
+        while (i < (array_length occ)) {
+            def o:SpOccur (itemAt occ i)
+            def keep:boolean true
+            if (key == "w:none") {
+                keep = ((strlen o.resource) == 0)
+            } {
+                if (UiTree.beginsWith(key "w:")) {
+                    keep = (o.resource == (substring key 2 (strlen key)))
+                }
+            }
+            if (UiTree.beginsWith(key "g:")) {
+                keep = ((this.groupOfType(o.typeId)) == (substring key 2 (strlen key)))
+            }
+            if keep {
+                push out o
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; the calendar a row's id names ("all", "shared", "g-<group>", "w-<n>")
+    fn feedKeyOf:string (pk:string) {
+        if (pk == "shared") {
+            return "w:none"
+        }
+        if (UiTree.beginsWith(pk "g-")) {
+            return ("g:" + (substring pk 2 (strlen pk)))
+        }
+        if (UiTree.beginsWith(pk "w-")) {
+            def wi@(optional):int (to_int (substring pk 2 (strlen pk)))
+            if (!null? wi) {
+                def wk:int (unwrap wi)
+                if ((wk >= 0) && (wk < (array_length space.resources))) {
+                    def wr:SpResource (itemAt space.resources wk)
+                    return ("w:" + wr.id)
+                }
+            }
+        }
+        return ""
     }
 
     ; the type groups the space's entries are in, in the Add menu's order
@@ -9528,25 +9738,17 @@ class SpacesApp {
             return true
         }
         if (UiTree.beginsWith(target "sp-feedpick-")) {
-            def pk:string (substring target 12 (strlen target))
-            if (pk == "all") {
-                feedPick = ""
-            }
-            if (pk == "shared") {
-                feedPick = "w:none"
-            }
-            if (UiTree.beginsWith(pk "g-")) {
-                feedPick = ("g:" + (substring pk 2 (strlen pk)))
-            }
-            if (UiTree.beginsWith(pk "w-")) {
-                def wi@(optional):int (to_int (substring pk 2 (strlen pk)))
-                if (!null? wi) {
-                    def wk:int (unwrap wi)
-                    if ((wk >= 0) && (wk < (array_length space.resources))) {
-                        def wr:SpResource (itemAt space.resources wk)
-                        feedPick = ("w:" + wr.id)
-                    }
-                }
+            feedPick = (this.feedKeyOf((substring target 12 (strlen target))))
+            this.rebuild()
+            return true
+        }
+        ; a row's own Subscribe: that calendar, picked and opened
+        if (UiTree.beginsWith(target "sp-feedsub-")) {
+            feedPick = (this.feedKeyOf((substring target 11 (strlen target))))
+            def su:string (this.feedAddress())
+            def sat:int (indexOf su "://")
+            if (sat > 0) {
+                action = ("open:webcal" + (substring su sat (strlen su)))
             }
             this.rebuild()
             return true
