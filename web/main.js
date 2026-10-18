@@ -156,7 +156,6 @@ const stageEl = document.getElementById("stage");
 const keys = document.getElementById("keys");
 const loadNote = document.getElementById("loadNote");
 const errEl = document.getElementById("err");
-const statusEl = document.getElementById("status");
 const filePick = document.getElementById("filepick");
 const fileAdd = document.getElementById("fileadd");
 const sampleSel = document.getElementById("sample");
@@ -4647,7 +4646,6 @@ function paintOnce() {
   }
   // only when they change: the bar's observer reads every write as new
   // buttons, and a frame that writes them asks for the next frame
-  setText(statusEl, app.statusText());
   setText(playBtn, layout.playing && layout.mode === "edit" ? t("⏸ Pause") : t("▶ Play"));
   return layout;
 }

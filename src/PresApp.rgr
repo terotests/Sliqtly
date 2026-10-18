@@ -9416,7 +9416,7 @@ class PresApp {
             toolbar.h = H
             toolbar.rebuild()
         }
-        toolbar.setState(playing (this.statusText()))
+        toolbar.setState(playing)
         ; Rooms and Review's list of comments stay open; the rest act at once
         toolbar.setRailState((? (this.reviewListOpen()) "review" "") (review.on && ((review.model.openCount()) > 0)) (this.docTitle()))
         return true
@@ -18504,10 +18504,6 @@ class PresApp {
 
 
 
-    fn statusText:string () {
-        def n:int (deck.slideCount())
-        return ((to_string n) + (PresI18n.t(" slides · ")) + (PresApp.secs((PresTimeline.total(deck)))))
-    }
 }
 
 ; a picture named in a line: its path and the columns it takes

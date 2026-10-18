@@ -10,7 +10,6 @@
 /* the mark on a light tile, as a workspace's icon on Slack's frame */
 .theme-terracotta .tb-logo { background-color: #fff8ef; border-radius: 9px; }
 .theme-terracotta .tb-title-label,
-.theme-terracotta .tb-status { color: #ffffff; }
 .theme-terracotta .tb-title:hover { border: 1px solid rgba(255, 255, 255, 0.55); }
 .theme-terracotta .ui-dropdownmenu-trigger { color: #ffffff; background-color: rgba(0, 0, 0, 0); }
 .theme-terracotta .ui-dropdownmenu-trigger:hover { background-color: rgba(255, 255, 255, 0.14); }

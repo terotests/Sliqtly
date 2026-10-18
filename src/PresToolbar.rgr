@@ -5,7 +5,7 @@
 ; ============================================================================
 ;
 ; The bar the page used to draw in HTML — the presentation and the theme to
-; pick, play and present, open / save / PDF / PPTX / share / help, the status
+; pick, play and present, open / save / PDF / PPTX / share / help
 ; — as EVGUI controls (SelectCtl, ButtonCtl) in a UiHost of its own, as
 ; big as the app, so a select's list opens over everything under it.
 ;
@@ -78,7 +78,6 @@ class PresToolbar {
     ; this voice
     def hasRec:boolean false
     def recVoice:string "clean"
-    def status:string ""
     def requests:[string]
     def rev:int 0
     def measurer@(optional):TTFTextMeasurer
@@ -301,10 +300,9 @@ class PresToolbar {
         }
     }
 
-    fn setState:void (isPlaying:boolean words:string) {
-        if ((isPlaying != playing) || (words != status)) {
+    fn setState:void (isPlaying:boolean) {
+        if (isPlaying != playing) {
             playing = isPlaying
-            status = words
             this.rebuild()
         }
     }
@@ -2804,7 +2802,6 @@ class PresToolbar {
             this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
             this.button("share" (PresI18n.t("Share")) "secondary" bar)
             bar.addChild((UiKit.div("tb-grow")))
-            bar.addChild((UiKit.words("tb-status" status)))
             this.extraButtons(bar)
             if ((strlen langRows) > 0) {
                 langSel = (this.select("lang" (PresI18n.t("Language")) langRows langValue bar))

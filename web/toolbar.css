@@ -20,7 +20,6 @@
 .tb-label { font-size: 12px; color: #71717a; }
 .tb-sep { width: 1px; height: 22px; background-color: #e8e4de; margin: 0 2px; }
 .tb-grow { flex-grow: 1; }
-.tb-status { font-size: 12px; color: #5f5a54; }
 
 .theme-tb .ui-button { font-family: Open Sans; border-radius: 6px; height: 32px; padding: 0 12px; align-self: center; }
 .theme-tb .ui-button-primary { background-color: #18181b; border-color: #18181b; }
@@ -123,10 +122,7 @@
 .tb-dr-label { font-size: 11px; font-weight: 600; color: #71717a; padding: 8px 6px 2px; }
 .tb-dr-sep { height: 1px; background-color: #f4f4f5; margin: 6px 0; flex-shrink: 0; }
 
-/* Narrower windows: labels and the status give way first */
-@media (max-width: 1280px) {
-  .tb-status { display: none; }
-}
+/* Narrower windows: labels give way first */
 @media (max-width: 1180px) {
   .tb-label { display: none; }
   .theme-tb .tb-trig-sample { width: 190px; }
