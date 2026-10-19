@@ -204,9 +204,12 @@ on the page, the rest still shows):
 - visitors, presentations: Cloud Datastore User (already there)
 - accounts: Firebase Authentication Viewer
 - the bill: Cloud Billing → Billing export → BigQuery export, "Standard usage
-  cost", into a dataset (e.g. `billing_export` in `sliqtly`). Give the
-  service account BigQuery Job User on the project and BigQuery Data Viewer
-  on that dataset, set the repository variable `SLIQTLY_BILLING_TABLE` to the
-  table it makes (`sliqtly.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX`),
-  and run Deploy MCP (Go). The export fills from the day it is turned on and
-  runs about a day behind.
+  cost", into the dataset `billing_export` in project `sliqtly` (create it in
+  the EU multi-region from that page). Give the service account BigQuery Job
+  User on the project and BigQuery Data Viewer on that dataset. Deploy MCP
+  (Go) sets `SLIQTLY_BILLING_TABLE` to `sliqtly.billing_export`, and the
+  server reads the export's `gcp_billing_export_v1_*` table in it; a
+  repository variable `SLIQTLY_BILLING_TABLE` overrides it with another
+  dataset or a full `project.dataset.table`. Until the dataset and its table
+  exist the card says "Not connected". The export fills from the day it is
+  turned on and runs about a day behind.

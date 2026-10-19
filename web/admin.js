@@ -206,7 +206,7 @@ export function render(r) {
   if (b.off) {
     $("cBilling").innerHTML = "";
     $("nBilling").textContent = "";
-    $("eBilling").innerHTML = `Not connected. Export Cloud Billing to BigQuery and set <code>SLIQTLY_BILLING_TABLE</code> on the service (mcp-go/README.md, “Owner's dashboard”).`;
+    $("eBilling").innerHTML = `Not connected. Turn on Cloud Billing → Billing export → BigQuery export, “Standard usage cost”, into the dataset <code>billing_export</code> of project <code>sliqtly</code> (docs/operations.md, “The owner's dashboard”). The first costs show about a day later.`;
     $("services").innerHTML = "";
   } else {
     chart($("cBilling"), b.rows.map((x) => ({ ...x })), [{ key: "cost", label: "Cost", color: GREEN }], { fmt: moneyFmt });

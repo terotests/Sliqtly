@@ -84,9 +84,10 @@ jobs:
           GEMINI_KEY_SECRET: ${{ secrets.GEMINI_API_KEY }}
           # the owner's dashboard, sliqtly.com/main/admin (mcp-go/admin.go):
           # the Google accounts let in, and the Cloud Billing export's
-          # BigQuery table (project.dataset.table; unset: no costs shown)
+          # BigQuery dataset (project.dataset, its standard usage cost table
+          # found by name) or table (project.dataset.table)
           ADMIN_EMAILS: ${{ vars.SLIQTLY_ADMIN_EMAILS || 'teroktolonen@gmail.com' }}
-          BILLING_TABLE: ${{ vars.SLIQTLY_BILLING_TABLE }}
+          BILLING_TABLE: ${{ vars.SLIQTLY_BILLING_TABLE || 'sliqtly.billing_export' }}
           # sliqtly_plugin's plugins (mcp-go/rgr/Plugins.rgr); unset:
           # code-review, "none" turns them all off
           PLUGINS: ${{ vars.SLIQTLY_PLUGINS || 'code-review' }}

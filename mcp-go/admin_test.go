@@ -155,15 +155,21 @@ func TestBillingRows(t *testing.T) {
 	eq(t, err.Error(), "BigQuery: Access Denied: Table x")
 	_, err = parseBillingRows(200, []byte(`{"jobComplete":false}`))
 	match(t, err.Error(), "did not finish")
-	if !billingTable.MatchString("sliqtly.billing_export.gcp_billing_export_v1_0123AB_CDEF") {
-		t.Fatal("a real table name was refused")
+	_, err = parseBillingRows(404, []byte(`{"error":{"code":404,"message":"Not found: Dataset sliqtly:billing_export"}}`))
+	eq(t, err, errBillingOff)
+	for _, good := range []string{"sliqtly.billing_export.gcp_billing_export_v1_0123AB_CDEF", "sliqtly.billing_export", "sliqtly.billing_export.gcp_billing_export_v1_*"} {
+		if !billingTable.MatchString(good) {
+			t.Fatalf("%q was refused", good)
+		}
 	}
-	for _, bad := range []string{"", "sliqtly.billing", "sliqtly.a.b` WHERE 1=1 --", "x.a.b"} {
+	for _, bad := range []string{"", "sliqtly", "sliqtly.billing*", "sliqtly.a.b` WHERE 1=1 --", "x.a.b"} {
 		if billingTable.MatchString(bad) {
 			t.Fatalf("%q was taken as a table", bad)
 		}
 	}
 	match(t, billingQuery("p-1234.d.t"), "FROM `p-1234.d.t` WHERE usage_start_time >= @since")
+	eq(t, billingSource("sliqtly.billing_export"), "sliqtly.billing_export.gcp_billing_export_v1_*")
+	eq(t, billingSource("p-1234.d.t"), "p-1234.d.t")
 }
 
 func adminServer(t *testing.T, src adminSource) (string, func()) {
