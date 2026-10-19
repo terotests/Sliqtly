@@ -2134,6 +2134,12 @@ none.
   agrees.
 - `set_story` sets a presentation's type, phase, tags or colour; set the
   phase only when the user says so.
+- Vaults are sets of presentations chosen for one use, e.g. the Demo
+  Vault for demos: with a vault on (File → Vault) the editor lists only its
+  presentations. `list_vaults`, `create_vault`; `add_to_vault` keeps the
+  presentation in its other vaults too, `move: true` takes it out of them;
+  `remove_from_vault`. A presentation keeps its room either way. Put one in
+  a vault only when the user asks.
 - The editor shows a change within moments; one the user makes there
   reaches you the same way.
 <!-- /myrooms -->
