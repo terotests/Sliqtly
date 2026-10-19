@@ -136,10 +136,10 @@ test("a presentation exported to the cloud (/r/{id}/{hash}) is the light player'
   }
 });
 
-test("trial front pages at /web/1, /web/2, /web/3 and /web/use-cases: built, not indexed, linked from nowhere", () => {
+test("trial front pages at /web/1 to /web/4 and /web/use-cases: built, not indexed, linked from nowhere", () => {
   const rw = hosting().rewrites;
   const src = fs.readFileSync(path.join(root, "scripts", "build-view.mjs"), "utf8");
-  for (const n of ["1", "2", "3", "use-cases"]) {
+  for (const n of ["1", "2", "3", "4", "use-cases"]) {
     assert.equal(rw.find((r) => r.source === "/web/" + n)?.destination, `/web/${n}.html`, n);
     assert.ok(src.includes(`["alt/${n}.html", "web/${n}.html"]`), n);
     const page = fs.readFileSync(path.join(web, "alt", n + ".html"), "utf8");
