@@ -3644,6 +3644,31 @@ try {
       return { newKids, newReqs, kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
     });
     check("…File → New offers Presentation… (the window), Datasheet… (the spreadsheet editor) and Questionnaire… (a story of its own)", fx.newKids.join() === "newPres,newSheet,newForm" && fx.newReqs.join() === "files:new,files:newsheet,files:newform", JSON.stringify(fx));
+
+    // File → Vault: every presentation, then the vaults (web/vaults.js), the
+    // one on ticked; a row turns that vault on
+    const vlt = await page.evaluate(async () => {
+      const a = window.__app;
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      const shut = () => { for (let n = 0; n < 3 && a.toolbar.openMenu() !== ""; n++) a.key("escape", false, false); };
+      const take = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
+      shut();
+      take();
+      press(find("tb-m-file-trigger"));
+      press(find("tb-m-file-item-vault"));
+      let r = null;
+      for (let n = 0; n < 40 && !r; n++) { r = find("tb-m-file-item-vault-item-vlt-demo"); if (!r) await new Promise((ok) => setTimeout(ok, 100)); }
+      const all = find("tb-m-file-item-vault-item-vlt-");
+      const label = (e) => { const w = (x) => [x.textContent || "", ...(x.children || []).map(w)].join(""); return e ? w(e) : ""; };
+      const names = [label(all), label(r)];
+      if (r) press(r);
+      const reqs = take();
+      shut();
+      return { names, reqs };
+    });
+    check("…File → Vault lists every presentation (ticked, none on) and the Demo Vault; its row turns it on",
+      /✓/.test(vlt.names[0]) && /Demo Vault/.test(vlt.names[1]) && !/✓/.test(vlt.names[1]) && vlt.reqs.join() === "vault:use:demo", JSON.stringify(vlt));
     // the link rows (x-recweb, x-vidweb) only where the page hands out links
     check("…File → Export lists .md, .pptx, .docx, .html, the player, .pdf, the images, the video and .zip, a line and Export to Clipboard ▸, and the zip row is the page's ZIP button", fx.kids.filter((k) => !k.startsWith("sep") && k !== "x-recweb" && k !== "x-vidweb").join() === "x-save,x-pptx,x-docx,x-html,x-player,x-pdf,x-png,x-pngAll,x-video,x-zip,x-clip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
     check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));

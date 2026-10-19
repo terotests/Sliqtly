@@ -16,7 +16,7 @@ test("a deck kept here and in the cloud is one row with the later time", () => {
   const rows = deckRows(local, cloud, "a");
   assert.equal(rows.length, 3);
   const b = rows.find((r) => r.id === "b");
-  assert.deepEqual(b, { id: "b", name: "Shared deck", created: 300, updated: 900, where: "both", current: false });
+  assert.deepEqual(b, { id: "b", name: "Shared deck", created: 300, updated: 900, where: "both", current: false, cloud: "S1" });
   assert.equal(rows.find((r) => r.id === "a").current, true);
 });
 

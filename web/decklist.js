@@ -23,6 +23,8 @@ export function deckRows(local, cloud, currentId, { byCloud = false } = {}) {
       updated: Math.max(d.updated || 0, share?.updated || 0) || d.created || 0,
       where: share ? "both" : "browser",
       current: d.id === currentId,
+      // the deck's share, so a vault that names "cloud:<it>" finds the row
+      cloud: d.cloud || "",
     };
   });
   for (const r of shares.values()) {

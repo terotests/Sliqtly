@@ -73,6 +73,9 @@ class PresToolbar {
     def themeValue:string ""
     ; File → Recent: "<deck id>\t<name>" a line, the latest first
     def recentRows:string ""
+    ; the vaults (web/vaults.js vaultLines): the one on first ("" none), then
+    ; "<id><TAB><title><TAB><deck><TAB>…" each, its decks after its title
+    def vaultRows:string ""
     def playing:boolean false
     ; the deck has a recording (Record → Play recording), played through
     ; this voice
@@ -230,6 +233,9 @@ class PresToolbar {
         }
         if (id == "recent") {
             recentRows = rows
+        }
+        if (id == "vaults") {
+            vaultRows = rows
         }
         if (id == "lang") {
             langRows = rows
@@ -555,6 +561,10 @@ class PresToolbar {
         if ((indexOf id "r-") == 0) {
             return ("files:doc:" + (substring id 2 (strlen id)))
         }
+        ; File → Vault: only that vault's presentations listed ("" all)
+        if ((indexOf id "vlt-") == 0) {
+            return ("vault:use:" + (substring id 4 (strlen id)))
+        }
         if ((indexOf id "s-") == 0) {
             return ("select:sample:" + (substring id 2 (strlen id)))
         }
@@ -759,6 +769,56 @@ class PresToolbar {
                     first = false
                 }
                 MenuCtl.addKid(parent ("r-" + (itemAt parts 0)) (itemAt parts 1) false)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; File → Vault's rows: every presentation, then each vault, the one on
+    ; ticked.
+    fn vaultKids:void (parent:UiItem) {
+        def lines:[string] (strsplit vaultRows (strfromcode 10))
+        def on:string ""
+        if ((array_length lines) > 0) {
+            on = (itemAt lines 0)
+        }
+        def mark:string "    "
+        if ((strlen on) == 0) {
+            mark = "✓  "
+        }
+        MenuCtl.addKid(parent "vlt-" (mark + (PresI18n.t("All presentations"))) false)
+        MenuCtl.addKidSeparator(parent)
+        def i:int 1
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                mark = "    "
+                if ((itemAt parts 0) == on) {
+                    mark = "✓  "
+                }
+                MenuCtl.addKid(parent ("vlt-" + (itemAt parts 0)) (mark + (itemAt parts 1)) false)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A presentation's Vault rows: each vault, ticked when the deck is in it;
+    ; a row puts it in or takes it out.
+    fn deckVaultKids:void (parent:UiItem) {
+        def lines:[string] (strsplit vaultRows (strfromcode 10))
+        def i:int 1
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                def mark:string "    "
+                def k:int 2
+                while (k < (array_length parts)) {
+                    if ((itemAt parts k) == ctxDeck) {
+                        mark = "✓  "
+                    }
+                    k = (k + 1)
+                }
+                MenuCtl.addKid(parent ("vtg-" + (itemAt parts 0)) (mark + (itemAt parts 1)) false)
             }
             i = (i + 1)
         }
@@ -1105,6 +1165,10 @@ class PresToolbar {
         if ((indexOf choice "stp-") == 0) {
             return ("story:set:" + ctxDeck + (strfromcode 9) + "phase" + (strfromcode 9) + (substring choice 4 (strlen choice)))
         }
+        ; into a vault or out of it: the deck need not be open
+        if ((indexOf choice "vtg-") == 0) {
+            return ((("vault:toggle:" + (substring choice 4 (strlen choice))) + ":") + ctxDeck)
+        }
         ; pinned first in the open room, or not: the deck need not be open
         if (choice == "deckPin") {
             return ("room:pin:" + roomOpen + ":" + ctxDeck)
@@ -1194,6 +1258,8 @@ class PresToolbar {
             }
             this.folderKids((cm.addSub("moveFolder" (PresI18n.t("Move to folder")) false)))
         }
+        ; the vaults it is in (a sample too: the Demo Vault starts with one)
+        this.deckVaultKids((cm.addSub("deckVault" (PresI18n.t("Vault")) false)))
         ; a story's type and phase (not a sample's: it is no one's to change)
         if ((indexOf ctxDeck "sample:") != 0) {
             this.storyTypeKids((cm.addSub("storyType" (PresI18n.t("Type")) false)))
@@ -2727,6 +2793,7 @@ class PresToolbar {
             file.addItem("openbox" (PresI18n.t("Open…")) false)
             def rc:UiItem (file.addSub("recent" (PresI18n.t("Recent")) false))
             this.recentKids(rc)
+            this.vaultKids((file.addSub("vault" (PresI18n.t("Vault")) false)))
             ; what is out on sliqtly.com (viewing links, Cloud HTML, Cloud
             ; video), to look through and remove: only where the page
             ; publishes there; a server of one's own that hands out its own
