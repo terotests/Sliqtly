@@ -159,6 +159,11 @@ type Env struct {
 	// read from by path (importdirs.go); only on a server of one's own
 	// started with SLIQTLY_IMPORT_DIRS, empty elsewhere
 	ImportDirs importDirs
+	// MaxFile: the most bytes one picture or file may have (SLIQTLY_MAX_FILE_MB,
+	// 50 MB on a server of one's own); 0: sliqtly.com's limits, which Cloud
+	// Run's 32 MB requests and its small instances set (5 MB a picture, 10 MB
+	// a data file, 20 MB a room's or deck's file)
+	MaxFile int64
 	// Plugins: the plugins sliqtly_plugin offers (SLIQTLY_PLUGINS, comma
 	// separated, or "all"); none by default
 	Plugins []string
@@ -244,7 +249,7 @@ func NewApp(env *Env) http.Handler {
 		}
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, 40<<20)
+		r.Body = http.MaxBytesReader(w, r.Body, env.bodyMax())
 		if r.Method == http.MethodPost && r.URL.Path == "/oauth/register" && env.Registrations(clientIP(r)) != "" {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -895,6 +900,27 @@ func (h *McpHost) Precision(n string, digits int64) string {
 }
 
 func (h *McpHost) LocalUser() string { return h.env.LocalUser }
+
+// the most bytes one picture or file may have: MaxFile when it is set, else
+// def, sliqtly.com's limit for that kind of file
+func (h *McpHost) FileLimit(def int64) int64 { return int64(h.env.fileLimit(int(def))) }
+
+func (e *Env) fileLimit(def int) int {
+	if e.MaxFile > 0 {
+		return int(e.MaxFile)
+	}
+	return def
+}
+
+// the most bytes one request may have: a file of MaxFile as base64 in a tool
+// call, with room for the deck's text and smaller files beside it
+func (e *Env) bodyMax() int64 {
+	const cloud = 40 << 20
+	if n := e.MaxFile/3*4 + 16<<20; n > cloud {
+		return n
+	}
+	return cloud
+}
 
 func (h *McpHost) EditorOn() bool { return h.env.Editor }
 

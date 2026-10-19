@@ -222,7 +222,7 @@ func (s *roomService) pictureSize(ctx context.Context, ref store.FileRef) (int, 
 	if !strings.HasPrefix(ref.Mime, "image/") || ref.Mime == "image/svg+xml" {
 		return 0, 0
 	}
-	data, err := s.files.Read(ctx, ref.Path, maxUpload)
+	data, err := s.files.Read(ctx, ref.Path, int64(s.most()))
 	if err != nil {
 		return 0, 0
 	}
@@ -281,7 +281,7 @@ func (s *roomService) putToolFile(ctx context.Context, p store.Principal, room s
 		if len(s.imports) == 0 {
 			return nil, roomErr{"path is read only by a Sliqtly server on your own computer started with import folders (SLIQTLY_IMPORT_DIRS); send the file as data_base64, text or url"}
 		}
-		b, err := s.imports.read(fp, maxUpload+1)
+		b, err := s.imports.read(fp, int64(s.most())+1)
 		if err != nil {
 			return nil, roomErr{fp + " was not read (" + err.Error() + "). Import folders: " + strings.Join(s.imports.list(), ", ")}
 		}
@@ -290,8 +290,8 @@ func (s *roomService) putToolFile(ctx context.Context, p store.Principal, room s
 	if len(data) == 0 {
 		return nil, roomErr{"the file is empty"}
 	}
-	if len(data) > maxUpload {
-		return nil, roomErr{"a file is at most 20 MB"}
+	if len(data) > s.most() {
+		return nil, roomErr{fileTooLarge(s.most())}
 	}
 	ct := roomFileType(name, sent, data)
 	w, h := 0, 0
@@ -326,7 +326,15 @@ func roomFileType(name, sent string, data []byte) string {
 	return strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0])
 }
 
-// a public https file, at most maxUpload bytes. → its bytes and type
+// the most bytes one of the rooms' files may have
+func (s *roomService) most() int {
+	if s.maxFile == nil {
+		return maxUpload
+	}
+	return s.maxFile()
+}
+
+// a public https file, at most s.most() bytes. → its bytes and type
 func (s *roomService) fetchFile(ctx context.Context, u string) ([]byte, string, error) {
 	pu, err := url.Parse(u)
 	if err != nil || pu.Scheme != "https" || pu.Host == "" {
@@ -350,7 +358,7 @@ func (s *roomService) fetchFile(ctx context.Context, u string) ([]byte, string, 
 	if res.StatusCode < 200 || res.StatusCode > 299 {
 		return nil, "", roomErr{pu.Hostname() + " answered " + strconv.Itoa(res.StatusCode)}
 	}
-	b, err := io.ReadAll(io.LimitReader(res.Body, maxUpload+1))
+	b, err := io.ReadAll(io.LimitReader(res.Body, int64(s.most())+1))
 	if err != nil {
 		return nil, "", roomErr{pu.Hostname() + " could not be fetched"}
 	}

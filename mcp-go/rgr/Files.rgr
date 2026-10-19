@@ -40,6 +40,10 @@ class Files {
     sfn MAX_DATA:int () {
         return 10485760
     }
+    ; a data file at most on this server: MAX_DATA on sliqtly.com
+    sfn maxData:int (host:McpHost) {
+        return (host_file_limit host (Files.MAX_DATA()))
+    }
     sfn MAX_DATA_FILES:int () {
         return 10
     }
@@ -606,7 +610,7 @@ class Files {
                     res.err = ("File " + name + ": only public https URLs are fetched.")
                     return res
                 }
-                def got2:MfJ (J.parse((host_image_url host url ((Files.MAX_DATA()) + 1))))
+                def got2:MfJ (J.parse((host_image_url host url ((Files.maxData(host)) + 1))))
                 def status:int (got2.int_("status" 0))
                 if (status == 0) {
                     res.err = ("File " + name + ": " + hostname + " could not be fetched.")
@@ -621,8 +625,8 @@ class Files {
                     res.err = ("File " + name + ": the URL gave " + ct + ", not data.")
                     return res
                 }
-                if ((got2.int_("length" 0)) > (Files.MAX_DATA())) {
-                    res.err = ("File " + name + " is larger than 10 MB.")
+                if ((got2.int_("length" 0)) > (Files.maxData(host))) {
+                    res.err = ("File " + name + " is larger than " + (Deck.mbText((Files.maxData(host)))) + ".")
                     return res
                 }
                 handle = (got2.int_("handle" 0))
@@ -638,7 +642,7 @@ class Files {
                     res.err = ("File " + name + ": " + path + " is not the same kind of file as the name (.xlsx, .csv, .tsv, .json, .txt or .gltf).")
                     return res
                 }
-                def got3:MfJ (J.parse((host_import_file host path ((Files.MAX_DATA()) + 1))))
+                def got3:MfJ (J.parse((host_import_file host path ((Files.maxData(host)) + 1))))
                 def why:string (got3.str_("error"))
                 if ((strlen why) > 0) {
                     res.err = ("File " + name + ": " + path + " was not read (" + why + "). Import folders: " + dirs + ".")
@@ -651,8 +655,8 @@ class Files {
                 res.err = ("File " + name + " is empty.")
                 return res
             }
-            if (size > (Files.MAX_DATA())) {
-                res.err = ("File " + name + " is larger than 10 MB.")
+            if (size > (Files.maxData(host))) {
+                res.err = ("File " + name + " is larger than " + (Deck.mbText((Files.maxData(host)))) + ".")
                 return res
             }
             if (Files.isXlsx(name)) {

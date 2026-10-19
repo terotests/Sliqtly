@@ -51,6 +51,8 @@ type roomService struct {
 	ownURL string
 	// the folders put_room_file reads a path from (SLIQTLY_IMPORT_DIRS)
 	imports importDirs
+	// the most bytes one file may have (Env.MaxFile, else maxUpload)
+	maxFile func() int
 	// runs a message's previews; tests wait for it
 	later func(fn func())
 	// who is working on a deck now (presence.go): the assistants, and the
@@ -75,6 +77,7 @@ func newRoomService(env *Env) *roomService {
 		client:  env.Client,
 		ownURL:  env.BaseURL,
 		imports: env.ImportDirs,
+		maxFile: func() int { return env.fileLimit(maxUpload) },
 	}
 	if env.Bucket != nil {
 		rs.bucket = env.Bucket

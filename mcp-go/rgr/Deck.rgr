@@ -45,6 +45,14 @@ class Deck {
     sfn MAX_IMAGE:int () {
         return 5242880
     }
+    ; a picture at most on this server: MAX_IMAGE on sliqtly.com
+    sfn maxImage:int (host:McpHost) {
+        return (host_file_limit host (Deck.MAX_IMAGE()))
+    }
+    ; "5 MB": n bytes in whole megabytes, for the messages
+    sfn mbText:string (n:int) {
+        return ((to_string (idiv n 1048576)) + " MB")
+    }
     sfn MAX_IMAGES:int () {
         return 20
     }
@@ -437,7 +445,7 @@ class Deck {
                 push notes (who + ": " + url + " not fetched (only public https addresses are); it is not drawn.")
                 continue
             }
-            def got:MfJ (J.parse((host_image_url host url ((Deck.MAX_IMAGE()) + 1))))
+            def got:MfJ (J.parse((host_image_url host url ((Deck.maxImage(host)) + 1))))
             def status:int (got.int_("status" 0))
             def ct:string (got.str_("type"))
             def why:string ""
@@ -451,8 +459,8 @@ class Deck {
             if (((strlen why) == 0) && ((startsWith ct "image/") == false)) {
                 why = ("gave " + ct + ", not a picture")
             }
-            if (((strlen why) == 0) && (((got.int_("length" 0)) > (Deck.MAX_IMAGE())) || ((got.int_("size" 0)) > (Deck.MAX_IMAGE())))) {
-                why = "is larger than 5 MB"
+            if (((strlen why) == 0) && (((got.int_("length" 0)) > (Deck.maxImage(host))) || ((got.int_("size" 0)) > (Deck.maxImage(host))))) {
+                why = ("is larger than " + (Deck.mbText((Deck.maxImage(host)))))
             }
             if ((strlen why) > 0) {
                 push notes (who + ": " + url + " " + why + "; it is not drawn.")
@@ -482,8 +490,8 @@ class Deck {
         if (out == text) {
             return ""
         }
-        if ((strlen out) > (Deck.MAX_IMAGE())) {
-            return ("Image " + im.name + " is larger than 5 MB with the pictures it links to put into it.")
+        if ((strlen out) > (Deck.maxImage(host))) {
+            return ("Image " + im.name + " is larger than " + (Deck.mbText((Deck.maxImage(host)))) + " with the pictures it links to put into it.")
         }
         im.handle = (host_keep_text host out)
         im.size = (strlen out)
@@ -591,7 +599,7 @@ class Deck {
                         res.err = ("Image " + name + ": only public https URLs are fetched.")
                         return res
                     }
-                    def got:MfJ (J.parse((host_image_url host url ((Deck.MAX_IMAGE()) + 1))))
+                    def got:MfJ (J.parse((host_image_url host url ((Deck.maxImage(host)) + 1))))
                     def status:int (got.int_("status" 0))
                     if (status == 0) {
                         res.err = ("Image " + name + ": " + hostname + " could not be fetched.")
@@ -607,8 +615,8 @@ class Deck {
                         res.err = ("Image " + name + ": the URL gave " + ct + ", not a picture.")
                         return res
                     }
-                    if ((got.int_("length" 0)) > (Deck.MAX_IMAGE())) {
-                        res.err = ("Image " + name + " is larger than 5 MB.")
+                    if ((got.int_("length" 0)) > (Deck.maxImage(host))) {
+                        res.err = ("Image " + name + " is larger than " + (Deck.mbText((Deck.maxImage(host)))) + ".")
                         return res
                     }
                     handle = (got.int_("handle" 0))
@@ -639,7 +647,7 @@ class Deck {
                             res.err = ("Image " + name + ": the name and " + path + " are different kinds of picture.")
                             return res
                         }
-                        def got3:MfJ (J.parse((host_import_file host path ((Deck.MAX_IMAGE()) + 1))))
+                        def got3:MfJ (J.parse((host_import_file host path ((Deck.maxImage(host)) + 1))))
                         def why:string (got3.str_("error"))
                         if ((strlen why) > 0) {
                             res.err = ("Image " + name + ": " + path + " was not read (" + why + "). Import folders: " + dirs + ".")
@@ -659,8 +667,8 @@ class Deck {
                 res.err = ("Image " + name + " is empty.")
                 return res
             }
-            if (size > (Deck.MAX_IMAGE())) {
-                res.err = ("Image " + name + " is larger than 5 MB.")
+            if (size > (Deck.maxImage(host))) {
+                res.err = ("Image " + name + " is larger than " + (Deck.mbText((Deck.maxImage(host)))) + ".")
                 return res
             }
             if ((strlen sum) > 0) {

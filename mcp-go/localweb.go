@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -215,7 +216,12 @@ func (k *keyedLocks) lock(id string) func() {
 	}
 }
 
+// a room's or deck's file at most, unless the server sets MaxFile
 const maxUpload = 20 << 20
+
+// a JSON request body at most (decks' text and settings; files come as
+// their own bytes)
+const maxJSON = 20 << 20
 const logMax = 300
 
 func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
@@ -364,7 +370,7 @@ func (s *localServer) getShare(ctx context.Context, id string) (any, error) {
 
 func readBody(r *http.Request) (map[string]any, error) {
 	var body map[string]any
-	dec := json.NewDecoder(io.LimitReader(r.Body, maxUpload))
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxJSON))
 	dec.UseNumber()
 	if err := dec.Decode(&body); err != nil || body == nil {
 		return nil, fail(400, "", "a JSON object is expected")
@@ -608,12 +614,13 @@ func (s *localServer) fileAPI(r *http.Request, name string) (any, error) {
 	}
 	switch r.Method {
 	case http.MethodPut:
-		data, err := io.ReadAll(io.LimitReader(r.Body, maxUpload+1))
+		most := s.env.fileLimit(maxUpload)
+		data, err := io.ReadAll(io.LimitReader(r.Body, int64(most)+1))
 		if err != nil {
 			return nil, err
 		}
-		if len(data) > maxUpload {
-			return nil, fail(413, "", "a file is at most 20 MB")
+		if len(data) > most {
+			return nil, fail(413, "", fileTooLarge(most))
 		}
 		ct := r.Header.Get("Content-Type")
 		if ct == "" {
@@ -635,6 +642,11 @@ func (s *localServer) fileAPI(r *http.Request, name string) (any, error) {
 	return nil, fail(405, "", "method not allowed")
 }
 
+// the words for a file over most bytes
+func fileTooLarge(most int) string {
+	return fmt.Sprintf("a file is at most %d MB", most>>20)
+}
+
 // A file's version: the first 16 bytes of its SHA-256, as hex.
 func fileSha(data []byte) string {
 	sum := sha256.Sum256(data)
@@ -652,12 +664,13 @@ func (s *localServer) roomFileAPI(r *http.Request, rest string) (any, error) {
 	if !ok || name == "" {
 		return nil, fail(400, "", "bad file path")
 	}
-	data, err := io.ReadAll(io.LimitReader(r.Body, maxUpload+1))
+	most := s.env.fileLimit(maxUpload)
+	data, err := io.ReadAll(io.LimitReader(r.Body, int64(most)+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > maxUpload {
-		return nil, fail(413, "", "a file is at most 20 MB")
+	if len(data) > most {
+		return nil, fail(413, "", fileTooLarge(most))
 	}
 	out, err := s.env.rooms.putFile(r.Context(), s.env.LocalUser, room, name, r.Header.Get("Content-Type"), data, r.URL.Query().Get("unique") == "1")
 	var re roomErr

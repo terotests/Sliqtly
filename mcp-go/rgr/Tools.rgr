@@ -166,7 +166,7 @@ class Tools {
         p.put("visibility" vis)
         def ip:MfJ (MfJ.newObj())
         ip.put("name" (Tools.prop("string" "File name the Markdown uses as media/<name>, e.g. \"team.jpg\" → ![](media/team.jpg)")))
-        ip.put("url" (Tools.prop("string" "A public https URL of the picture: the server fetches its bytes (up to 5 MB, a picture type checked). The way for a photo or any large picture: no base64 to copy, nothing to corrupt.")))
+        ip.put("url" (Tools.prop("string" ("A public https URL of the picture: the server fetches its bytes (up to " + (Deck.mbText((Deck.maxImage(host)))) + ", a picture type checked). The way for a photo or any large picture: no base64 to copy, nothing to corrupt."))))
         ip.put("data_base64" (Tools.prop("string" "The picture's bytes as base64 (instead of url). Fine for a small picture; long base64 is easily corrupted when copied, so for a large one give url, or send sha256 with it.")))
         ip.put("sha256" (Tools.prop("string" "Optional: the SHA-256 of the picture's bytes (64 hex digits, e.g. from sha256sum). The server compares it with the bytes it got and refuses the picture when they differ, so a picture corrupted on the way is caught instead of stored.")))
         ip.put("text" (Tools.prop("string" "An SVG's source as it is (instead of url or data_base64): readable and fixable, no base64. Name it .svg.")))
@@ -195,7 +195,7 @@ class Tools {
         fitem.putStr("type" "object")
         fitem.put("properties" fp)
         fitem.put("required" (J.strs(([] _:string ("name")))))
-        def files:MfJ (Tools.prop("array" "Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (10 MB each); needs sign-in. A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book). A program for an app block (.tsx with its .tsx.css, as text) is kept under apps/; see sliqtly_guide topic=apps. Source files for the source viewer (code review decks) are kept under code/, as text, at most 60 a call; see sliqtly_guide topic=text."))
+        def files:MfJ (Tools.prop("array" ("Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (" + (Deck.mbText((Files.maxData(host)))) + " each); needs sign-in. A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book). A program for an app block (.tsx with its .tsx.css, as text) is kept under apps/; see sliqtly_guide topic=apps. Source files for the source viewer (code review decks) are kept under code/, as text, at most 60 a call; see sliqtly_guide topic=text.")))
         files.put("items" fitem)
         p.put("files" files)
     }
@@ -3063,8 +3063,8 @@ class Tools {
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "write_workbook" (host_error host)))
         }
-        if ((made.int_("size" 0)) > (Files.MAX_DATA())) {
-            return (Tools.fail("The workbook would be larger than 10 MB."))
+        if ((made.int_("size" 0)) > (Files.maxData(host))) {
+            return (Tools.fail(("The workbook would be larger than " + (Deck.mbText((Files.maxData(host)))) + ".")))
         }
         def id:string (a.str_("deck_id"))
         def ed:Editable (Tools.editable(host caller id))
