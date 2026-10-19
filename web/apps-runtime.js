@@ -14,7 +14,7 @@
 //     setMode(m) goToLine(n) scroll(rows) setZoom(level) showTab(n)
 //     nextChange() prevChange(); isOpen path tab tabs mode zoom line        allow: code
 //   <SliqRod from to radius length />  a rod between two points in a <scene3d>    allow: 3d
-//   <SliqGltf src="data/x.gltf" />  a .gltf of the deck in a <scene3d>              allow: 3d
+//   <SliqGltf src="data/x.glb" />   a .gltf/.glb of the deck in a <scene3d>           allow: 3d
 //   import * as THREE from "ranger:three"  Ranger v2's 3-D façade (init, tick)     allow: 3d
 //   sound.play("shot") tone({wave, freq, to, dur, vol}) noise({dur, from, to})
 //     stop()   synthesized on the page, web/sound.js                       allow: sound
@@ -345,7 +345,7 @@ var __three = (function () {
   Group.prototype.add = function (o) { adopt(this, o); };
   Group.prototype.element = function () { return el("group", placed(this, {}), kidsOf(this)); };
 
-  // a .gltf of the deck (<SliqGltf src>); "pkg://" names the deck's own file
+  // a .gltf or .glb of the deck (<SliqGltf src>); "pkg://" names the deck's own file
   function GLTFModel(uri) { body(this); this.src = String(uri || "").replace(/^pkg:\/\//, "").replace(/^\.?\/+/, ""); }
   transformable(GLTFModel);
   GLTFModel.prototype.element = function () { return el("sliqGltf", placed(this, { src: this.src }), kidsOf(this)); };

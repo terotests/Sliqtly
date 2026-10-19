@@ -56,6 +56,30 @@ const worldDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-a
 const GLTF_ID = "GltfFixture1";
 const gltfDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-gltf.json"));
 const gltfFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-gltf.gltf"));
+// the same model as a .glb (<SliqGltf src="data/m.glb">): its JSON chunk and
+// the data: URI's bytes as the BIN chunk
+const GLB_ID = "GlbFixture1";
+const glbDeck = Buffer.from(String(gltfDeck).replaceAll("data/m.gltf", "data/m.glb").replace('"model/gltf+json"', '"model/gltf-binary"').replace("/fixture/view-gltf.gltf", "/fixture/view-gltf.glb"));
+const glbFile = glbOf(JSON.parse(String(gltfFile)));
+function glbOf(gltf) {
+  const uri = gltf.buffers[0].uri;
+  const bin = Buffer.from(uri.slice(uri.indexOf(",") + 1), "base64");
+  delete gltf.buffers[0].uri;
+  const pad = (b, fill) => Buffer.concat([b, Buffer.alloc((4 - (b.length % 4)) % 4, fill)]);
+  const json = pad(Buffer.from(JSON.stringify(gltf)), 0x20);
+  const data = pad(bin, 0);
+  const head = Buffer.alloc(12);
+  head.writeUInt32LE(0x46546c67, 0);
+  head.writeUInt32LE(2, 4);
+  head.writeUInt32LE(12 + 8 + json.length + 8 + data.length, 8);
+  const chunk = (b, kind) => {
+    const h = Buffer.alloc(8);
+    h.writeUInt32LE(b.length, 0);
+    h.writeUInt32LE(kind, 4);
+    return Buffer.concat([h, b]);
+  };
+  return Buffer.concat([head, chunk(json, 0x4e4f534a), chunk(data, 0x004e4942)]);
+}
 // a file written for Ranger v2's 3-D façade, as Ranger has it
 // (courtyard_live.tsx; mcp-go/render3d_test.go TestRangerThreeFileRunsAsItIs)
 const THREE_ID = "ThreeFixture1";
@@ -111,6 +135,11 @@ const server = http.createServer((req, res) => {
     }
     return;
   }
+  if (rel === "/fixture/view-gltf.glb") {
+    res.writeHead(200, { "content-type": "model/gltf-binary", "access-control-allow-origin": "*" });
+    res.end(glbFile);
+    return;
+  }
   if (rel === "/fixture/view-gltf.gltf") {
     res.writeHead(200, { "content-type": "model/gltf+json", "access-control-allow-origin": "*" });
     res.end(gltfFile);
@@ -145,7 +174,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (rel.startsWith("/api/view/")) {
-    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck, [SCRIPT_ID]: scriptDeck, [GLTF_ID]: gltfDeck, [THREE_ID]: threeDeck, [NOSEL_ID]: noSelDeck, [LINKS_ID]: linksDeck, [OTHER_ID]: deck };
+    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck, [SCRIPT_ID]: scriptDeck, [GLTF_ID]: gltfDeck, [GLB_ID]: glbDeck, [THREE_ID]: threeDeck, [NOSEL_ID]: noSelDeck, [LINKS_ID]: linksDeck, [OTHER_ID]: deck };
     const found = answers[rel.slice("/api/view/".length)];
     res.writeHead(found ? 200 : 404, { "content-type": "application/json", "access-control-allow-origin": "*" });
     res.end(found || '{"error":"This shared presentation was not found."}');
@@ -619,6 +648,14 @@ try {
   if (modelAt < 100) fail(`the world's .gltf model was not drawn (${modelAt} orange pixels)`);
   await page.close();
 
+  // and from the same model as a .glb
+  page = await open("/s/" + GLB_ID);
+  await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+  let glbAt = 0;
+  for (let i = 0; i < 40 && (glbAt = await orange(page)) < 100; i++) await page.waitForTimeout(250);
+  if (glbAt < 100) fail(`the world's .glb model was not drawn (${glbAt} orange pixels)`);
+  await page.close();
+
   // courtyard_live.tsx (import * as THREE from "ranger:three") as it is:
   // its coloured boxes on the slide
   page = await open("/s/" + THREE_ID);
@@ -859,4 +896,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf, from a ranger:three file and in the assistant's preview), the light player (/r/) played, a video there, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
+log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf and a .glb, from a ranger:three file and in the assistant's preview), the light player (/r/) played, a video there, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);

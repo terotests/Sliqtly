@@ -14,7 +14,8 @@
 //                          then copied into that world's own picture
 //   Pres3D.missing/setFile the deck's .gltf files a <SliqGltf src> names,
 //                          read with readFile and handed over once (again
-//                          when the deck's copy changes)
+//                          when the deck's copy changes); setGlb a .glb's
+//                          bytes
 //
 // One GL canvas serves every world (Ranger's GL layer keeps one context);
 // each world has a 2-D canvas of its own that the slide's painter shows,
@@ -93,8 +94,8 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
   let roomKey = "";
   const own = new Map(); // src -> 2-D canvas
   const said = new Map(); // src -> the warnings last told the console
-  const given = new Map(); // .gltf path -> the Blob or text handed over
-  const reading = new Set(); // .gltf paths being read
+  const given = new Map(); // .gltf/.glb path -> the Blob or text handed over
+  const reading = new Set(); // .gltf/.glb paths being read
   let filesRev = null;
   let deckGen = 0;
   // the 3-D flight (web/flight3d.js) has the GL canvas: the worlds wait
@@ -151,10 +152,17 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     Promise.resolve(readFile(path)).then(async (got) => {
       if (gen !== deckGen || !p3) return;
       if (given.has(path) && given.get(path) === got) return;
-      const text = got == null ? "" : typeof got === "string" ? got : await got.text();
-      if (gen !== deckGen) return;
-      given.set(path, got);
-      p3.setFile(path, text);
+      if (/\.glb$/i.test(path)) {
+        const bytes = got == null ? new ArrayBuffer(0) : typeof got === "string" ? new TextEncoder().encode(got).buffer : await got.arrayBuffer();
+        if (gen !== deckGen) return;
+        given.set(path, got);
+        p3.setGlb(path, asRangerBuffer(bytes));
+      } else {
+        const text = got == null ? "" : typeof got === "string" ? got : await got.text();
+        if (gen !== deckGen) return;
+        given.set(path, got);
+        p3.setFile(path, text);
+      }
       lastJson = "";
       repaint();
     }).catch((e) => console.warn("scene3d: " + path, e)).finally(() => reading.delete(path));

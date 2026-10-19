@@ -1217,9 +1217,10 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     move their children in their own frame: an arm is groups inside groups.
     `<SliqRod from to radius length color />` is a rod between two points
     or two named objects wherever they have moved (a hydraulic cylinder).
-    `<SliqGltf src="data/robot.gltf" />` puts a glTF 2.0 model of the deck
-    (a `.gltf` sent with `files`, its data embedded as data: URIs; not
-    `.glb`) in the world: its meshes, colours, lights and their places.
+    `<SliqGltf src="data/robot.glb" />` puts a glTF 2.0 model of the deck
+    in the world: a `.glb` sent with `files` as `data_base64`, `url` or
+    `path`, or a `.gltf` with its data embedded as data: URIs (a `.bin`
+    beside it is not read). Its meshes, colours, lights and their places.
     A child with the `name` of one of its objects changes that object
     (`<mesh name="arm" rotation={[0, a, 0]} />`, or a new material inside);
     other children are added to it. Textures are not drawn yet.

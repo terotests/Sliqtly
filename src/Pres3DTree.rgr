@@ -157,11 +157,137 @@ class P3Tris {
     def error:string ""
 }
 
-; The deck's .gltf files a <SliqGltf src> may name, kept by the host across
-; frames: each file parsed once, each primitive's triangles decoded once.
+; A .glb (glTF 2.0 binary) split into its two chunks: a 12-byte header
+; ("glTF", version 2, length), then chunks of length + type + data, the
+; first JSON (its text in UTF-8), the next, when there is one, BIN.
+class P3Glb {
+    def json:string ""
+    def bin:[int]
+    ; why the bytes are not a .glb, "" when they are
+    def error:string ""
+
+    Constructor () {
+    }
+
+    sfn u32:int (b:[int] off:int) {
+        return ((((itemAt b off) + ((itemAt b (off + 1)) * 256)) + ((itemAt b (off + 2)) * 65536)) + ((itemAt b (off + 3)) * 16777216))
+    }
+
+    sfn read:P3Glb (b:[int]) {
+        def g:P3Glb (new P3Glb())
+        def n:int (array_length b)
+        if (n < 20) {
+            g.error = "too short for a .glb"
+            return g
+        }
+        ; "glTF" little-endian
+        if ((P3Glb.u32(b 0)) != 1179937895) {
+            g.error = "no glTF header"
+            return g
+        }
+        if ((P3Glb.u32(b 4)) != 2) {
+            g.error = ("glTF binary version " + (to_string (P3Glb.u32(b 4))) + ", 2 is read")
+            return g
+        }
+        def at:int 12
+        def chunk:int 0
+        while ((at + 8) <= n) {
+            def len:int (P3Glb.u32(b at))
+            def kind:int (P3Glb.u32(b (at + 4)))
+            def start:int (at + 8)
+            if ((start + len) > n) {
+                g.error = "a chunk reaches past the end of the file"
+                return g
+            }
+            if (chunk == 0) {
+                ; "JSON"
+                if (kind != 1313821514) {
+                    g.error = "the first chunk is not JSON"
+                    return g
+                }
+                g.json = (P3Glb.utf8(b start (start + len)))
+            }
+            ; "BIN\0", only the first one is the file's buffer
+            if ((chunk == 1) && (kind == 5130562)) {
+                def bin:[int]
+                def i:int start
+                while (i < (start + len)) {
+                    push bin (itemAt b i)
+                    i = (i + 1)
+                }
+                g.bin = bin
+            }
+            chunk = (chunk + 1)
+            at = (start + len)
+        }
+        if (chunk == 0) {
+            g.error = "no JSON chunk"
+        }
+        return g
+    }
+
+    ; UTF-8 bytes [from, to) as text; the JSON chunk ends in spaces (padding)
+    sfn utf8:string (b:[int] from:int to:int) {
+        def parts:[string]
+        def i:int from
+        while (i < to) {
+            def c:int (itemAt b i)
+            def cp:int c
+            def more:int 0
+            if (c >= 240) {
+                cp = (c % 8)
+                more = 3
+            } {
+                if (c >= 224) {
+                    cp = (c % 16)
+                    more = 2
+                } {
+                    if (c >= 192) {
+                        cp = (c % 32)
+                        more = 1
+                    }
+                }
+            }
+            i = (i + 1)
+            while ((more > 0) && (i < to)) {
+                cp = ((cp * 64) + ((itemAt b i) % 64))
+                i = (i + 1)
+                more = (more - 1)
+            }
+            if (cp < 128) {
+                push parts (strfromcode cp)
+            } {
+                push parts (EVGCodepoint.toStr(cp))
+            }
+        }
+        return (join parts "")
+    }
+
+    sfn same:boolean (a:[int] b:[int]) {
+        if ((array_length a) != (array_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length a)) {
+            if ((itemAt a i) != (itemAt b i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+}
+
+; The deck's glTF files a <SliqGltf src> may name, kept by the host across
+; frames: each file parsed once, each primitive's triangles decoded once. A
+; .gltf comes as its text (setFile); a .glb as its bytes (setGlb), kept as
+; its JSON chunk's text and its BIN chunk, which is the file's buffer 0.
 class P3Files {
     def names:[string]
     def texts:[string]
+    ; the .glb files' BIN chunks
+    def binNames:[string]
+    def bins:[[int]]
     def docNames:[string]
     def docs:[JVal]
     ; files given whose text is not glTF 2.0 JSON
@@ -177,6 +303,49 @@ class P3Files {
     ; A file of the deck (its name as `src` names it, its text); a new text
     ; for a name forgets what was read of the old one.
     fn setFile:void (name:string text:string) {
+        def bi:int (indexOf binNames name)
+        if (bi >= 0) {
+            remove_index binNames bi
+            remove_index bins bi
+            this.forget(name)
+        }
+        this.keepText(name text)
+    }
+
+    ; A .glb of the deck as its bytes (empty when the deck has no such file).
+    ; Bytes that are not a glTF 2.0 binary keep a text that is not glTF, so
+    ; the world says so.
+    fn setGlb:void (name:string data:buffer) {
+        def n:int (buffer_length data)
+        def bytes:[int]
+        def i:int 0
+        while (i < n) {
+            push bytes (buffer_get data i)
+            i = (i + 1)
+        }
+        def g:P3Glb (P3Glb.read(bytes))
+        def text:string g.json
+        if ((strlen g.error) > 0) {
+            text = "{}"
+        }
+        if (n == 0) {
+            text = ""
+        }
+        def bi:int (indexOf binNames name)
+        if (bi >= 0) {
+            if (((itemAt texts (indexOf names name)) == text) && (P3Glb.same((itemAt bins bi) g.bin))) {
+                return
+            }
+            set bins bi g.bin
+        } {
+            push binNames name
+            push bins g.bin
+        }
+        this.forget(name)
+        this.keepText(name text)
+    }
+
+    fn keepText:void (name:string text:string) {
         def at:int (indexOf names name)
         if (at >= 0) {
             if ((itemAt texts at) == text) {
@@ -503,8 +672,9 @@ class P3Files {
         return p
     }
 
-    ; The bytes of buffer `bi`: a data: URI (base64) in the file. A .bin
-    ; beside it or a .glb is not read.
+    ; The bytes of buffer `bi`: a data: URI (base64) in the file, or a .glb's
+    ; BIN chunk (its buffer 0, which names no uri). A .bin beside the file is
+    ; not read.
     fn bufferOf:[int] (src:string d:JVal bi:int t:P3Tris) {
         def key:string (src + "#buffer" + (to_string bi))
         def at:int (indexOf bufKeys key)
@@ -518,9 +688,18 @@ class P3Files {
             return out
         }
         def uri:string ((list.at(bi)).strOr("uri" ""))
+        def glb:int (indexOf binNames src)
+        if (((glb >= 0) && (bi == 0)) && ((strlen uri) == 0)) {
+            def bin:[int] (itemAt bins glb)
+            if ((array_length bin) < ((list.at(0)).intOr("byteLength" 0))) {
+                t.error = ("the BIN chunk of " + src + " is shorter than its buffer")
+                return out
+            }
+            return bin
+        }
         def comma:int (indexOf uri ",")
         if (((indexOf uri "data:") != 0) || ((comma < 0) || ((indexOf uri ";base64,") < 0))) {
-            t.error = ("the data of " + src + " is not in the file (a data: URI); save it as .gltf with embedded data")
+            t.error = ("the data of " + src + " is not in the file (a data: URI); save it as .glb, or as .gltf with embedded data")
             return out
         }
         out = (P3Files.unbase64((substring uri (comma + 1) (strlen uri))))
@@ -927,7 +1106,7 @@ class Pres3DTree {
         }
         def doc:JVal (files.doc(src))
         if ((indexOf files.bad src) >= 0) {
-            this.warn((where + ": " + src + " is not a glTF 2.0 .gltf (JSON) file"))
+            this.warn((where + ": " + src + " is not a glTF 2.0 file (.gltf JSON or .glb)"))
         }
         return doc
     }

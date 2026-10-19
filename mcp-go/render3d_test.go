@@ -4,10 +4,13 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"image"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -224,6 +227,25 @@ func TestSliqGltfReadsTheDecksModel(t *testing.T) {
 	if n := count(r, orange); n < 2000 {
 		t.Fatalf("want the model's orange box drawn, got %d orange points", n)
 	}
+	// the same model as a .glb, sent as bytes
+	glb := call(t, s, "create_presentation", map[string]any{"title": "G", "markdown": md,
+		"files": []any{
+			map[string]any{"name": "w.tsx", "text": world("<SliqGltf src=\"data/m.glb\" />")},
+			map[string]any{"name": "m.glb", "data_base64": base64.StdEncoding.EncodeToString(glbOf(t, model))},
+		}})
+	if glb.IsError {
+		t.Fatal(textOf(glb))
+	}
+	rg := call(t, s, "render_slide", map[string]any{"deck_id": sc(glb)["deck_id"], "slide": 2})
+	if rg.IsError {
+		t.Fatal(lastText(rg))
+	}
+	if n := count(rg, orange); n < 2000 {
+		t.Fatalf("want the .glb model's orange box drawn, got %d orange points", n)
+	}
+	asText := call(t, s, "create_presentation", map[string]any{"title": "T", "markdown": md,
+		"files": []any{map[string]any{"name": "m.glb", "text": "glTF"}}})
+	match(t, textOf(asText), `a \.glb is sent as data_base64`)
 	// the viewer's fixture (scripts/check-view.mjs): this deck, its model
 	// served beside it
 	if os.Getenv("SLIQTLY_WRITE_FIXTURES") != "" {
@@ -381,4 +403,37 @@ func TestExportCarriesTheWorld(t *testing.T) {
 	if !bytes.Contains(pptx, []byte("ppt/media/")) {
 		t.Fatal("the PPTX has no picture of the world")
 	}
+}
+
+// A .gltf with its buffer in a data: URI as a .glb: the JSON chunk without
+// the URI, the bytes as the BIN chunk.
+func glbOf(t *testing.T, gltf string) []byte {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(gltf), &doc); err != nil {
+		t.Fatal(err)
+	}
+	buf := doc["buffers"].([]any)[0].(map[string]any)
+	uri := buf["uri"].(string)
+	bin, err := base64.StdEncoding.DecodeString(uri[strings.Index(uri, ",")+1:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	delete(buf, "uri")
+	js, _ := json.Marshal(doc)
+	for len(js)%4 != 0 {
+		js = append(js, ' ')
+	}
+	for len(bin)%4 != 0 {
+		bin = append(bin, 0)
+	}
+	out := binary.LittleEndian.AppendUint32(nil, 0x46546c67)
+	out = binary.LittleEndian.AppendUint32(out, 2)
+	out = binary.LittleEndian.AppendUint32(out, uint32(12+8+len(js)+8+len(bin)))
+	out = binary.LittleEndian.AppendUint32(out, uint32(len(js)))
+	out = binary.LittleEndian.AppendUint32(out, 0x4e4f534a)
+	out = append(out, js...)
+	out = binary.LittleEndian.AppendUint32(out, uint32(len(bin)))
+	out = binary.LittleEndian.AppendUint32(out, 0x004e4942)
+	return append(out, bin...)
 }

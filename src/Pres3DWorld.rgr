@@ -423,6 +423,11 @@ class Pres3DWorld {
         files.setFile(name text)
     }
 
+    ; A .glb of the deck a <SliqGltf src> may name, as its bytes.
+    fn setGlb:void (name:string data:buffer) {
+        files.setGlb(name data)
+    }
+
     ; The files the last frame's <SliqGltf> asked for and did not have.
     fn missing:[string] () {
         return tree.missing

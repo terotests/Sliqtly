@@ -15,7 +15,7 @@
 ;     "effects": [ <FxLang.json: the deck's own effects> ] }
 ;
 ; `files` are the deck's stored files a list draws (pictures, by the
-; "/media/<name>" a command's src names) and the .gltf models a program
+; "/media/<name>" a command's src names) and the .gltf/.glb models a program
 ; names (<SliqGltf src>, web/three3d.js). `slides`: a view of only those
 ; sections (PresPick keys, the link the editor's picked slides share).
 ; =============================================================================
@@ -140,7 +140,7 @@ class View {
         def all:string (join lists ",")
         def scripts:string (View.scripts(host din d))
         def plays:MfJ (View.plays(host din d))
-        ; the programs' text: a .gltf one names (<SliqGltf src>) goes along
+        ; the programs' text: a .gltf or .glb one names (<SliqGltf src>) goes along
         def progs:string ""
         for plays.arr pj:MfJ pji {
             progs = (progs + (pj.str_("text")))
@@ -153,10 +153,10 @@ class View {
             if (((strlen path) == 0) || ((strlen url) == 0)) {
                 continue
             }
-            ; drawn at rest, a .gltf a program names, or a picture a slide's
+            ; drawn at rest, a .gltf/.glb a program names, or a picture a slide's
             ; script names (add("image", …))
             def drawn:boolean ((indexOf all ("\"/" + path + "\"")) >= 0)
-            def model:boolean ((endsWith (to_lowercase path) ".gltf") && ((indexOf progs path) >= 0))
+            def model:boolean (((endsWith (to_lowercase path) ".gltf") || (endsWith (to_lowercase path) ".glb")) && ((indexOf progs path) >= 0))
             def scripted:boolean ((indexOf scripts path) >= 0)
             if (((drawn == false) && (model == false)) && (scripted == false)) {
                 continue

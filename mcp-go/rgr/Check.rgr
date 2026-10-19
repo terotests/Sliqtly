@@ -712,13 +712,40 @@ class Check {
         return out
     }
 
-    ; The deck's .gltf files a world's <SliqGltf src> names, given to it
-    ; ("" for one the deck does not have, which the world then says).
+    ; The deck's glTF files a world's <SliqGltf src> names, given to it
+    ; ("" for one the deck does not have, which the world then says); a .glb
+    ; as its bytes.
     sfn sceneFiles:void (host:McpHost din:DeckIn json:string files:P3Files) {
         def t:Pres3DTree (Pres3DTree.readWith(json files))
         for t.missing name:string ni {
-            files.setFile(name (Check.dataText(host din name)))
+            if (endsWith (to_lowercase name) ".glb") {
+                files.setGlb(name (Check.dataBytes(host din name)))
+            } {
+                files.setFile(name (Check.dataText(host din name)))
+            }
         }
+    }
+
+    ; A file of the deck as its bytes (a world's .glb), empty when it has none.
+    sfn dataBytes:buffer (host:McpHost din:DeckIn path:string) {
+        def u:string path
+        while (startsWith u "/") {
+            u = (substring u 1 (strlen u))
+        }
+        for din.files f:Img fi {
+            if (f.path == u) {
+                return (host_image_bytes host f.handle)
+            }
+        }
+        if (((strlen din.deckId) > 0) && ((indexOf din.stored u) >= 0)) {
+            def got:MfJ (J.parse((host_file_bytes host din.deckId u)))
+            if ((strlen (host_error host)) > 0) {
+                host_clear_error host
+                return (buffer_alloc 0)
+            }
+            return (host_image_bytes host (got.int_("handle" 0)))
+        }
+        return (buffer_alloc 0)
     }
 
     sfn run:Checked (host:McpHost din:DeckIn) {
