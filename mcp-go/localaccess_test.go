@@ -215,6 +215,14 @@ func TestLocalAccess(t *testing.T) {
 	res, _ = send(t, browser, "GET", srv.URL+"/api/shares/"+id, map[string]string{"Origin": "https://evil.example"}, "")
 	eq(t, res.Header.Get("Access-Control-Allow-Origin"), "")
 
+	// the page that asks for the token lets its form say its origin: a
+	// browser posts with Origin: null under no-referrer
+	res, _ = send(t, nil, "GET", srv.URL+"/decks", map[string]string{"Accept": "text/html"}, "")
+	eq(t, res.StatusCode, 401)
+	eq(t, res.Header.Get("Referrer-Policy"), "same-origin")
+	res, _ = send(t, nil, "POST", srv.URL+"/access", map[string]string{"Content-Type": "application/x-www-form-urlencoded", "Origin": "null"}, "token="+url.QueryEscape(token))
+	eq(t, res.StatusCode, 403)
+
 	// the page's form: a wrong token is refused, the right one hands the cookie
 	form := map[string]string{"Content-Type": "application/x-www-form-urlencoded", "Origin": srv.URL}
 	res, body = send(t, nil, "POST", srv.URL+"/access", form, "token=nope&next=%2Fdecks")
