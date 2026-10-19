@@ -17,6 +17,9 @@
 ; Markdown engine spaces them. A SHOT is as wide a share of the column as
 ; its block was of its slide (as in the Word and HTML exports) and as tall
 ; as that width makes it. NOTES are the speaker's notes under their slide.
+; A shot the layout set text beside (a chart given `{width=62%}` with a
+; list after it) is put in its slot, and that text beside it, at the same
+; height from its top as in the layout: the page reads as the slide does.
 ; A new slide starts after a fixed gap, where the page draws a rule.
 ; ============================================================================
 
@@ -35,6 +38,12 @@ class PresDocItem {
     ; a SHOT: its rectangle's size on the slide. NOTES: their height
     def sw:double 0.0
     def sh:double 0.0
+    ; a SHOT: its slot's left edge and width in the continuous layout (lw 0:
+    ; none). Text the layout set beside the slot (MdLayout's float, a block
+    ; given `{width=…}`) keeps its place there, so the shot takes the slot
+    ; and not the middle of the column.
+    def lx:double 0.0
+    def lw:double 0.0
     ; --- placed ---
     def x:double 0.0
     def y:double 0.0
@@ -114,11 +123,34 @@ class PresDocFlow {
         def cursor:double margin
         def prevBottom:double -1.0
         def prevPage:int -1
+        ; a shot with text beside it: its top in the layout and on the page,
+        ; and its bottom in the layout (floatOn while text still goes beside)
+        def floatOn:boolean false
+        def floatTop:double 0.0
+        def floatY:double 0.0
+        def floatBottom:double 0.0
         def i:int 0
         while (i < (array_length items)) {
             def it:PresDocItem (itemAt items i)
             def newSlide:boolean (it.page != prevPage)
             def gap:double 0.0
+            def beside:boolean false
+            if floatOn {
+                beside = (this.besideFloat(it prevPage floatBottom))
+                floatOn = beside
+            }
+            if beside {
+                it.x = (this.colX())
+                it.w = cw
+                it.y = (floatY + (it.top - floatTop))
+                it.h = (it.bottom - it.top)
+                it.dy = (it.y - it.top)
+                it.scale = 1.0
+                cursor = (PresDocFlow.maxD(cursor (it.bottomEdge())))
+                prevBottom = (PresDocFlow.maxD(prevBottom it.bottom))
+                i = (i + 1)
+                continue
+            }
             if (newSlide && (prevPage >= 0)) {
                 push ruleY (cursor + (slideGap * 0.5))
                 push rulePage it.page
@@ -155,12 +187,24 @@ class PresDocFlow {
                 if (it.sw > 0.0) {
                     it.scale = (it.w / it.sw)
                 }
-                it.h = (it.sh * it.scale)
                 it.x = ((this.colX()) + ((cw - it.w) * 0.5))
+                def next:int (i + 1)
+                if (((it.lw > 0.0) && (it.sw > 0.0)) && (next < (array_length items))) {
+                    if (this.besideFloat((itemAt items next) it.page it.bottom)) {
+                        it.w = (PresDocFlow.clampD(it.lw (cw * 0.25) cw))
+                        it.x = (PresDocFlow.clampD(it.lx (this.colX()) ((this.colX()) + (cw - it.w))))
+                        it.scale = (it.w / it.sw)
+                        floatOn = true
+                    }
+                }
+                it.h = (it.sh * it.scale)
                 if ((gap < shotGap) && (newSlide == false)) {
                     gap = shotGap
                 }
                 it.y = (cursor + gap)
+                floatTop = it.top
+                floatY = it.y
+                floatBottom = it.bottom
             }
             if (it.kind == 2) {
                 it.x = (this.colX())
@@ -181,6 +225,23 @@ class PresDocFlow {
             i = (i + 1)
         }
         height = (cursor + margin)
+    }
+
+    ; Whether text item `it` is beside the shot before it on slide `page`,
+    ; whose slot ends at `bottom` in the layout: the layout started it above
+    ; that bottom, which it does only for text it set beside the slot.
+    fn besideFloat:boolean (it:PresDocItem page:int bottom:double) {
+        if ((it.kind != 0) || (it.page != page)) {
+            return false
+        }
+        return ((it.top >= 0.0) && (it.top < (bottom - 0.5)))
+    }
+
+    sfn maxD:double (a:double b:double) {
+        if (a > b) {
+            return a
+        }
+        return b
     }
 
     ; The item at y on the page: the one it is in, else the nearest one

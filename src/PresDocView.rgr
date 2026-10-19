@@ -242,10 +242,14 @@ class PresDocView {
         def n:int (doc.childCount())
         def tops:[double]
         def bottoms:[double]
+        def lefts:[double]
+        def rights:[double]
         def c:int 0
         while (c < n) {
             push tops -1.0
             push bottoms -1.0
+            push lefts -1.0
+            push rights -1.0
             c = (c + 1)
         }
         def boxChild:[int]
@@ -265,6 +269,12 @@ class PresDocView {
                 }
                 if ((b.y + b.h) > (itemAt bottoms at)) {
                     set bottoms at (b.y + b.h)
+                }
+                if (((itemAt lefts at) < 0.0) || (b.x < (itemAt lefts at))) {
+                    set lefts at b.x
+                }
+                if ((b.x + b.w) > (itemAt rights at)) {
+                    set rights at (b.x + b.w)
                 }
             }
             bi = (bi + 1)
@@ -296,6 +306,10 @@ class PresDocView {
                     it.bottom = (itemAt bottoms c)
                     it.sw = s.w
                     it.sh = s.h
+                    if ((itemAt lefts c) >= 0.0) {
+                        it.lx = (itemAt lefts c)
+                        it.lw = ((itemAt rights c) - (itemAt lefts c))
+                    }
                     it.fx = s.x
                     it.fy = s.y
                     it.fw = s.w

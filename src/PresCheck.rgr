@@ -5383,6 +5383,33 @@ class PresCheck {
         g.place(1)
         this.ok((w.w == (g.colW())) "docflow: a shot at most the column")
         this.ok((t.w == ((g.colW()) * 0.25)) "docflow: …at least a quarter of it")
+        ; text the layout set beside a shot's slot ({width=…}): the shot in
+        ; its slot, the text beside it from its top, what follows under both
+        def h (new PresDocFlow())
+        h.pageW = 960.0
+        def hs:PresDocItem (h.add(1 0 0 1))
+        hs.top = 36.0
+        hs.bottom = 236.0
+        hs.lx = 36.0
+        hs.lw = 400.0
+        hs.sw = 600.0
+        hs.sh = 300.0
+        def h1:PresDocItem (h.add(0 0 1 2))
+        h1.top = 36.0
+        h1.bottom = 100.0
+        def h2:PresDocItem (h.add(0 0 2 3))
+        h2.top = 110.0
+        h2.bottom = 150.0
+        def h3:PresDocItem (h.add(0 0 3 4))
+        h3.top = 250.0
+        h3.bottom = 270.0
+        h.place(1)
+        this.ok((hs.x == 36.0) ("docflow: a shot with text beside it in its slot, got x " + (to_string hs.x)))
+        this.ok((hs.w == 400.0) ("docflow: …as wide as the slot, got " + (to_string hs.w)))
+        this.ok((hs.h == 200.0) ("docflow: …as tall as that makes it, got " + (to_string hs.h)))
+        this.ok((h1.y == hs.y) ("docflow: the text beside starts at the shot's top, got " + (to_string h1.y)))
+        this.ok((h2.y == (hs.y + 74.0)) ("docflow: …the next beside it keeps its gap, got " + (to_string h2.y)))
+        this.ok((h3.y == ((hs.y + hs.h) + 14.0)) ("docflow: the text after it under the shot, got " + (to_string h3.y)))
     }
 
     ; View or Edit (PresEditMode): changes only after Edit, Save back to
@@ -5540,6 +5567,63 @@ class PresCheck {
         this.ok(((array_length (t.matching("zzz"))) == 0) "toc: a search nothing has finds none")
         this.ok((PresToc.finds("Äänet ja Öljy" "ääNET")) "toc: Ä folds to ä")
         this.ok((PresToc.finds("Kapasiteetti" " teet ")) "toc: the search is trimmed")
+    }
+
+    ; A chart given `{width=62%}` with a list after it: the layout sets the
+    ; list beside the chart, so the page draws the chart in that slot at the
+    ; column's start and the list beside it, not squeezed under it.
+    fn docViewFloat:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Bruttosta nettoon\n\n"
+            + "```vega-lite\n{\"data\": {\"values\": [{\"b\": \"6 300\", \"n\": 4025}, {\"b\": \"7 000\", \"n\": 4367}]},"
+            + " \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"b\", \"type\": \"ordinal\"},"
+            + " \"y\": {\"field\": \"n\", \"type\": \"quantitative\"}}}\n```\n{width=62%}\n\n"
+            + "- Rajaveroaste ~51 %\n- Veroaste 36 % → 41 %\n- Lomaraha ~0,5 kk\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        def v (new PresDocView())
+        v.build(deck)
+        def shot:int -1
+        def listAt:int -1
+        def i:int 0
+        while (i < (array_length v.flow.items)) {
+            def it:PresDocItem (itemAt v.flow.items i)
+            if ((it.kind == 1) && (shot < 0)) {
+                shot = i
+            }
+            if (((it.kind == 0) && (shot >= 0)) && (listAt < 0)) {
+                listAt = i
+            }
+            i = (i + 1)
+        }
+        this.ok(((shot >= 0) && (listAt >= 0)) "docview float: a chart shot and the list after it")
+        if ((shot < 0) || (listAt < 0)) {
+            return
+        }
+        def s:PresDocItem (itemAt v.flow.items shot)
+        def li:PresDocItem (itemAt v.flow.items listAt)
+        this.ok((s.x == (v.flow.colX())) ("docview float: the chart at the column's start, got x " + (to_string s.x)))
+        this.ok((s.w < ((v.flow.colW()) * 0.75)) ("docview float: …in its 62 % slot, got w " + (to_string s.w)))
+        this.ok(((li.y >= s.y) && (li.y < (s.bottomEdge()))) ("docview float: the list beside the chart, got y " + (to_string li.y) + " chart " + (to_string s.y) + "…" + (to_string (s.bottomEdge()))))
+        ; the list's first words drawn right of the chart, none over it
+        def over:int 0
+        def right:int 0
+        def k:int 0
+        while (k < (array_length v.list.cmds)) {
+            def cmd:EVGDrawCmd (itemAt v.list.cmds k)
+            def word:boolean ((((indexOf cmd.text "Rajaveroaste") == 0) || ((indexOf cmd.text "Veroaste") == 0)) || ((indexOf cmd.text "Lomaraha") == 0))
+            if ((cmd.kind == 3) && word) {
+                if (cmd.x >= (s.x + s.w)) {
+                    right = (right + 1)
+                } {
+                    if (cmd.x > s.x) {
+                        over = (over + 1)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        this.ok((right > 0) ("docview float: the list's words beside the chart, got " + (to_string right)))
+        this.ok((over == 0) ("docview float: no words over the chart, got " + (to_string over)))
     }
 
     fn docView:void () {
@@ -10459,6 +10543,7 @@ class PresCheck {
         c.docFlow()
         c.docPoints()
         c.docView()
+        c.docViewFloat()
         c.docPages()
         c.docPlays()
         c.toc()
