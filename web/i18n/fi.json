@@ -1990,5 +1990,11 @@
   "Or sign in again.": "Tai kirjaudu uudelleen sisään.",
   "Or delete another presentation to free a place for it.": "Tai poista jokin toinen esitys, jotta sille vapautuu paikka.",
   "This browser does not allow storage, so this presentation is kept only while the page is open.": "Tämä selain ei salli tallennusta, joten esitys säilyy vain niin kauan kuin sivu on auki.",
-  "Or sign in with PRO to keep it in the cloud.": "Tai kirjaudu PRO:hon, niin se säilyy pilvessä."
+  "Or sign in with PRO to keep it in the cloud.": "Tai kirjaudu PRO:hon, niin se säilyy pilvessä.",
+  "Vault": "Vault",
+  "All presentations": "Kaikki esitykset",
+  "Vault: ": "Vault: ",
+  "Put in the vault: ": "Lisätty vaultiin: ",
+  "Taken out of the vault: ": "Poistettu vaultista: ",
+  "Nothing in the vault opens yet: put presentations in it from their menu (Vault ▸).": "Vaultissa ei ole vielä avattavaa: lisää esityksiä niiden valikosta (Vault ▸)."
 }

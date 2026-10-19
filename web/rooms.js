@@ -1,4 +1,5 @@
 import { storyOf, changeStory } from "./stories.js";
+import { vaultOf } from "./vaults.js";
 
 // Rooms in this browser (ADR 0001), for a page with no rooms server: the
 // rooms made here and which room each presentation is in. Everything starts
@@ -25,6 +26,8 @@ import { storyOf, changeStory } from "./stories.js";
 //          pinned: { deckId: true } }  (pinned to the top of its room's
 //          list and Stories, above its folders: a master deck one always
 //          wants first; the account's on sliqtly.com, web/layoutsync.js)
+//          vaults: { vaultId: { title, decks } }  (the decks chosen for one
+//          use, web/vaults.js; a built-in vault only once changed)
 //
 // The order is this browser's view of the rooms, the server's rooms too.
 
@@ -41,7 +44,7 @@ export const ACTIVE_MAX = 8;
 const DAY = 86400000;
 
 export function emptyRooms() {
-  return { rooms: [], placed: {}, touched: {}, order: [], folders: {}, filed: {}, positions: {}, stories: {}, pinned: {} };
+  return { rooms: [], placed: {}, touched: {}, order: [], folders: {}, filed: {}, positions: {}, stories: {}, pinned: {}, vaults: {} };
 }
 
 export const isBuiltIn = (id) => BUILT_IN.includes(id);
@@ -65,7 +68,9 @@ export function parseRooms(text) {
     if (s?.stories && typeof s.stories === "object") for (const [d, st] of Object.entries(s.stories)) stories[d] = storyOf(st);
     const pinned = {};
     if (s?.pinned && typeof s.pinned === "object") for (const [d, on] of Object.entries(s.pinned)) if (on) pinned[d] = true;
-    return { rooms, placed, touched, order, folders, filed, positions, stories, pinned };
+    const vaults = {};
+    if (s?.vaults && typeof s.vaults === "object") for (const [v, kept] of Object.entries(s.vaults)) vaults[v] = vaultOf(kept);
+    return { rooms, placed, touched, order, folders, filed, positions, stories, pinned, vaults };
   } catch (_) {
     return emptyRooms();
   }
@@ -93,6 +98,7 @@ export function factsOf(state) {
   for (const [room, list] of Object.entries(state.positions || {})) if (list.length) out.set("positions/" + room, JSON.stringify(list));
   for (const [deck, st] of Object.entries(state.stories || {})) out.set("story/" + deck, JSON.stringify(storyOf(st)));
   for (const [deck, on] of Object.entries(state.pinned || {})) if (on) out.set("pinned/" + deck, "1");
+  for (const [id, v] of Object.entries(state.vaults || {})) out.set("vault/" + id, JSON.stringify(vaultOf(v)));
   return out;
 }
 
@@ -120,6 +126,7 @@ export function readKept(store, key) {
       else if (kind === "filed" && id) s.filed[id] = v;
       else if (kind === "story" && id) s.stories[id] = storyOf(JSON.parse(v));
       else if (kind === "pinned" && id && v === "1") s.pinned[id] = true;
+      else if (kind === "vault" && id) s.vaults[id] = vaultOf(JSON.parse(v));
       else if (kind === "positions" && id) {
         const o = JSON.parse(v);
         if (Array.isArray(o)) s.positions[id] = o.filter((x) => typeof x === "string");

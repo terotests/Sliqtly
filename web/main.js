@@ -39,6 +39,7 @@ import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } f
 import { publishedRows, publishedListJson, publishedTitle, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
 import { presenceByDeck, presenceSummary, headPresence, cardPresence, whoRows, whoListJson, whoNote, nextWhoSort, samePresence, spanText } from "./presence.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, pressRoom, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor, setPinned, isPinned } from "./rooms.js";
+import { VAULT_KEY, findVault, setInVault, forgetInVaults, vaultHas, vaultRows, vaultSamples, vaultRooms, vaultChoice, vaultLines } from "./vaults.js";
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { listenPresence, presenceAnswer } from "./cloudpresence.js";
@@ -1684,6 +1685,7 @@ async function newDeck(plan) {
   const made = await currentRoomId();
   if (made && !ownServer()) keepRooms((s) => setStory(s, made, { ...NEW_STORY, ...(plan.story || {}) }));
   else if (made && plan.story) await roomsCall("set_story", { deck_id: made.replace(/^cloud:/, ""), ...plan.story }).catch((e) => console.warn("no story type kept", e));
+  await madeInVault();
   // made from a room's "+" (Add new… → Presentation): it goes there
   const room = roomForNew;
   roomForNew = "";
@@ -1709,6 +1711,7 @@ function keepRooms(fn) {
 // the rooms as kept now, drawn again: another tab or the server changed them
 function roomsChanged() {
   try { roomsHere = readKept(mine, ROOMS_KEY); } catch (_) { return; }
+  if (!viewer) showVaults();
   if (!viewer && roomShown) roomsRequest("room:list").catch(() => {});
 }
 window.addEventListener("storage", (e) => {
@@ -1716,6 +1719,103 @@ window.addEventListener("storage", (e) => {
   if (e.key !== null && (k === null || (k !== ROOMS_KEY && !k.startsWith(ROOMS_KEY + "/")))) return;
   roomsChanged();
 });
+// --- vaults (web/vaults.js): the decks chosen for one use, the Demo Vault's
+// for a demo. While one is on, only its decks are listed (the rooms, a
+// room's stories, the presentations window, Recent, the search, Open's
+// samples, the deck tabs). Which one is on is this browser's (VAULT_KEY),
+// or the address's ?vault=<id> (?vault= or ?vault=off: none).
+let vaultOn = "";
+const vaultNow = () => findVault(roomsHere, vaultOn);
+function chooseVault(asked) {
+  let kept = "";
+  try { kept = mine.getItem(VAULT_KEY) || ""; } catch (_) { /* none kept */ }
+  const c = vaultChoice(roomsHere, asked, kept);
+  vaultOn = c.id;
+  if (c.keep !== null) {
+    try {
+      if (c.keep) mine.setItem(VAULT_KEY, c.keep);
+      else mine.removeItem(VAULT_KEY);
+    } catch (_) { /* this page only */ }
+  }
+  showVaults();
+}
+// File → Vault and the decks' Vault ▸ (src/PresToolbar.rgr vaultRows)
+function showVaults() {
+  if (!vaultNow()) vaultOn = "";
+  app.setToolbarOptions("vaults", vaultLines(roomsHere, vaultOn), vaultOn);
+}
+// Is the deck of a tab's key (web/decktabs.js) in the vault on? A deck of
+// this browser kept in the cloud too may be in it by either id.
+async function keyInVault(key) {
+  const v = vaultNow();
+  if (!v || vaultHas(v, key)) return true;
+  const row = (await allDocs()).find((r) => r.id === key || (r.cloud && "cloud:" + r.cloud === key));
+  return !!row && vaultRows([row], v).length > 0;
+}
+// The page as the vault on has it: the tabs of decks outside it closed,
+// and the deck shown one of the vault's (its first that opens) unless it
+// is in the vault already.
+async function settleVault() {
+  const v = vaultNow();
+  if (!v || viewer) return;
+  const keys = String(app.deckTabsState() || "").split("\n").slice(1).map((l) => l.split("\t")[0]).filter(Boolean);
+  for (const k of keys) if (k !== shownKey && !(await keyInVault(k))) app.deckTabClose(k);
+  if (shownKey && (await keyInVault(shownKey))) return;
+  const out = shownKey;
+  if (makingDeck) await makingDeck;
+  const opened = await loadingScreen(async () => {
+    for (const k of v.decks) if (await openDeckKey(k).catch(() => false)) return true;
+    return false;
+  });
+  if (!opened) {
+    toast(t("Nothing in the vault opens yet: put presentations in it from their menu (Vault ▸)."));
+    return;
+  }
+  if (out && out !== shownKey) app.deckTabClose(out);
+  keepTabs();
+  needsPaint = true;
+}
+// The lists drawn again for the vault on (or none).
+function vaultRedraw() {
+  showVaults();
+  if (roomShown) roomsRequest("room:list").catch(() => {});
+  refreshDecks().catch(() => {});
+  refreshRecent().catch(() => {});
+}
+// "vault:use:<id>" (File → Vault; "" every presentation) and
+// "vault:toggle:<vault>:<deck>" (a deck's Vault ▸)
+async function vaultRequest(r) {
+  const [, action, ...rest] = r.split(":");
+  if (action === "use") {
+    chooseVault(rest.join(":"));
+    await settleVault();
+    vaultRedraw();
+    const v = vaultNow();
+    toast(v ? t("Vault: ") + v.title : t("All presentations"));
+  } else if (action === "toggle") {
+    const [id, ...deckParts] = rest;
+    const deck = deckParts.join(":");
+    const v = findVault(roomsHere, id);
+    if (!v || !deck) return;
+    const on = !v.decks.includes(deck);
+    keepRooms((s) => setInVault(s, id, deck, on));
+    toast((on ? t("Put in the vault: ") : t("Taken out of the vault: ")) + v.title);
+    if (id === vaultOn && !on) await settleVault();
+    vaultRedraw();
+  }
+}
+// A deck made while a vault is on goes in it, or it would not be listed.
+async function madeInVault() {
+  if (!vaultNow()) return;
+  const made = await currentRoomId();
+  if (made) keepRooms((s) => setInVault(s, vaultOn, made, true));
+  showVaults();
+}
+// Open's samples as its rows ("<key>\t<name>"): the vault's only, when one is on
+function openRows() {
+  const v = vaultNow();
+  return [...sampleSel.options].filter((o) => !v || (o.value && v.decks.includes("sample:" + o.value))).map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
+}
 // sliqtly.com/editor: the signed-in account's rooms, folders and stories are
 // kept on the server too (web/layoutsync.js, mcp-go/layout.go), where an
 // assistant sees and moves them and the account's other browsers get them:
@@ -1744,9 +1844,22 @@ function sampleRows() {
 // The rooms in the panel's order (web/rooms.js orderRooms: newest first,
 // then as dragged): [{ room_id, title, description, archived, presentations }]
 async function roomsList({ archived = false } = {}) {
-  if (ownServer()) return orderRooms((await roomsCall("list_rooms", { archived })).rooms || [], roomsHere.order);
+  const v = vaultNow();
+  if (ownServer()) {
+    const rooms = orderRooms((await roomsCall("list_rooms", { archived })).rooms || [], roomsHere.order);
+    if (!v) return rooms;
+    // a vault on: each room counts the vault's decks, read from the room
+    const count = {};
+    await Promise.all(rooms.map(async (r) => {
+      const g = await roomsCall("get_room", { room_id: r.room_id }).catch(() => ({}));
+      count[r.room_id] = vaultRows((g.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id })), v).length;
+    }));
+    return vaultRooms(rooms, v, count);
+  }
   const seq = new Map((await sharedRooms()).map((r) => [r.room_id, Number(r.chat_seq) || 0]));
-  return listRooms(roomsHere, await allDocs(), sampleRows(), { archived }).map((r) => (seq.get(r.room_id) ? { ...r, chat_seq: seq.get(r.room_id) } : r));
+  const rooms = listRooms(roomsHere, vaultRows(await allDocs(), v), vaultSamples(sampleRows(), v), { archived }).map((r) => (seq.get(r.room_id) ? { ...r, chat_seq: seq.get(r.room_id) } : r));
+  // a vault on: a room with none of its decks is not listed
+  return v ? rooms.filter((r) => r.presentations > 0) : rooms;
 }
 // sliqtly.com/editor: the rooms shared with the people invited to them live
 // on the server (POST /editor/api/rooms/<op>, mcp-go/editorrooms.go) and
@@ -1867,11 +1980,12 @@ async function roomView(room) {
   if (ownServer()) {
     const g = await roomsCall("get_room", { room_id: room });
     return {
-      rows: ordered((g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "", pinned: isPinned(roomsHere, "cloud:" + p.deck_id), created: p.created || 0, updated: p.updated || 0, type: p.type, phase: p.phase, tags: p.tags, color: p.color }))),
+      rows: ordered(vaultRows((g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "", pinned: isPinned(roomsHere, "cloud:" + p.deck_id), created: p.created || 0, updated: p.updated || 0, type: p.type, phase: p.phase, tags: p.tags, color: p.color })), vaultNow())),
       folders: (g.folders || []).map((f) => ({ id: f.folder_id, name: f.name })),
     };
   }
-  return { rows: ordered(roomDecks(roomsHere, room, await allDocs(), sampleRows()).map(live)), folders: foldersOf(roomsHere, room) };
+  const v = vaultNow();
+  return { rows: ordered(roomDecks(roomsHere, room, vaultRows(await allDocs(), v), vaultSamples(sampleRows(), v)).map(live)), folders: foldersOf(roomsHere, room) };
 }
 // A room as a topic, its presentations as stories (web/stories.js): its
 // Stories tab (src/PresTopicView.rgr) shows them grouped by type, phase or
@@ -2186,7 +2300,7 @@ async function clearRoom(room) {
     if (r.id.startsWith("cloud:") || r.id.startsWith("sample:")) continue;
     if (r.id === doc.id) { kept++; continue; }
     await vfs.deleteDoc(r.id);
-    keepRooms((s) => forgetStory(s, r.id));
+    keepRooms((s) => forgetInVaults(forgetStory(s, r.id), r.id));
     gone++;
   }
   toast(t("Removed from this browser: ") + gone + (kept ? " · " + t("the open presentation stays") : ""));
@@ -2257,7 +2371,15 @@ let foundDecks = new Map();
 // only in this browser are searched here, by the same model in the app.
 // → [{ id (as fileRequest's "doc:" takes it), name, room, roomTitle, snippet }]
 const searchTexts = new Map();
+// with a vault on, only its decks are found
 async function deckSearch(q) {
+  const v = vaultNow();
+  const out = await deckSearchAll(q);
+  if (!v) return out;
+  const alias = new Map((vfs ? await vfs.listDocs() : []).filter((d) => d.cloud).map((d) => [d.id, "cloud:" + d.cloud]));
+  return out.filter((r) => vaultHas(v, r.id, alias.get(r.id) || ""));
+}
+async function deckSearchAll(q) {
   if (ownServer()) {
     const out = await roomsCall("search_presentations", { query: q });
     return (out.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || "", room: p.room_id || GENERAL, roomTitle: p.room || "", snippet: p.snippet || "" }));
@@ -2625,7 +2747,7 @@ async function roomsRequest(r) {
   } else if (action === "all") {
     // the samples are in Open; a room's decks in the presentations window
     if (what === ONBOARDING) {
-      app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
+      app.openOpen(openRows());
     } else {
       const title = (await roomsList()).find((x) => x.room_id === what)?.title || "";
       decksRoom = { room: what, title };
@@ -2781,6 +2903,7 @@ async function duplicateDeck(asked) {
   await commitVersion("@created").catch((e) => console.warn("no version kept", e));
   if (cloudReady()) await cloudSync().catch(cloudTrouble);
   refreshFiles();
+  await madeInVault();
   needsPaint = true;
   toast(t("Duplicated as ") + name);
 }
@@ -2993,7 +3116,10 @@ async function deleteDeck() {
     }
   }
   if (vfs && doc.persisted) await vfs.deleteDoc(id);
-  keepRooms((s) => forgetStory(s, id));
+  keepRooms((s) => {
+    const left = forgetInVaults(forgetStory(s, id), id);
+    return cloud ? forgetInVaults(left, "cloud:" + cloud) : left;
+  });
   // its tab goes; the tab used before it comes to the front
   if (shownKey) app.deckTabClose(shownKey);
   shownKey = null;
@@ -3313,7 +3439,7 @@ async function decksJson(fresh = false) {
   const note = cloudList.error
     ? t("The presentations in your cloud could not be read: ") + cloudList.error
     : signedOut ? t("Sign in (PRO) to see the presentations in your cloud, such as those made by an assistant.") : "";
-  const rows = decksRoom ? await roomWindowRows(decksRoom.room, fresh) : await allDocs(fresh);
+  const rows = vaultRows(decksRoom ? await roomWindowRows(decksRoom.room, fresh) : await allDocs(fresh), vaultNow());
   const inRoom = decksRoom ? t("Room: ") + decksRoom.title : "";
   return deckListJson(rows, decksSort.by, t, [inRoom, note].filter(Boolean).join(" · "), decksSort.dir);
 }
@@ -3344,7 +3470,7 @@ async function decksRequest(r) {
     // once open (File → Delete presentation…)
     if (what !== doc.id && !what.startsWith("cloud:")) {
       await vfs.deleteDoc(what);
-      keepRooms((s) => forgetStory(s, what));
+      keepRooms((s) => forgetInVaults(forgetStory(s, what), what));
     }
   }
   await refreshDecks();
@@ -3356,7 +3482,7 @@ async function decksRequest(r) {
 let recentSynced = "";
 async function refreshRecent() {
   if (!vfs || viewer) return;
-  const rows = sortRows(await allDocs())
+  const rows = sortRows(vaultRows(await allDocs(), vaultNow()))
     .filter((d) => d.id !== doc.id)
     .slice(0, 8)
     .map((d) => d.id + "\t" + String(d.name || "presentation").replace(/[\t\n\r]+/g, " "));
@@ -6104,6 +6230,8 @@ function handleRequests() {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
     } else if (r.startsWith("room:")) {
       roomsRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("vault:")) {
+      vaultRequest(r).catch(fail);
     } else if (r.startsWith("topic:")) {
       topicRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
     } else if (r.startsWith("docstory:")) {
@@ -6127,7 +6255,7 @@ function handleRequests() {
       whoRequest(r).catch(fail);
     } else if (r === "openbox") {
       // Open: a file from the computer, or a sample deck
-      app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
+      app.openOpen(openRows());
       needsPaint = true;
     } else if (r.startsWith("showtab:")) {
       app.showTab(r.slice(8));
@@ -11530,6 +11658,8 @@ async function start() {
   }
 
   const q = new URLSearchParams(location.search);
+  // the vault on (web/vaults.js), before the rooms and the deck to open
+  if (!viewer) chooseVault(q.has("vault") ? q.get("vault") : null);
   // read before a deck is opened: opening one tidies the address
   const at = framed ? new URLSearchParams() : hashParams();
   const theme = q.has("theme") ? q.get("theme") : "aurora";
@@ -11590,6 +11720,8 @@ async function start() {
     console.warn("the deck could not be opened", e);
     if (doc.loading || !app.source()) await openSample("welcome");
   }
+  // a vault on: the deck opened is one of its decks, the tabs only its
+  if (vaultNow() && !audience && !playerDeck && !versionFrame) await settleVault().catch((e) => console.warn("vault", e));
   refreshRecent().catch(() => {});
   // the audience's window is where the presenter's is (PresTwoScreen), not
   // where its own address says: that is the slide it last drew, behind the

@@ -153,6 +153,10 @@ func TestLayoutSync(t *testing.T) {
 	_, out = do("tero", map[string]any{"put": []any{map[string]any{"k": "pinned/cloud:d2", "v": "1"}}})
 	eq(t, facts(out)["pinned/cloud:d2"], "1", "pinned kept")
 
+	// and so is a vault, the decks chosen for one use (web/vaults.js)
+	_, out = do("tero", map[string]any{"put": []any{map[string]any{"k": "vault/demo", "v": `{"title":"Demo Vault","decks":["cloud:d2"]}`}}})
+	eq(t, facts(out)["vault/demo"], `{"title":"Demo Vault","decks":["cloud:d2"]}`, "vault kept")
+
 	// another account sees none of it
 	_, out = do("anna", map[string]any{})
 	eq(t, facts(out), map[string]any{})
