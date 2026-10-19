@@ -5626,6 +5626,32 @@ class PresCheck {
         this.ok((over == 0) ("docview float: no words over the chart, got " + (to_string over)))
     }
 
+    ; A diagram inside another block (the columns an `{layout=image-right}`
+    ; slide makes, `::: columns`) is drawn in its slot among the block's
+    ; words. Only top-level ones were: the column had no drawing for the
+    ; others and said "mermaid — no handler prepared this one".
+    fn docViewInner:void () {
+        def m:string "```mermaid\nflowchart LR\n  A --> B\n```\n"
+        def texts:[string]
+        push texts ("## Oikea {layout=image-right}\n\n- yksi\n- kaksi\n\n" + m)
+        push texts ("## Palstat\n\n::: columns\n### Vasen\n- a\n\n### Oikea\n" + m + ":::\n")
+        for texts text:string ti {
+            def deck (new PresDeck())
+            deck.setText(text)
+            def v (new PresDocView())
+            v.build(deck)
+            def words:string ""
+            for v.list.cmds cmd:EVGDrawCmd k {
+                if (cmd.kind == 3) {
+                    words = (words + cmd.text + " ")
+                }
+            }
+            this.ok((v.shots == 1) ("docview inner " + (to_string ti) + ": the diagram drawn as its slide shows it, got " + (to_string v.shots)))
+            this.ok(((indexOf words "no handler") < 0) ("docview inner " + (to_string ti) + ": no empty slot, got " + words))
+            this.ok((((indexOf words "kaksi") >= 0) || ((indexOf words "Vasen") >= 0)) ("docview inner " + (to_string ti) + ": the words beside it stay text"))
+        }
+    }
+
     fn docView:void () {
         def text:string ("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n"
             + "## Eka & toka\n\nTeksti **lihava** ja [linkki](https://sliqtly.com).\n\n- yksi\n- kaksi\n\n"
@@ -10543,6 +10569,7 @@ class PresCheck {
         c.docFlow()
         c.docPoints()
         c.docView()
+        c.docViewInner()
         c.docViewFloat()
         c.docPages()
         c.docPlays()
