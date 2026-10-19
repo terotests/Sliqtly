@@ -677,7 +677,17 @@ func serveAdminLicenses(env *Env, w http.ResponseWriter, r *http.Request, edit b
 // ---------------------------------------------------------------- billing --
 
 // project.dataset.table, nothing else: it goes into the query's text
-var billingTable = regexp.MustCompile(`^[a-z][a-z0-9-]{4,61}[a-z0-9]\.[A-Za-z0-9_]{1,300}\.[A-Za-z0-9_]{1,300}$`)
+var billingTable = regexp.MustCompile(`^[a-z][a-z0-9-]{4,61}[a-z0-9]\.[A-Za-z0-9_]{1,300}(\.[A-Za-z0-9_]{1,300}\*?)?$`)
+
+// SLIQTLY_BILLING_TABLE as the table to read: a dataset alone
+// (project.dataset) means the standard usage cost export in it, whose table
+// is named after the billing account (gcp_billing_export_v1_XXXXXX_…).
+func billingSource(v string) string {
+	if strings.Count(v, ".") == 1 {
+		return v + ".gcp_billing_export_v1_*"
+	}
+	return v
+}
 
 // The export's cost per day and service since `since`, credits (free tiers,
 // promotions) taken off.
@@ -703,6 +713,10 @@ func parseBillingRows(status int, b []byte) ([]adminCost, error) {
 	}
 	if err := json.Unmarshal(b, &ans); err != nil {
 		return nil, fmt.Errorf("BigQuery answered %d", status)
+	}
+	if status == 404 {
+		// the dataset or its export table is not there yet
+		return nil, errBillingOff
 	}
 	if status != 200 {
 		msg := ans.Error.Message

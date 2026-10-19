@@ -154,14 +154,14 @@ func (c *cloudAdmin) Costs(ctx context.Context, since time.Time) ([]adminCost, e
 		return nil, errBillingOff
 	}
 	if !billingTable.MatchString(c.table) {
-		return nil, fmt.Errorf("SLIQTLY_BILLING_TABLE is not project.dataset.table: %q", c.table)
+		return nil, fmt.Errorf("SLIQTLY_BILLING_TABLE is not project.dataset[.table]: %q", c.table)
 	}
 	client, err := google.DefaultClient(ctx, "https://www.googleapis.com/auth/bigquery.readonly")
 	if err != nil {
 		return nil, err
 	}
 	body, _ := json.Marshal(map[string]any{
-		"query":         billingQuery(c.table),
+		"query":         billingQuery(billingSource(c.table)),
 		"useLegacySql":  false,
 		"timeoutMs":     30000,
 		"parameterMode": "NAMED",
