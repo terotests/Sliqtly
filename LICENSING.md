@@ -41,6 +41,16 @@ not an AGPL exception; it is a separate grant.
   obligations. Contact the copyright holder. `May` above is deliberate: a
   license is not promised, nor its terms.
 
+## Transfer and relicensing
+
+The copyright holder may transfer or sell the rights in Sliqtly, in whole
+or in part, to any third party, including the hosted service together with
+its users (see section 11 of the [terms of service](web/terms.html) and
+the Personal License). The copyright holder and anyone who receives these
+rights may relicense Sliqtly on other terms, including to partners who
+sell it under their own name and sublicense it further. Licenses already
+granted for versions people have received stay in force.
+
 ## Third-party components
 
 Third-party code, fonts and libraries remain under their own licenses.

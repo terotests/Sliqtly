@@ -8,10 +8,11 @@ you agree that:
 
 1. it is your own work, or you have the right to submit it;
 2. it is licensed under AGPL-3.0-or-later (or MIT, where the file says so);
-3. you grant Tero Tolonen, and any successor that takes over Sliqtly, a
-   perpetual, worldwide, non-exclusive, royalty-free, irrevocable license
-   to use, change, sublicense and distribute your contribution under any
-   license, including commercial licenses.
+3. you grant Tero Tolonen a perpetual, worldwide, non-exclusive,
+   royalty-free, irrevocable and transferable license to use, change,
+   sublicense, relicense and distribute your contribution under any
+   license, including commercial licenses. He may transfer this license
+   to any third party, for example a buyer of Sliqtly.
 
 You keep the copyright to your contribution.
 
