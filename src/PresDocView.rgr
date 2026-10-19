@@ -21,7 +21,9 @@
 ; draw — a diagram, a chart, a list figure, a SmartArt, a block a slide's
 ; script changes — is the same picture the exports take: the slide at rest,
 ; cut to the block's rectangle (PresDocx.shotList), here as vectors rather
-; than a PNG. A slide's notes follow it, set apart.
+; than a PNG. One inside another block (a list item, a quote, the columns an
+; `{layout=image-right}` slide makes) is drawn in its slot among that
+; block's words (`inner`). A slide's notes follow it, set apart.
 ;
 ; The page is kept in segments, each with its top and bottom, so the stage
 ; asks for the part in view (`visible`) and a long deck costs a screenful.
@@ -48,6 +50,8 @@ class PresDocView {
     ; what went in, for a caller to say
     def shots:int 0
     def notes:int 0
+    ; the diagrams and charts inside a block, each cut from its slide
+    def inner:PresDocx (new PresDocx())
     ; the look
     def paper:string "#ffffff"
     def ink:string "#1f2328"
@@ -232,9 +236,20 @@ class PresDocView {
         ; the shots, as the exports find them
         def word (new PresDocx())
         word.findShots(deck)
+        inner = (new PresDocx())
+        this.findInner(deck word doc)
         ; the text, as one column
         def l:MdLayout (this.docLayout(deck))
         l.layoutContinuous(doc flow.width)
+        ; …again with a slot as tall as each inner picture: the column has
+        ; no drawing of its own for them, and without it a slot says "no
+        ; handler prepared this one"
+        def held:MdEmbedCache (this.innerSlots(deck l))
+        if ((held.count()) > 0) {
+            l = (this.docLayout(deck))
+            l.embeds = held
+            l.layoutContinuous(doc flow.width)
+        }
         caret.reset(l)
         def pages:[int] (PresDocView.pagesOf(deck doc))
         def rects:[double] (PresDocView.rectsOf(deck doc pages))
@@ -343,6 +358,94 @@ class PresDocView {
         this.paint(deck l word boxChild itemChild noteLayouts noteItems)
         deck.platesLoading = false
         caret.finish()
+    }
+
+    ; The diagrams and charts inside the blocks the page sets as text, as
+    ; their slides draw them: the box each one has on its slide.
+    fn findInner:void (deck:PresDeck word:PresDocx doc:MdNode) {
+        def n:int (doc.childCount())
+        def c:int 0
+        while (c < n) {
+            def ch:MdNode (doc.childAt(c))
+            def whole@(optional):PresDocxShot (PresDocView.shotOf(word ch.srcStart))
+            if (null? whole) {
+                this.innerOf(deck ch)
+            }
+            c = (c + 1)
+        }
+    }
+
+    fn innerOf:void (deck:PresDeck n:MdNode) {
+        def k:int 0
+        while (k < (n.childCount())) {
+            def ch:MdNode (n.childAt(k))
+            if (ch.kind == "embed") {
+                def page:int (deck.pageOfNode(ch))
+                if ((page >= 0) && (this.reads(page))) {
+                    def s:PresDocxShot (PresDocx.rectOf((deck.layout()) ch page))
+                    PresDocx.diagramRect(deck s)
+                    if ((s.w > 0.0) && (s.h > 0.0)) {
+                        PresDocView.toDrawing((deck.layout()) ch s)
+                        push inner.shots s
+                    }
+                }
+            } {
+                this.innerOf(deck ch)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; The shot cut to the drawing in its slot: a diagram kept to its
+    ; proportions is narrower than the slot, and the slide's paper beside
+    ; it read as part of it on the white page.
+    sfn toDrawing:void (l:MdLayout n:MdNode s:PresDocxShot) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (((b.kind == 3) && (b.page == s.page)) && ((PresDeck.boxSrc(b)) == n.srcStart)) {
+                def at:int (l.embeds.find(b.embedKind b.embedSource b.w))
+                if (at >= 0) {
+                    def e:MdEmbedEntry (l.embeds.entryAt(at))
+                    if e.ok {
+                        s.x = (b.x + (e.shiftIn(b.w)))
+                        s.y = b.y
+                        s.w = (e.widthIn(b.w))
+                        s.h = b.h
+                    }
+                }
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A slot for each inner picture the column left without a drawing, as
+    ; tall as the picture is at the slot's width. Not drawn (`deferred`):
+    ; `paintInner` puts the slide's picture in it.
+    fn innerSlots:MdEmbedCache (deck:PresDeck l:MdLayout) {
+        def held (new MdEmbedCache())
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 3) && (b.w > 0.0)) {
+                def s@(optional):PresDocxShot (PresDocView.shotOf(inner (PresDeck.boxSrc(b))))
+                if (!null? s) {
+                    def shot:PresDocxShot (unwrap s)
+                    def e (new MdEmbedEntry())
+                    e.kind = b.embedKind
+                    e.source = b.embedSource
+                    e.atWidth = b.w
+                    def k:double (this.innerScale(deck shot b.w))
+                    e.width = (shot.w * k)
+                    e.height = (shot.h * k)
+                    e.deferred = true
+                    held.add(e)
+                }
+            }
+            i = (i + 1)
+        }
+        return held
     }
 
     fn reads:boolean (page:int) {
@@ -490,6 +593,9 @@ class PresDocView {
                     def b:MdBox (itemAt l.boxes (itemAt order k))
                     if (b.kind != 6) {
                         painter.paintBox(list l b it.dy)
+                        if (b.kind == 3) {
+                            this.paintInner(deck b it.dy)
+                        }
                         caret.add(b it.dy)
                         if ((((b.kind == 0) || (b.kind == 3)) || (b.kind == 4)) || (b.kind == 5)) {
                             this.atom((b.y + it.dy) ((b.y + b.h) + it.dy))
@@ -546,6 +652,42 @@ class PresDocView {
         one.offsetBy(it.x it.y)
         list.addClip(it.x it.y it.w it.h)
         list.appendFrom((PresDocView.confine(one it.x it.y it.w it.h)))
+        list.addClipEnd()
+        shots = (shots + 1)
+    }
+
+    ; An inner picture's scale: the slot's width, but no larger than the
+    ; page sets the slides (a narrow diagram blown up to the slot's width
+    ; towered over the words beside it).
+    fn innerScale:double (deck:PresDeck shot:PresDocxShot w:double) {
+        def k:double (w / shot.w)
+        if (deck.pageW > 0.0) {
+            def page:double ((flow.colW()) / deck.pageW)
+            if (page < k) {
+                k = page
+            }
+        }
+        return k
+    }
+
+    ; An inner picture in its slot in the column.
+    fn paintInner:void (deck:PresDeck b:MdBox dy:double) {
+        def key:int (PresDeck.boxSrc(b))
+        def s@(optional):PresDocxShot (PresDocView.shotOf(inner key))
+        if (null? s) {
+            return
+        }
+        def shot:PresDocxShot (unwrap s)
+        def y:double (b.y + dy)
+        def one:EVGDisplayList (inner.shotList(deck key))
+        one.offsetBy((0.0 - shot.x) (0.0 - shot.y))
+        def k:double (this.innerScale(deck shot b.w))
+        def w:double (shot.w * k)
+        def h:double (shot.h * k)
+        one.scaleBy(k)
+        one.offsetBy(b.x y)
+        list.addClip(b.x y w h)
+        list.appendFrom((PresDocView.confine(one b.x y w h)))
         list.addClipEnd()
         shots = (shots + 1)
     }
