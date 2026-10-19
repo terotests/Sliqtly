@@ -263,7 +263,9 @@ func (s *localServer) refuse(w http.ResponseWriter, r *http.Request, why string)
 	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && strings.Contains(r.Header.Get("Accept"), "text/html") {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'")
-		w.Header().Set("Referrer-Policy", "no-referrer")
+		// same-origin, not no-referrer: under no-referrer a browser posts
+		// the form with Origin: null, which the guard refuses (403)
+		w.Header().Set("Referrer-Policy", "same-origin")
 		w.WriteHeader(http.StatusUnauthorized)
 		next := r.URL.Path
 		if r.URL.RawQuery != "" {
