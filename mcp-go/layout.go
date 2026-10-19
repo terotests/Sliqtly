@@ -367,6 +367,8 @@ var layoutOps = map[string]bool{
 	"list_rooms": true, "get_room": true, "create_room": true, "update_room": true,
 	"move_presentation": true, "create_folder": true, "rename_folder": true,
 	"delete_folder": true, "set_story": true,
+	// the account's vaults (vaults.go)
+	"list_vaults": true, "create_vault": true, "add_to_vault": true, "remove_from_vault": true,
 }
 
 // the MCP tool list's entries
@@ -376,6 +378,9 @@ func (s *layoutService) toolsJSON() []any {
 		if layoutOps[t.name] {
 			out = append(out, toolEntry(t))
 		}
+	}
+	for _, t := range vaultTools {
+		out = append(out, toolEntry(t))
 	}
 	return out
 }
@@ -478,7 +483,10 @@ func (s *layoutService) call(ctx context.Context, uid, op string, a map[string]a
 	if uid == "" {
 		return nil, roomErr{"topics need sign-in: connect Sliqtly with sign-in (Google). A client that signs in only when the server asks (Cursor, for one) connects to this server's …/mcp/account address instead of …/mcp."}
 	}
-	t, _ := roomToolOf(op)
+	t, ok := roomToolOf(op)
+	if !ok {
+		t, _ = vaultToolOf(op)
+	}
 	for _, k := range t.required {
 		if _, ok := a[k]; !ok {
 			return nil, roomErr{k + " is missing"}
@@ -492,6 +500,9 @@ func (s *layoutService) call(ctx context.Context, uid, op string, a map[string]a
 }
 
 func (s *layoutService) run(ctx context.Context, uid, op string, a map[string]any) (any, error) {
+	if _, ok := vaultToolOf(op); ok {
+		return s.runVault(ctx, uid, op, a)
+	}
 	switch op {
 	case "list_rooms":
 		q, err := roomQueryOf(a)

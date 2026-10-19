@@ -1000,7 +1000,7 @@ func (h *McpHost) CallTool(uid, who, name, args string) string {
 		h.fail(fmt.Errorf("no tool %s", name))
 		return ""
 	}
-	for _, t := range append(allRoomTools(), sharedTools...) {
+	for _, t := range append(append(allRoomTools(), vaultTools...), sharedTools...) {
 		if t.name == name && !t.readOnly {
 			if why := h.env.Limiter(who); why != "" {
 				h.fail(errors.New(why))
