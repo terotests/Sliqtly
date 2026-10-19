@@ -114,6 +114,10 @@ func localLimiter(n int) func(string) string {
 	return rateLimiter(n, 10*time.Minute)
 }
 
+// the most megabytes one file may have on a server of one's own unless
+// SLIQTLY_MAX_FILE_MB says otherwise
+const localMaxFileMB = 50
+
 // the env of a server whose decks are in dir, reached at baseURL
 func localEnv(dir, baseURL, user string) (*Env, *localBucket, error) {
 	db, bucket, err := newFSStore(dir, user)
@@ -130,6 +134,9 @@ func localEnv(dir, baseURL, user string) (*Env, *localBucket, error) {
 		Bucket:    bucket,
 		LocalUser: user,
 		Themes:    builtinTheme,
+		// pictures, recordings and workbooks of one's own are often larger
+		// than sliqtly.com takes, and the computer is the user's
+		MaxFile: localMaxFileMB << 20,
 		// everyone is one user here, so the limit is for the whole server
 		Limiter: localLimiter(localWriteLimit),
 	}

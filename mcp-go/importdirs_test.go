@@ -141,7 +141,8 @@ func TestLocalImportByPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, session := startLocalWith(t, t.TempDir(), "", func(e *Env) { e.ImportDirs = dirs })
+	// the picture over the server's limit is refused by path too
+	srv, session := startLocalWith(t, t.TempDir(), "", func(e *Env) { e.ImportDirs = dirs; e.MaxFile = 5 << 20 })
 	defer srv.Close()
 	defer session.Close()
 	s := &testServer{root: srv.URL, session: session}

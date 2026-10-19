@@ -89,6 +89,7 @@ func main() {
 	oidcAllow := flag.String("oidc-allow", env("SLIQTLY_OIDC_ALLOW", ""), "who may sign in: emails and @domains, comma separated, or * for every account the provider signs in (SLIQTLY_OIDC_ALLOW)")
 	oidcScopes := flag.String("oidc-scopes", env("SLIQTLY_OIDC_SCOPES", "openid email profile"), "the scopes asked of the provider (SLIQTLY_OIDC_SCOPES)")
 	importDirsFlag := flag.String("import-dirs", env("SLIQTLY_IMPORT_DIRS", ""), "folders of this computer MCP tools may read pictures and data files from by path, comma separated, e.g. /Users/me/photoalbum; with -data only (SLIQTLY_IMPORT_DIRS)")
+	maxFileMB := flag.Int("max-file-mb", envInt("SLIQTLY_MAX_FILE_MB", localMaxFileMB), "with -data: the most megabytes one picture or file may have, sent by an agent, read from an import folder or added in the editor (SLIQTLY_MAX_FILE_MB)")
 	connectorsOn := flag.Bool("connectors", envBool("SLIQTLY_CONNECTORS"), "let scripts and workflows in decks use the services set in <data>/connectors/*.json, with the grants the admin approves (SLIQTLY_CONNECTORS=1)")
 	writeLimit := flag.Int("write-limit", envInt("SLIQTLY_WRITE_LIMIT", localWriteLimit), "with -data: MCP writes the whole server takes in 10 minutes, 0 for no limit; many agents working at once need more (SLIQTLY_WRITE_LIMIT)")
 	adminsFlag := flag.String("admin", env("SLIQTLY_ADMINS", ""), "signed-in accounts (emails, comma separated) that may approve connector grants; the server's own user on its own computer always may (SLIQTLY_ADMINS)")
@@ -168,6 +169,9 @@ func main() {
 			log.Fatalf("data folder %s: %v", *data, err)
 		}
 		e.ImportDirs = imports
+		if *maxFileMB > 0 {
+			e.MaxFile = int64(*maxFileMB) << 20
+		}
 		e.Limiter = localLimiter(*writeLimit)
 		if len(imports) > 0 {
 			log.Printf("MCP tools may read files by path from %s", strings.Join(imports.list(), ", "))

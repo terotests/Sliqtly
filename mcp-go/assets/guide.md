@@ -831,7 +831,8 @@ can edit.
 
 - `![alt](media/name)`, `{width=40%}` under it. Pass the picture in the
   call's `images` with the same `name`: a public `https` URL, base64 data,
-  or an SVG's (or a SmartArt file's) source as `text`. PNG, JPEG, GIF, WebP, SVG up to 5 MB each,
+  or an SVG's (or a SmartArt file's) source as `text`. PNG, JPEG, GIF, WebP, SVG up to 5 MB each
+  (50 MB on a server of one's own),
   at most 20 pictures in one call (send more with `update_presentation`).
 - **A photo or any large picture: give its `url`** (`{ "name":
   "cover.jpg", "url": "https://…/cover.jpg" }`); the server fetches the
@@ -1043,7 +1044,7 @@ safe-area: 8mm; } deck { crop-marks: on; } }` (topic `export`).
   `files`: `{ "name": "sales.xlsx", "data_base64": "…" }` (or `url`), or
   `{ "name": "sales.csv", "text": "Region,Revenue\nNorth,120\n" }`, or a
   `path` in the import folders (topic `pictures`). Each is kept as
-  `data/<name>` (.xlsx, .csv, .tsv, .json, .txt; 10 MB each); the result
+  `data/<name>` (.xlsx, .csv, .tsv, .json, .txt; 10 MB each, 50 MB on a server of one's own); the result
   lists a workbook's sheets. Files are stored only when the user is signed
   in.
 - A chart reads the name: `"data": {"url": "data/sales-Sales.csv"}` (topic
