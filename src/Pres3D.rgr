@@ -86,6 +86,11 @@ class Pres3D {
         files.setFile(name text)
     }
 
+    ; A .glb the same way, as its bytes (empty when the deck has none).
+    fn setGlb:void (name:string data:buffer) {
+        files.setGlb(name data)
+    }
+
     ; The files world `key`'s last frame asked for that the page has not
     ; given yet, one per line ("" when none).
     fn missing:string (key:string) {

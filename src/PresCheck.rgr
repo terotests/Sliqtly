@@ -9167,6 +9167,110 @@ class PresCheck {
         this.ok(((indexOf (join ts.warnings ";") "src names") >= 0) "gltf in: no src, said")
     }
 
+    ; little-endian u32 onto a byte list
+    sfn pushU32:void (out:[int] v:int) {
+        push out (v % 256)
+        push out ((idiv v 256) % 256)
+        push out ((idiv v 65536) % 256)
+        push out ((idiv v 16777216) % 256)
+    }
+
+    ; a .glb: header, JSON chunk (ASCII `json` with `name` in UTF-8 put in
+    ; place of "@"), BIN chunk
+    sfn glbOf:buffer (json:string nameBytes:[int] bin:[int]) {
+        def jb:[int]
+        def i:int 0
+        while (i < (strlen json)) {
+            def c:int (charAt json i)
+            if (c == 64) {
+                for nameBytes nb:int nbi {
+                    push jb nb
+                }
+            } {
+                push jb c
+            }
+            i = (i + 1)
+        }
+        while (((array_length jb) % 4) != 0) {
+            push jb 32
+        }
+        def out:[int]
+        PresCheck.pushU32(out 1179937895)
+        PresCheck.pushU32(out 2)
+        PresCheck.pushU32(out (((12 + 8) + (array_length jb)) + (8 + (array_length bin))))
+        PresCheck.pushU32(out (array_length jb))
+        PresCheck.pushU32(out 1313821514)
+        for jb b:int bi {
+            push out b
+        }
+        PresCheck.pushU32(out (array_length bin))
+        PresCheck.pushU32(out 5130562)
+        for bin b2:int bi2 {
+            push out b2
+        }
+        def buf:buffer (buffer_alloc (array_length out))
+        for out ob:int oi {
+            buffer_set buf oi ob
+        }
+        return buf
+    }
+
+    ; <SliqGltf src="x.glb">: the JSON chunk and its BIN chunk as buffer 0
+    fn glbIn:void () {
+        def bin:[int] ([] _:int (0 0 0 0 0 0 0 0 0 0 0 0 0 0 128 63 0 0 0 0 0 0 0 0 0 0 0 0 0 0 128 63 0 0 0 0 0 0 1 0 2 0 0 0))
+        def json:string "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"name\":\"@\",\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1,\"material\":0}]}],\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[1,0,0,1]}}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]},{\"bufferView\":1,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":6}],\"buffers\":[{\"byteLength\":44}]}"
+        ; "kärry" in UTF-8
+        def name:[int] ([] _:int (107 195 164 114 114 121))
+        def glb:buffer (PresCheck.glbOf(json name bin))
+        def files:P3Files (new P3Files())
+        def scene:string "{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"m.glb\"}}]}"
+        def first:Pres3DTree (Pres3DTree.readWith(scene files))
+        this.ok((((array_length first.missing) == 1) && ((itemAt first.missing 0) == "m.glb")) "glb in: the file asked for")
+        files.setGlb("m.glb" glb)
+        def t:Pres3DTree (Pres3DTree.readWith(scene files))
+        this.ok(((array_length t.warnings) == 0) ("glb in: no warnings, got " + (join t.warnings "; ")))
+        def ni:int (PresCheck.p3named(t "kärry"))
+        this.ok((ni >= 0) "glb in: the node by its UTF-8 name")
+        if (ni >= 0) {
+            def n:P3Node (itemAt t.nodes ni)
+            this.ok(((n.geo == "gltfGeometry") && (n.gltfSrc == "m.glb")) "glb in: the file's own triangles")
+            this.ok((PresCheck.near(n.color ([] _:double (1.0 0.0 0.0)))) "glb in: red")
+        }
+        def tris:P3Tris (files.trianglesOf("m.glb" 0 0))
+        this.ok(((strlen tris.error) == 0) ("glb in: decoded, got " + tris.error))
+        this.ok((PresCheck.near(tris.pos ([] _:double (0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0 0.0)))) ("glb in: positions from the BIN chunk, got " + (Pres3DTree.listText(tris.pos))))
+        this.ok((((array_length tris.idx) == 3) && ((itemAt tris.idx 2) == 2)) "glb in: indices from the BIN chunk")
+        def wo:Pres3DWorld (new Pres3DWorld())
+        wo.setGlb("m.glb" glb)
+        wo.setScene(scene (new Pres3DEnv()))
+        this.ok((wo.meshes == 1) ("glb in: the world has the mesh, got " + (to_string wo.meshes)))
+        ; the same bytes again: what was read is kept
+        files.setGlb("m.glb" glb)
+        this.ok(((array_length files.trisKeys) == 1) "glb in: the same bytes again keep what was read")
+        ; a BIN shorter than the buffer it serves
+        files.setGlb("short.glb" (PresCheck.glbOf((PresCheck.replaceOnce(json "\"byteLength\":44}" "\"byteLength\":48}")) name bin)))
+        def tsh:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"short.glb\"}}]}" files))
+        this.ok(((indexOf (join tsh.warnings ";") "shorter than its buffer") >= 0) ("glb in: a short BIN chunk, said, got " + (join tsh.warnings ";")))
+        ; not a .glb
+        def junk:buffer (buffer_alloc 24)
+        files.setGlb("junk.glb" junk)
+        def tj:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"junk.glb\"}}]}" files))
+        this.ok(((indexOf (join tj.warnings ";") "not a glTF 2.0 file") >= 0) ("glb in: not a .glb, said, got " + (join tj.warnings ";")))
+        files.setGlb("none.glb" (buffer_alloc 0))
+        def tn:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"none.glb\"}}]}" files))
+        this.ok(((indexOf (join tn.warnings ";") "has no file none.glb") >= 0) ("glb in: a file the deck lacks, said, got " + (join tn.warnings ";")))
+        def bad:P3Glb (P3Glb.read(([] _:int (103 108 84 70 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0))))
+        this.ok(((indexOf bad.error "version 1") >= 0) ("glb: version 1 refused, got " + bad.error))
+    }
+
+    sfn replaceOnce:string (s:string a:string b:string) {
+        def at:int (indexOf s a)
+        if (at < 0) {
+            return s
+        }
+        return ((substring s 0 at) + b + (substring s (at + (strlen a)) (strlen s)))
+    }
+
     ; <scene3d legacy> and the octahedron (what ranger:three files use)
     fn worldLegacy:void () {
         def wo:Pres3DWorld (new Pres3DWorld())
@@ -10607,6 +10711,7 @@ class PresCheck {
         c.stills()
         c.gltfOut()
         c.gltfIn()
+        c.glbIn()
         c.worldLegacy()
         c.stripDrag()
         c.forms()

@@ -195,7 +195,7 @@ class Tools {
         fitem.putStr("type" "object")
         fitem.put("properties" fp)
         fitem.put("required" (J.strs(([] _:string ("name")))))
-        def files:MfJ (Tools.prop("array" ("Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (" + (Deck.mbText((Files.maxData(host)))) + " each); needs sign-in. A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book). A program for an app block (.tsx with its .tsx.css, as text) is kept under apps/; see sliqtly_guide topic=apps. Source files for the source viewer (code review decks) are kept under code/, as text, at most 60 a call; see sliqtly_guide topic=text.")))
+        def files:MfJ (Tools.prop("array" ("Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt, 3-D models (.gltf, .glb as data_base64) (" + (Deck.mbText((Files.maxData(host)))) + " each); needs sign-in. A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book). A program for an app block (.tsx with its .tsx.css, as text) is kept under apps/; see sliqtly_guide topic=apps. Source files for the source viewer (code review decks) are kept under code/, as text, at most 60 a call; see sliqtly_guide topic=text.")))
         files.put("items" fitem)
         p.put("files" files)
     }
@@ -3209,7 +3209,7 @@ class Tools {
                 return "data/ and apps/ keep files directly in them, not in a folder under them"
             }
             if ((strlen (Files.dataType(bare))) == 0) {
-                return "data/ keeps .csv, .tsv, .json, .txt, .gltf and .xlsx files; apps/ programs (.tsx, .jsx) and their .tsx.css"
+                return "data/ keeps .csv, .tsv, .json, .txt, .gltf, .glb and .xlsx files; apps/ programs (.tsx, .jsx) and their .tsx.css"
             }
             if ((startsWith p "apps/") && ((Files.isProgram(bare)) == false)) {
                 return "apps/ keeps programs (.tsx, .jsx) and their .tsx.css"
@@ -3217,6 +3217,12 @@ class Tools {
             if (Files.isXlsx(bare)) {
                 if isText {
                     return "a workbook is written as bytes (a Buffer or a Uint8Array)"
+                }
+                return ""
+            }
+            if (endsWith (to_lowercase bare) ".glb") {
+                if isText {
+                    return "a .glb is written as bytes (a Buffer or a Uint8Array)"
                 }
                 return ""
             }

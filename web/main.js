@@ -3638,6 +3638,13 @@ async function addDocFile(file, ask = false) {
     toast(t("Music added: ") + path + t(". Put music: ") + path + t(" in the front matter."));
     return;
   }
+  // a 3-D model a program's <SliqGltf src> reads, kept as its bytes
+  if (/\.glb$/i.test(file.name)) {
+    const bytes = await file.arrayBuffer();
+    const kept = "model/gltf-binary";
+    await keepFile({ path: placeFor(file.name, type), type: kept, size: bytes.byteLength, data: new Blob([bytes], { type: kept }) });
+    return;
+  }
   if ((ask || /\.xlsx$/i.test(file.name)) && /\.(csv|json|xlsx)$/i.test(file.name) && (await importData(file, ask))) return;
   const text = await file.text();
   let path = placeFor(file.name, type);

@@ -163,6 +163,9 @@ class Files {
         if (endsWith n ".gltf") {
             return "model/gltf+json"
         }
+        if (endsWith n ".glb") {
+            return "model/gltf-binary"
+        }
         return ""
     }
 
@@ -545,7 +548,7 @@ class Files {
                 }
             }
             if ((strlen type) == 0) {
-                res.err = ("File " + name + ": data files are .xlsx, .csv, .tsv, .json, .txt or .gltf; a program for an app block is .tsx (or .jsx) with its .tsx.css.")
+                res.err = ("File " + name + ": data files are .xlsx, .csv, .tsv, .json, .txt, .gltf or .glb; a program for an app block is .tsx (or .jsx) with its .tsx.css.")
                 return res
             }
             def hasText:boolean ((f.field("text")).kind == 3)
@@ -574,6 +577,10 @@ class Files {
             if hasText {
                 if (Files.isXlsx(name)) {
                     res.err = ("File " + name + ": a workbook is sent as data_base64 or url, not text.")
+                    return res
+                }
+                if (endsWith (to_lowercase name) ".glb") {
+                    res.err = ("File " + name + ": a .glb is sent as data_base64, url or path, not text.")
                     return res
                 }
                 def text:string (f.str_("text"))
@@ -639,7 +646,7 @@ class Files {
                     return res
                 }
                 if ((Files.dataType((to_lowercase path))) != type) {
-                    res.err = ("File " + name + ": " + path + " is not the same kind of file as the name (.xlsx, .csv, .tsv, .json, .txt or .gltf).")
+                    res.err = ("File " + name + ": " + path + " is not the same kind of file as the name (.xlsx, .csv, .tsv, .json, .txt, .gltf or .glb).")
                     return res
                 }
                 def got3:MfJ (J.parse((host_import_file host path ((Files.maxData(host)) + 1))))
