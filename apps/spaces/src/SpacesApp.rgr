@@ -257,6 +257,9 @@ class SpacesApp {
     def feedPick:string ""
     ; the preview lists all of the picked calendar's items, not only the first eight
     def feedAll:boolean false
+    ; Subscribe opens how to add the picked calendar: straight, by hand, or
+    ; by its https address
+    def feedHow:boolean false
     ; in it: the types to pick by hand shown (on a server the assistant comes
     ; first), what is searched for, the group picked, and the assistant's
     ; answer asked from it (-1 for none)
@@ -2526,11 +2529,16 @@ class SpacesApp {
         fc.addChild(sw)
         this.feedPicks(fc)
         def fr:EVGElement (SpacesApp.box("sp-formrow"))
-        fr.addChild((SpacesApp.btn("sp-feed-open" "sp-action sp-action-primary" (SpWords.pick(lang "Subscribe" "Tilaa kalenteriin")))))
+        def ob:EVGElement (SpacesApp.btn("sp-feed-open" "sp-action sp-action-primary" (SpWords.pick(lang "Subscribe" "Tilaa kalenteriin"))))
+        ob.a11yExpanded = (SpacesApp.tri(feedHow))
+        fr.addChild(ob)
         def sh:EVGElement (SpacesApp.btn("sp-feed-share" "sp-action" (SpWords.pick(lang "Share" "Jaa"))))
         sh.a11yExpanded = (SpacesApp.tri(feedShare))
         fr.addChild(sh)
         fc.addChild(fr)
+        if feedHow {
+            fc.addChild((this.feedHowBox()))
+        }
         ; sharing copies the address in the form the receiver's calendar takes
         if feedShare {
             def so:EVGElement (SpacesApp.box("sp-formrow"))
@@ -2542,6 +2550,70 @@ class SpacesApp {
             fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "iCal works in Google and Outlook; the Apple link opens the subscription straight in an iPhone's or Mac's calendar." "iCal-osoite käy Googleen ja Outlookiin; Apple-linkki avaa tilauksen suoraan iPhonen tai Macin kalenterissa.")))))
         }
         return fc
+    }
+
+    ; How to add the picked calendar: straight into the phone's calendar
+    ; (webcal), or by hand with its https address where that fails (an older
+    ; iPhone says it could not verify the address), and on a Mac or Google.
+    fn feedHowBox:EVGElement () {
+        def hb:EVGElement (SpacesApp.box("sp-feedhow"))
+        hb.role = "group"
+        def name:string (this.feedPickName())
+        hb.a11yLabel = ((SpWords.pick(lang "Subscribe: " "Tilaa: ")) + name)
+        hb.addChild((SpacesApp.tx("sp-title" ((SpWords.pick(lang "Subscribe: " "Tilaa: ")) + name))))
+        def r1:EVGElement (SpacesApp.box("sp-formrow"))
+        r1.addChild((SpacesApp.btn("sp-feed-webcal" "sp-action sp-action-primary" (SpWords.pick(lang "Add to this phone's calendar" "Lisää puhelimen kalenteriin")))))
+        hb.addChild(r1)
+        hb.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "If the phone says the address could not be verified, add it by hand: Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar (in newer iOS Settings → Apps → Calendar → Calendar Accounts), and paste the https address below as the server." "Jos puhelin sanoo, että tarkistus epäonnistui, lisää käsin: Asetukset → Kalenteri → Tilit → Lisää tili → Muu → Lisää tilattu kalenteri (uudemmissa iOS-versioissa Asetukset → Apit → Kalenteri → Kalenteritilit), ja liitä palvelimeksi alla oleva https-osoite.")))))
+        hb.addChild((this.feedUrlBox((this.feedAddress()))))
+        def r2:EVGElement (SpacesApp.box("sp-formrow"))
+        r2.addChild((SpacesApp.btn("sp-feed-copyhttps" "sp-action" (SpWords.pick(lang "Copy https address" "Kopioi https-osoite")))))
+        r2.addChild((SpacesApp.btn("sp-feed-howclose" "sp-action" (SpWords.pick(lang "Done" "Valmis")))))
+        hb.addChild(r2)
+        hb.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Mac: Calendar → File → New Calendar Subscription. Google Calendar: Other calendars → From URL. The calendar reads the address again by itself, so changes made here show there." "Mac: Kalenteri → Arkisto → Uusi kalenteritilaus. Google-kalenteri: Muut kalenterit → URL-osoitteesta. Kalenteri hakee osoitteen itse uudelleen, joten täällä tehdyt muutokset näkyvät siellä.")))))
+        return hb
+    }
+
+    ; the address in pieces that wrap on a narrow page: up to its file's
+    ; folder, its file, and its query
+    fn feedUrlBox:EVGElement (u:string) {
+        def ub:EVGElement (SpacesApp.box("sp-feedurl"))
+        ub.a11yLabel = u
+        def rest:string u
+        def q:string ""
+        def qi:int (indexOf rest "?")
+        if (qi > 0) {
+            q = (substring rest qi (strlen rest))
+            rest = (substring rest 0 qi)
+        }
+        def cut:int (lastIndexOf rest "/")
+        def parts:[string]
+        if (cut > 0) {
+            push parts (substring rest 0 (cut + 1))
+            push parts (substring rest (cut + 1) (strlen rest))
+        } {
+            push parts rest
+        }
+        def qs:[string] (strsplit q "&")
+        def k:int 0
+        while (k < (array_length qs)) {
+            def piece:string (itemAt qs k)
+            if ((strlen piece) > 0) {
+                if (k > 0) {
+                    piece = ("&" + piece)
+                }
+                push parts piece
+            }
+            k = (k + 1)
+        }
+        def i:int 0
+        while (i < (array_length parts)) {
+            def t:EVGElement (SpacesApp.tx("sp-feedurl-tx" (itemAt parts i)))
+            t.a11yHidden = true
+            ub.addChild(t)
+            i = (i + 1)
+        }
+        return ub
     }
 
     ; The calendars to subscribe to, one row each: all of the space's, each
@@ -9742,11 +9814,30 @@ class SpacesApp {
             return true
         }
         if (target == "sp-feed-open") {
+            feedHow = (feedHow == false)
+            if feedHow {
+                focused = "sp-feed-webcal"
+            }
+            this.rebuild()
+            return true
+        }
+        if (target == "sp-feed-webcal") {
             def u:string (this.feedAddress())
             def at:int (indexOf u "://")
             if (at > 0) {
                 action = ("open:webcal" + (substring u at (strlen u)))
             }
+            return true
+        }
+        if (target == "sp-feed-copyhttps") {
+            copyText = (this.feedAddress())
+            action = "copy"
+            return true
+        }
+        if (target == "sp-feed-howclose") {
+            feedHow = false
+            focused = "sp-feed-open"
+            this.rebuild()
             return true
         }
         if (target == "sp-feedmore") {
@@ -9760,14 +9851,12 @@ class SpacesApp {
             this.rebuild()
             return true
         }
-        ; a row's own Subscribe: that calendar, picked and opened
+        ; a row's own Subscribe: that calendar, picked, and how to add it
         if (UiTree.beginsWith(target "sp-feedsub-")) {
             feedPick = (this.feedKeyOf((substring target 11 (strlen target))))
-            def su:string (this.feedAddress())
-            def sat:int (indexOf su "://")
-            if (sat > 0) {
-                action = ("open:webcal" + (substring su sat (strlen su)))
-            }
+            feedAll = false
+            feedHow = true
+            focused = "sp-feed-webcal"
             this.rebuild()
             return true
         }
@@ -10286,6 +10375,12 @@ class SpacesApp {
                     return true
                 }
             }
+        }
+        if ((k == "Escape") && feedHow) {
+            feedHow = false
+            focused = "sp-feed-open"
+            this.rebuild()
+            return true
         }
         if ((k == "Escape") && phoneOpen) {
             phoneOpen = false
