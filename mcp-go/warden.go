@@ -1289,21 +1289,6 @@ func (s *wardenService) stamp(d Doc, sp *wardenSpace) {
 	d["by"] = sp.who.uid
 }
 
-func (s *wardenService) deleteEvent(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
-	id := argStr(a, "event_id")
-	d, err := s.event(ctx, sp, id)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.db.Delete(ctx, wardenEvents, id); err != nil {
-		return nil, err
-	}
-	if err := s.linkOthers(ctx, sp, id, nil, docStrs(d, "links")); err != nil {
-		return nil, err
-	}
-	return map[string]any{"deleted": id}, nil
-}
-
 // import_events: many events at once; one with an ext_id the space has
 // already is changed, not made again. All are checked before any is written.
 func (s *wardenService) importEvents(ctx context.Context, sp *wardenSpace, list []any, defaults map[string]any) (any, error) {
@@ -1493,7 +1478,7 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 // changed, so a page that has it open reads it again
 var wardenWrites = map[string]bool{
 	"set_space": true, "invite_member": true, "remove_member": true, "add_ward": true, "set_ward": true, "remove_ward": true,
-	"save_event": true, "delete_event": true, "import_events": true, "import_ics": true,
+	"save_event": true, "delete_event": true, "restore_event": true, "import_events": true, "import_ics": true,
 	"ask_question": true, "answer_question": true, "save_doc": true, "delete_doc": true, "doc_folder": true,
 }
 
@@ -1544,6 +1529,10 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.saveEvent(ctx, sp, a)
 	case "delete_event":
 		return s.deleteEvent(ctx, sp, a)
+	case "list_deleted":
+		return s.listDeleted(ctx, sp, a)
+	case "restore_event":
+		return s.restoreEvent(ctx, sp, a)
 	case "import_events":
 		l, _ := a["events"].([]any)
 		return s.importEvents(ctx, sp, l, nil)
