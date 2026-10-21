@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -250,6 +251,41 @@ func TestSQLiteSchemaVersions(t *testing.T) {
 	defer old.Close()
 	if d, _, _ := old.Get(ctx, "shares", "a"); d["n"] != int64(1) {
 		t.Fatalf("backup holds %v", d)
+	}
+}
+
+// the copies made before migrations do not pile up: the newest
+// KeepSQLiteBackups of each file stay, other files' copies are left
+func TestSQLiteBackupsKept(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sliqtly.db")
+	s, err := store.OpenSQLiteStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	backups := filepath.Join(dir, "backups")
+	os.MkdirAll(backups, 0o750)
+	other := filepath.Join(backups, "20200101T000000.000Z-blobs-v1.db")
+	os.WriteFile(other, nil, 0o640)
+	ctx := context.Background()
+	var made []string
+	for i := 0; i < store.KeepSQLiteBackups+2; i++ {
+		b, err := store.BackupSQLite(ctx, s.DB(), path, fmt.Sprintf("v%d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		made = append(made, b)
+		time.Sleep(2 * time.Millisecond)
+	}
+	for i, b := range made {
+		_, err := os.Stat(b)
+		if want := i >= len(made)-store.KeepSQLiteBackups; (err == nil) != want {
+			t.Fatalf("copy %d of %d kept=%v", i, len(made), err == nil)
+		}
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("blobs.db's copy removed: %v", err)
 	}
 }
 

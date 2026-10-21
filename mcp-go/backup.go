@@ -203,6 +203,10 @@ func (s *localServer) backupNow(ctx context.Context, data string, c backupConfig
 		return store.Snapshot{}, err
 	}
 	defer done()
+	if err := backupRoom(data, c.Repo); err != nil {
+		log.Printf("backup skipped: %v", err)
+		return store.Snapshot{}, err
+	}
 	// what the rooms took is written first, so the backup has it
 	s.flushRooms()
 	snap, pr, err := takeBackup(ctx, repo, backupSource(data, s.bucket), c.Keep)
@@ -216,6 +220,27 @@ func (s *localServer) backupNow(ctx context.Context, data string, c backupConfig
 	}
 	log.Print(msg)
 	return snap, nil
+}
+
+// backupRoom is an error when a backup could fill the disk the repo is on
+// (by default the data folder's own, where a full disk stops the server's
+// writes): a snapshot copies sliqtly.db whole, so twice its size must be
+// free, and a twentieth of the disk is left free besides. The server then
+// skips the backup and says so each time it would take one; `backup run`
+// takes it anyway.
+func backupRoom(data, repo string) error {
+	free, total, ok := diskSpace(repo)
+	if !ok {
+		return nil
+	}
+	var docs int64
+	if info, err := os.Stat(filepath.Join(data, docsFile)); err == nil {
+		docs = info.Size()
+	}
+	if need := max(2*docs, total/20); free < need {
+		return fmt.Errorf("%s free on the disk of %s, %s wanted; free some room, keep fewer backups (SLIQTLY_BACKUP_KEEP) or move them to another disk", sizeText(free), repo, sizeText(need))
+	}
+	return nil
 }
 
 // ------------------------------------------------------------- command --
