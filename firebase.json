@@ -342,6 +342,10 @@
         "destination": "/web/3.html"
       },
       {
+        "source": "/web/4",
+        "destination": "/web/4.html"
+      },
+      {
         "source": "/web/use-cases",
         "destination": "/web/use-cases.html"
       }

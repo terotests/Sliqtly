@@ -1,0 +1,343 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- sliqtly.com/web/4: a fourth trial front page, unlisted (linked from
+     nowhere, noindex here and in firebase.json). Sliqtly as the shared
+     workspace where people and their AI agents work on the same Story:
+     sharing, forks and reviews, the embedded and enterprise models, security
+     and the planned prices. Same copper look as /web/3. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Sliqtly: one workspace for your team and its AI agents</title>
+<meta name="theme-color" content="#9c4a27" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<style>
+  :root {
+    --copper: #9c4a27; --copper-2: #b5562e; --rust: #6e3219; --cream: #fff4dc; --paper: #fffaf0;
+    --ink: #2a2420; --dim: #5c5048; --line: rgba(42, 36, 32, .14); --teal: #2f7476;
+    --sans: Lato, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --wrap: 1240px; --pad: clamp(16px, 5vw, 60px);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); }
+  body { font: 400 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  a { color: inherit; }
+  :focus-visible { outline: 3px solid var(--teal); outline-offset: 3px; }
+  .wrap { max-width: var(--wrap); margin-inline: auto; padding-inline: var(--pad); }
+  .label { font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--copper-2); margin: 0 0 16px; }
+  h1, h2, h3 { font-weight: 900; letter-spacing: -.02em; margin: 0 0 18px; text-wrap: balance; }
+  h1 { font-size: clamp(34px, 4.2vw, 54px); line-height: 1.04; }
+  h2 { font-size: clamp(28px, 3.4vw, 44px); line-height: 1.08; color: var(--rust); }
+  h3 { font-size: 21px; line-height: 1.25; color: var(--copper-2); margin-bottom: 10px; }
+  p { margin: 0 0 16px; }
+  .lead { color: var(--dim); font-size: clamp(16px, 1.5vw, 20px); max-width: 60ch; }
+
+  .nav { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 24px; padding: 12px var(--pad);
+    background: rgba(255, 250, 240, .94); border-bottom: 1px solid var(--line); }
+  .nav__brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 900; font-size: 18px; color: var(--copper); }
+  .nav__brand img { width: 24px; height: 24px; }
+  .nav__links { display: flex; gap: 20px; }
+  .nav__links a { color: var(--dim); text-decoration: none; font-size: 15px; }
+  .nav__links a:hover { color: var(--copper); }
+  .nav__cta { margin-left: auto; }
+  @media (max-width: 760px) { .nav__links { display: none; } }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 20px; border-radius: 999px;
+    font: 700 15px/1 var(--sans); text-decoration: none; white-space: nowrap; border: 2px solid var(--copper); color: var(--copper); background: transparent; }
+  .btn:hover { background: rgba(156, 74, 39, .08); }
+  .btn--solid { background: var(--copper); color: #fff; }
+  .btn--solid:hover { background: var(--rust); border-color: var(--rust); }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 28px; }
+  .cmd { font: 13px/1 var(--mono); color: var(--dim); border: 1px dashed var(--line); padding: 13px; white-space: nowrap; overflow-x: auto; max-width: 100%; background: #fff; }
+
+  .section { padding: clamp(56px, 8vw, 100px) 0; }
+  .hero { background: var(--cream); border-bottom: 1px solid var(--line); padding-top: clamp(36px, 5vw, 72px); }
+  .hero__grid { display: grid; gap: clamp(28px, 4vw, 56px); grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: center; }
+  @media (max-width: 960px) { .hero__grid { grid-template-columns: 1fr; } }
+  .stage { position: relative; aspect-ratio: 16 / 9; width: 100%; border-radius: 14px; overflow: hidden; background: #0b0f1f;
+    box-shadow: 0 0 0 4px var(--ink), 8px 12px 0 4px var(--ink); }
+  .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .stage__note { font-size: 13.5px; color: var(--dim); margin-top: 22px; }
+  .stage__note a { color: var(--teal); font-weight: 700; }
+
+  .vs { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); margin-top: 32px; }
+  .vs > div { border-radius: 14px; padding: 26px 26px 18px; border: 2px solid var(--ink); background: #fff; }
+  .vs .before { background: #fdeee6; }
+  .vs ul { margin: 0; padding-left: 20px; color: var(--dim); }
+  .vs li { margin-bottom: 8px; }
+
+  .pipes { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); margin: 32px 0 44px; }
+  .pipes > div { border-left: 6px solid var(--copper-2); padding: 6px 0 6px 18px; }
+  .pipes p { color: var(--dim); font-size: 15.5px; margin: 0; }
+  .wide { max-width: 1040px; }
+
+  .cases { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); margin-top: 32px; }
+  .cases > div { background: #fff; border: 2px solid var(--ink); border-radius: 14px; padding: 22px 22px 18px; }
+  .cases .n { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 16px; background: var(--copper); color: #fff; font-weight: 900; font-size: 14px; margin-bottom: 12px; }
+  .cases h3 a { text-decoration: none; }
+  .cases h3 a:hover { text-decoration: underline; }
+  .cases h3 { font-size: 19px; }
+  .cases p { color: var(--dim); font-size: 15.5px; margin: 0; }
+
+  .cta { background: var(--copper); color: #fff; text-align: center; }
+  .cta h2 { color: #fff; }
+  .cta .lead { color: #f6e7dc; margin-inline: auto; }
+  .cta .actions { justify-content: center; }
+  .cta .btn { border-color: #fff; color: #fff; }
+  .cta .btn--solid { background: #fff; color: var(--copper); }
+  .cta .btn--solid:hover { background: var(--cream); }
+  .cta .cmd { color: var(--ink); }
+
+  .loop { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); margin: 32px 0 0; counter-reset: step; }
+  .loop > div { background: #fff; border: 2px solid var(--ink); border-radius: 14px; padding: 22px 22px 18px; position: relative; }
+  .loop > div::before { counter-increment: step; content: counter(step); display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+    border-radius: 16px; background: var(--copper); color: #fff; font-weight: 900; font-size: 14px; margin-bottom: 12px; }
+  .loop > div.ai::before { background: var(--dim); }
+  .loop > div.steer::before { background: var(--teal); }
+  .loop p { color: var(--dim); font-size: 15.5px; margin: 0; }
+  .loop__back { margin: 18px 0 0; font-weight: 700; color: var(--copper); }
+  .shots { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); margin-top: 32px; }
+  .shots figure { margin: 0; }
+  .shots img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 10px; border: 2px solid var(--ink); background: #fff; }
+  .shots figcaption { font-size: 14.5px; color: var(--dim); margin-top: 10px; }
+  .shots figcaption strong { color: var(--ink); }
+  .rows { margin-top: 32px; border-top: 2px solid var(--ink); }
+  .rows > div { display: grid; gap: 6px 28px; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); padding: 18px 0; border-bottom: 1px solid var(--line); }
+  .rows h3 { margin: 0; font-size: 19px; }
+  .rows p { margin: 0; color: var(--dim); }
+  @media (max-width: 700px) { .rows > div { grid-template-columns: 1fr; } }
+  .note { margin-top: 28px; font-size: 15px; color: var(--dim); max-width: 70ch; }
+
+  .foot { padding: 36px 0 48px; font-size: 14px; color: var(--dim); }
+  .foot__in { display: flex; flex-wrap: wrap; gap: 14px 28px; justify-content: space-between; }
+  .foot__in nav { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+  .foot__in a { text-decoration: none; }
+  .foot__in a:hover { color: var(--copper); }
+
+  .story { background: #fff; border: 2px solid var(--ink); border-radius: 14px; box-shadow: 8px 12px 0 0 var(--ink); padding: 22px 22px 14px; }
+  .story__head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 6px; }
+  .story__title { font-weight: 900; font-size: 19px; color: var(--rust); }
+  .story__who { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font: 600 12.5px/1 var(--sans); padding: 6px 10px; border-radius: 999px; background: var(--cream); border: 1px solid var(--line); color: var(--ink); white-space: nowrap; }
+  .chip i { width: 8px; height: 8px; border-radius: 4px; background: var(--copper); display: inline-block; }
+  .chip.agent i { background: var(--teal); }
+  .events { list-style: none; margin: 0; padding: 0; }
+  .events li { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px dashed var(--line); font-size: 15px; }
+  .events li:last-child { border-bottom: 0; }
+  .events b { font: 600 12px/1.5 var(--mono); color: var(--copper-2); text-transform: uppercase; letter-spacing: .04em; }
+  .events .agent b { color: var(--teal); }
+  .events span { color: var(--dim); }
+
+  .tiers { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); margin-top: 32px; align-items: stretch; }
+  @media (min-width: 1100px) { .tiers { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; } .tier { padding: 20px 16px 18px; } }
+  .tier { display: flex; flex-direction: column; background: #fff; border: 2px solid var(--ink); border-radius: 14px; padding: 22px 20px 20px; }
+  .tier.pick { background: var(--cream); box-shadow: 6px 8px 0 0 var(--copper); border-color: var(--copper); }
+  .tier h3 { margin-bottom: 6px; }
+  .tier .for { color: var(--dim); font-size: 14.5px; margin: 0 0 14px; min-height: 2.9em; }
+  .price { font-weight: 900; font-size: 34px; line-height: 1; color: var(--ink); margin: 0 0 4px; }
+  .price small { font-size: 14px; font-weight: 600; color: var(--dim); }
+  .per { font-size: 13.5px; color: var(--dim); margin: 0 0 16px; }
+  .tier ul { margin: 0 0 18px; padding-left: 18px; color: var(--dim); font-size: 15px; flex: 1; }
+  .tier li { margin-bottom: 6px; }
+  .tier .btn { width: 100%; }
+  .usage { margin-top: 28px; border-top: 2px solid var(--ink); }
+  .usage > div { display: grid; gap: 6px 28px; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); padding: 16px 0; border-bottom: 1px solid var(--line); }
+  .usage h3 { margin: 0; font-size: 18px; }
+  .usage p { margin: 0; color: var(--dim); }
+  @media (max-width: 700px) { .usage > div { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header class="nav">
+  <a class="nav__brand" href="/web/4"><img src="/favicon.svg" alt="" width="24" height="24" />Sliqtly</a>
+  <nav class="nav__links" aria-label="Sections">
+    <a href="#problem">The problem</a>
+    <a href="#how">How it works</a>
+    <a href="#embed">Embed it</a>
+    <a href="#security">Security</a>
+    <a href="#pricing">Pricing</a>
+  </nav>
+  <div class="nav__cta"><a class="btn btn--solid" href="/connect.html">Connect your AI</a></div>
+</header>
+<main>
+  <section class="section hero">
+    <div class="wrap hero__grid">
+      <div>
+        <p class="label">Shared Story Workspace</p>
+        <h1>One workspace for your team and every AI agent.</h1>
+        <p class="lead">Sliqtly does not need to be your AI. It is the place where your people and their agents, Claude, Codex, Pi or the next one, work on the same Story. The work, its versions, forks and reviews stay there when the agent changes.</p>
+        <div class="actions">
+          <a class="btn btn--solid" href="/connect.html">Connect your assistant</a>
+          <a class="btn" href="#pricing">See pricing</a>
+        </div>
+      </div>
+      <div>
+        <div class="story" role="img" aria-label="A Story worked on by two people and two agents">
+          <div class="story__head">
+            <span class="story__title">Q4 pricing analysis</span>
+            <span class="story__who"><span class="chip"><i></i>Anna</span><span class="chip"><i></i>Ben</span><span class="chip agent"><i></i>Claude</span><span class="chip agent"><i></i>Codex</span></span>
+          </div>
+          <ul class="events">
+            <li class="agent"><b>Claude</b><span>Wrote the analysis: 9 slides, 3 charts from the sales workbook.</span></li>
+            <li><b>Anna</b><span>Shared the Story with Ben as a reviewer.</span></li>
+            <li class="agent"><b>Codex</b><span>Ben's agent reviewed a fork and found two wrong totals.</span></li>
+            <li><b>Ben</b><span>Sent the findings back as comments on the original.</span></li>
+            <li class="agent"><b>Claude</b><span>Fixed both totals and resolved the comments. Version 4 saved.</span></li>
+          </ul>
+        </div>
+        <p class="stage__note">Each person connects their own agent with their own sign-in. Nobody's keys or private files travel with the Story.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="problem">
+    <div class="wrap">
+      <p class="label">The problem</p>
+      <h2>Every agent works in its own chat. The team's context gets lost.</h2>
+      <p class="lead">An analysis made with one assistant cannot be reviewed by a colleague's assistant without copying it around. Feedback goes into separate chats, and nobody can see which version is current.</p>
+      <div class="vs">
+        <div class="before">
+          <h3>Work spread over chats</h3>
+          <ul>
+            <li>Each person and each agent has a private copy of the context.</li>
+            <li>Reviews arrive as pasted text, detached from what they are about.</li>
+            <li>Switching to another AI means starting over.</li>
+            <li>Nobody knows who changed what, or which agent did it.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Work in a shared Story</h3>
+          <ul>
+            <li>People and agents read and write the same Story.</li>
+            <li>A review happens in a fork and comes back as comments or changes.</li>
+            <li>Any MCP client can join; the Story outlives the agent.</li>
+            <li>Every version records which person or agent made it.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="how" style="background: var(--cream); border-block: 1px solid var(--line);">
+    <div class="wrap">
+      <p class="label">How it works</p>
+      <h2>Create, share, connect, review, bring it back.</h2>
+      <div class="loop">
+        <div><h3>Create a Story</h3><p>You or your agent write a document, deck or analysis into a Topic.</p></div>
+        <div><h3>Share it</h3><p>Invite a colleague as a viewer, commenter or editor of that one Story.</p></div>
+        <div class="ai"><h3>They connect their agent</h3><p>Their own MCP agent signs in with their own account and sees only what was shared.</p></div>
+        <div class="steer"><h3>Review in a fork</h3><p>The review runs in a fork and returns its findings to the original as comments or a change to accept.</p></div>
+      </div>
+      <p class="loop__back">↻ The next round starts from the same Story, whichever agent picks it up.</p>
+    </div>
+  </section>
+
+  <section class="section" id="embed">
+    <div class="wrap">
+      <p class="label">Three ways to use it</p>
+      <h2>Use it as a service, or build it into your own product.</h2>
+      <div class="cases">
+        <div><span class="n">1</span><h3>Sliqtly Cloud</h3><p>The ready service: editor, storage, collaboration and the MCP endpoint for your team's assistants.</p></div>
+        <div><span class="n">2</span><h3>Embedded and white-label</h3><p>Put the Story editor and collaboration inside your own product, a Jira add-on, a consulting platform or an agent service, with the SDK and APIs. Your customers need not know it is Sliqtly.</p></div>
+        <div><span class="n">3</span><h3>Private cloud and Enterprise</h3><p>Your organisation's own AI workspace in an isolated environment, with SSO, roles, audit logs and agent interfaces.</p></div>
+      </div>
+      <div class="rows">
+        <div><h3>Workspace service</h3><p>Topics, Stories, files, versions, forks and collaboration.</p></div>
+        <div><h3>Agent gateway</h3><p>MCP connections, per-user permissions, sessions and which tools each agent may use.</p></div>
+        <div><h3>Artifact engine</h3><p>Presentations, SmartArt, diagrams, Python, rendering and export to PDF and PowerPoint.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="security" style="background: var(--cream); border-block: 1px solid var(--line);">
+    <div class="wrap">
+      <p class="label">Security</p>
+      <h2>A shared session never shares your keys.</h2>
+      <div class="rows">
+        <div><h3>Organisations kept apart</h3><p>Every Story, file and cache entry belongs to one organisation, and isolation is tested on every build.</p></div>
+        <div><h3>Permissions per Story</h3><p>Roles are checked on every agent call, in forks too, not only at sign-in.</p></div>
+        <div><h3>Your keys stay yours</h3><p>Your AI API keys are kept in a vault and never reach another agent's context. A session belongs to one person and one Story.</p></div>
+        <div><h3>Standard sign-in for agents</h3><p>Agents connect with OAuth 2.1 as the MCP specification requires: each token is checked to be issued for Sliqtly, and no token is passed on.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="pricing">
+    <div class="wrap">
+      <p class="label">Pricing</p>
+      <h2>Pay for the workspace. Bring your own AI.</h2>
+      <p class="lead">Prices are per month, excluding VAT. AI models run on your own API key by default, so a low-cost collaborator never means an unlimited AI bill.</p>
+      <div class="tiers">
+        <div class="tier">
+          <h3>Personal</h3>
+          <p class="for">Your own Stories and agents.</p>
+          <p class="price">€0 <small>to €12</small></p>
+          <p class="per">per month</p>
+          <ul><li>Your own Topics and Stories</li><li>Connect any MCP assistant</li><li>Limited cloud storage</li></ul>
+          <a class="btn" href="/connect.html">Start free</a>
+        </div>
+        <div class="tier pick">
+          <h3>Team</h3>
+          <p class="for">Shared work for a team and its agents.</p>
+          <p class="price">€19 <small>to €29</small></p>
+          <p class="per">per user per month</p>
+          <ul><li>Shared Topics</li><li>Comments, forks and reviews</li><li>Each member's own agent</li></ul>
+          <a class="btn btn--solid" href="/connect.html">Start with Team</a>
+        </div>
+        <div class="tier">
+          <h3>Business</h3>
+          <p class="for">Control for organisations.</p>
+          <p class="price">€49 <small>to €79</small></p>
+          <p class="per">per user per month</p>
+          <ul><li>Roles per Story</li><li>Audit log</li><li>Agent workspaces</li></ul>
+          <a class="btn" href="/connect.html">Choose Business</a>
+        </div>
+        <div class="tier">
+          <h3>Embedded API</h3>
+          <p class="for">Inside your own product.</p>
+          <p class="price">Usage</p>
+          <p class="per">per active Story per month</p>
+          <ul><li>SDK, APIs and white-label</li><li>Rendering and export</li><li>Resell under your own name</li></ul>
+          <a class="btn" href="/connect.html">Talk to us</a>
+        </div>
+        <div class="tier">
+          <h3>Enterprise</h3>
+          <p class="for">Your own environment.</p>
+          <p class="price">Contract</p>
+          <p class="per">annual agreement</p>
+          <ul><li>Private deployment</li><li>SSO and administration</li><li>Service level agreement</li></ul>
+          <a class="btn" href="/connect.html">Talk to us</a>
+        </div>
+      </div>
+      <div class="usage">
+        <div><h3>AI models</h3><p>Use your own API key at no extra charge, or buy model usage through Sliqtly as an add-on.</p></div>
+        <div><h3>Compute hours</h3><p>Python runs and agent jobs on Sliqtly's servers are billed by use.</p></div>
+        <div><h3>Heavy exports</h3><p>Large PDF, PowerPoint and video exports are billed by use.</p></div>
+      </div>
+      <p class="note">These are planned prices and may change before launch. Partners on the Embedded plan may resell and sublicense the service to their own customers; see the <a href="/terms.html#transfer">terms</a>.</p>
+    </div>
+  </section>
+
+  <section class="section cta">
+    <div class="wrap">
+      <h2>Give your team and its agents one place to work.</h2>
+      <p class="lead">Connect your assistant, create a Story and share it with a colleague and their agent.</p>
+      <div class="actions">
+        <a class="btn btn--solid" href="/connect.html">Connect your assistant</a>
+        <span class="cmd">https://sliqtly.com/mcp</span>
+        <a class="btn" href="/web/use-cases">See use cases</a>
+      </div>
+    </div>
+  </section>
+</main>
+<footer class="foot">
+  <div class="wrap foot__in">
+    <div><strong>Sliqtly</strong> · a trial page, not linked from the site.</div>
+    <nav aria-label="Links"><a href="/connect.html">Docs</a><a href="/local.html">Download</a><a href="/personal-license.txt">License</a><a href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener">Buy me a coffee ☕</a></nav>
+  </div>
+</footer>
+</body>
+</html>
