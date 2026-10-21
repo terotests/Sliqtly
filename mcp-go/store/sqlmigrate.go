@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -25,6 +26,7 @@ import (
 // refused, not read wrong. Before an existing file is migrated it is copied
 // with VACUUM INTO to <dir>/backups/<time>-<name>-v<n>.db, a consistent
 // copy of the file as it was, unless every migration to run is Additive.
+// The newest KeepSQLiteBackups copies of each file are kept.
 //
 // A migration is only ever appended: one that has been released is never
 // changed, since files out there are already past it.
@@ -130,8 +132,15 @@ func Migrate(ctx context.Context, db *sql.DB, path string, ms []SQLMigration, se
 	return rep, nil
 }
 
+// KeepSQLiteBackups is how many copies BackupSQLite keeps of one file: each
+// is the whole file, so they are not left to pile up upgrade after upgrade.
+const KeepSQLiteBackups = 3
+
+const sqliteBackupTime = "20060102T150405.000Z"
+
 // BackupSQLite writes a consistent copy of the database to
-// <dir of path>/backups/<time>-<name>-<tag>.db and returns its path. It
+// <dir of path>/backups/<time>-<name>-<tag>.db and returns its path, then
+// removes that file's copies past KeepSQLiteBackups, the oldest first. It
 // runs beside readers and waits for a writer.
 func BackupSQLite(ctx context.Context, db *sql.DB, path, tag string) (string, error) {
 	dir := filepath.Join(filepath.Dir(path), "backups")
@@ -139,11 +148,44 @@ func BackupSQLite(ctx context.Context, db *sql.DB, path, tag string) (string, er
 		return "", err
 	}
 	base := filepath.Base(path)
-	dst := filepath.Join(dir, time.Now().UTC().Format("20060102T150405.000Z")+"-"+base[:len(base)-len(filepath.Ext(base))]+"-"+tag+".db")
+	name := base[:len(base)-len(filepath.Ext(base))]
+	dst := filepath.Join(dir, time.Now().UTC().Format(sqliteBackupTime)+"-"+name+"-"+tag+".db")
 	if _, err := db.ExecContext(ctx, `VACUUM INTO ?`, dst); err != nil {
 		return "", err
 	}
+	pruneSQLiteBackups(dir, name, KeepSQLiteBackups)
 	return dst, nil
+}
+
+// pruneSQLiteBackups removes the copies of the file name in dir past the
+// newest keep. Other files of dir (the folder's own backups) are left.
+func pruneSQLiteBackups(dir, name string, keep int) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	var copies []string
+	for _, e := range ents {
+		n := e.Name()
+		if !e.Type().IsRegular() || len(n) <= len(sqliteBackupTime) || !strings.HasSuffix(n, ".db") {
+			continue
+		}
+		if _, err := time.Parse(sqliteBackupTime, n[:len(sqliteBackupTime)]); err != nil {
+			continue
+		}
+		rest := strings.TrimSuffix(n[len(sqliteBackupTime):], ".db")
+		// "-<name>-<tag>": the tag is the last part, the name may have dashes
+		i := strings.LastIndexByte(rest, '-')
+		if i <= 0 || rest[1:i] != name {
+			continue
+		}
+		copies = append(copies, n)
+	}
+	sort.Strings(copies)
+	for len(copies) > keep {
+		os.Remove(filepath.Join(dir, copies[0]))
+		copies = copies[1:]
+	}
 }
 
 // SchemaVersion is the file's user_version.

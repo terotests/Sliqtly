@@ -346,7 +346,7 @@ Each database's schema is a numbered list of migrations
 a file at a newer version is refused, and an existing file is copied to
 `backups/` with `VACUUM INTO` before it is migrated (not for a migration
 that only adds columns or indexes, such as blobs.db's deltas: a copy of
-blobs.db can be gigabytes).
+blobs.db can be gigabytes). The three newest copies of each file are kept.
 
 **Deltas** (`store/sqliteblobs.go`, `rdiff/`). A blob is kept whole or as
 a delta against another blob, by RangerDiff's `RdSmart` compiled to Go
@@ -360,7 +360,11 @@ Reads give the same bytes as before, checked against the hash. Files over
 **Backups** (`backup.go`, `store/backup.go`). With `SLIQTLY_BACKUP` set the
 server takes a backup at start when the last is older than
 `SLIQTLY_BACKUP_EVERY`, then on that interval, and prunes by
-`SLIQTLY_BACKUP_KEEP` after each. A backup folder holds:
+`SLIQTLY_BACKUP_KEEP` after each. It skips a backup, and logs why, when
+the backup folder's disk has less free than twice `sliqtly.db` or a
+twentieth of the disk, so backups never fill the disk the server writes to
+(the `.deb` keeps both on the same disk); `backup run` takes it anyway. A
+backup folder holds:
 
 | | |
 | --- | --- |
