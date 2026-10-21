@@ -33,6 +33,7 @@ Import "PresDeck.rgr"
 Import "PresDocx.rgr"
 Import "PresDocFlow.rgr"
 Import "PresDocCaret.rgr"
+Import "PresStageClick.rgr"
 
 class PresDocView {
     def flow:PresDocFlow (new PresDocFlow())
@@ -65,6 +66,10 @@ class PresDocView {
     ; picture and figure, and a slide's rule with the start of the slide
     def atomTop:[double]
     def atomBottom:[double]
+    ; the links' words where the page drew them (page units), a line's run
+    ; of one link as one area: the portrait PDF's links (PresExport.docPdf).
+    ; `slide` is left -1, the exporter finds it.
+    def links:[PresLinkArea]
 
     Constructor () {
     }
@@ -231,6 +236,7 @@ class PresDocView {
         clear segBottom
         clear atomTop
         clear atomBottom
+        clear links
         def e:MarkdownEdit deck.md.edit
         def doc:MdNode e.doc
         ; the shots, as the exports find them
@@ -597,6 +603,7 @@ class PresDocView {
                             this.paintInner(deck b it.dy)
                         }
                         caret.add(b it.dy)
+                        this.link(b it.dy)
                         if ((((b.kind == 0) || (b.kind == 3)) || (b.kind == 4)) || (b.kind == 5)) {
                             this.atom((b.y + it.dy) ((b.y + b.h) + it.dy))
                         }
@@ -617,6 +624,14 @@ class PresDocView {
             this.segment(from it.y (it.bottomEdge()))
             i = (i + 1)
         }
+    }
+
+    ; A word of a link, drawn `dy` lower than its layout has it.
+    fn link:void (b:MdBox dy:double) {
+        if (((b.kind != 0) || ((strlen b.link) == 0)) || ((strlen (trim b.text)) == 0)) {
+            return
+        }
+        PresStageClick.addRun(links b.x (b.y + dy) b.w b.h b.link)
     }
 
     fn segment:void (from:int top:double bottom:double) {
@@ -788,6 +803,7 @@ class PresDocView {
                 painter.paintBox(list nl m it.y)
                 if (m.kind == 0) {
                     caret.add(m it.y)
+                    this.link(m it.y)
                     this.atom((m.y + it.y) ((m.y + m.h) + it.y))
                 }
             }

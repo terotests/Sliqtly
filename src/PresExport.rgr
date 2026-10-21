@@ -384,16 +384,100 @@ class PresExport {
         def bg:EVGColor (EVGColor.parse(view.paper))
         def known:[string] (this.stillPaths())
         def missing:[string]
+        def d:PresDeck (unwrap deck)
         def i:int 0
         while (i < (idiv (array_length cuts) 2)) {
             def dl:EVGDisplayList (PresExport.docSheet(view cuts i))
             this.keepDrawable(dl renderer e known missing)
             def pageEl:EVGElement (EVGListToElements.pageFrom(dl w h bg true))
             this.vectorize(pageEl)
+            for (PresExport.docSheetLinks(d view cuts i)) a:PresLinkArea k {
+                def box:EVGElement (EVGListToElements.boxAt(a.x a.y a.w a.h))
+                box.href = a.href
+                pageEl.addChild(box)
+            }
             section.addChild(pageEl)
             i = (i + 1)
         }
+        ; each slide's title as a bookmark to the sheet it starts on
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def at:int (PresExport.docSheetOfSlide(view cuts s))
+            def slide:PresSlide (d.slideAt(s))
+            def st:string (trim slide.title)
+            if ((at >= 0) && ((strlen st) > 0)) {
+                renderer.addBookmark(st at)
+            }
+            s = (s + 1)
+        }
         return (renderer.render(root))
+    }
+
+    ; The sheet (0 = first) the page's y is on, -1 when no sheet has it:
+    ; past a sheet's end and before the next one's start (a margin) is the
+    ; next one's.
+    sfn docSheetAt:int (cuts:[double] y:double) {
+        def n:int (idiv (array_length cuts) 2)
+        def i:int 0
+        while (i < n) {
+            if (y < (itemAt cuts ((i * 2) + 1))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The sheet slide `s` starts on, -1 when the page does not read it.
+    sfn docSheetOfSlide:int (view:PresDocView cuts:[double] s:int) {
+        if ((s < 0) || (s >= (array_length view.flow.slideTops))) {
+            return -1
+        }
+        def top:double (itemAt view.flow.slideTops s)
+        if (top < 0.0) {
+            return -1
+        }
+        return (PresExport.docSheetAt(cuts top))
+    }
+
+    ; The links on sheet `i` (sheet units, as `docSheet` sets the page on
+    ; it): the page's own (PresDocView.links) whose line is on the sheet. A
+    ; link to a slide of this deck goes to the sheet that slide starts on
+    ; (`#page=N`), and is left out when the page does not read that slide;
+    ; another `#…` names nothing in the file and is left out too.
+    sfn docSheetLinks:[PresLinkArea] (deck:PresDeck view:PresDocView cuts:[double] i:int) {
+        def out:[PresLinkArea]
+        def top:double (itemAt cuts (i * 2))
+        def bottom:double (itemAt cuts ((i * 2) + 1))
+        def dy:double (view.flow.margin - top)
+        for view.links a:PresLinkArea k {
+            def mid:double (a.y + (a.h * 0.5))
+            if ((mid < top) || (mid >= bottom)) {
+                continue
+            }
+            def href:string a.href
+            def to:int (PresStageClick.slideOf(deck href))
+            if (to >= 0) {
+                def at:int (PresExport.docSheetOfSlide(view cuts to))
+                if (at < 0) {
+                    continue
+                }
+                href = ("#page=" + (to_string (at + 1)))
+            } {
+                if ((substring href 0 1) == "#") {
+                    continue
+                }
+            }
+            def b (new PresLinkArea)
+            b.x = a.x
+            b.y = (a.y + dy)
+            b.w = a.w
+            b.h = a.h
+            b.href = href
+            b.slide = to
+            push out b
+        }
+        return out
     }
 
     ; Where the View page's A4 sheets start and end: [top0, bottom0, …].
