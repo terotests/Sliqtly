@@ -20,6 +20,7 @@ import { registerDeckEffects, effectStill, reducedMotion, holdStill } from "./fx
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { canvasDpr } from "./pixels.js";
 import { openVfs, memoryStore, kindOf, isText, placeFor, newId } from "./vfs.js";
+import { openPlan, draftStore, editKeeper } from "./drafts.js";
 import { accountStorage } from "./account.js";
 import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
 import { toBase64, fromBase64, fileBytes, fileSize, fileState, plainChord, clipImgHtml } from "./slideclip.js";
@@ -1356,6 +1357,12 @@ let roomsHere = emptyRooms();
 function shownDoc(text, quiet = false) {
   app.setSource(text);
   doc.loading = false;
+  // a deck left in Edit in this tab is in Edit again (after the opening
+  // has named it: its share's id is set right after)
+  const turn = openTurn;
+  if (!viewer && !quiet) setTimeout(() => {
+    if (turn === openTurn && !doc.loading && !app.isEditing() && editKeep().has(editKey())) app.setEditing(true, false);
+  }, 0);
   if (!viewer && !quiet) showDeckTab();
   // a room's chat over the work area steps aside for the presentation opened
   if (roomChatOne) roomChatOne.close();
@@ -1584,6 +1591,23 @@ function exclusive(fn) {
   return run;
 }
 
+// The decks in Edit in this tab (web/drafts.js), by their share's id or this
+// browser's: "" for a deck not kept anywhere yet.
+const editKeep = () => editKeeper(mineTab);
+function editKey() {
+  if (doc.cloud) return "cloud:" + doc.cloud;
+  return doc.persisted ? doc.id : "";
+}
+// sliqtly.com's editor keeps nothing in IndexedDB: a change its share has
+// not got yet is kept as a draft in localStorage (web/drafts.js), taken
+// back when the deck opens again (openOwnCloud), after a reload too
+const drafts = () => draftStore(mine);
+function keepDraft() {
+  if (!CLOUD_ONLY || viewer || !doc.cloud || doc.loading) return;
+  drafts().keep(doc.cloud, app.source(), doc.cloudMd ?? null);
+}
+window.addEventListener("pagehide", () => keepDraft());
+
 async function saveDoc(force) {
   if (!vfs || viewer || merging) return;
   return exclusive(() => saveDocNow(force));
@@ -1601,6 +1625,10 @@ async function saveDocNow(force) {
     savedVersion = version;
     return;
   }
+  // in a room the share has what the room took (web/collab.js): what was
+  // typed here and not taken yet is this page's own
+  if (collabOn()) doc.cloudMd = collab.roomText() ?? doc.cloudMd;
+  keepDraft();
   // a deck as it was opened is not kept until someone changes it (a shared
   // deck opens with its own CSS: that is as opened too), nor an empty one
   if (!doc.persisted && !force && ((md === doc.openedText && css === doc.openedCss) || !md.trim())) return;
@@ -5764,7 +5792,9 @@ function collabFollow() {
   });
   collab = s;
   app.meetClient(s.me.client);
-  s.start(want).then(() => refreshCollabBar(), (e) => {
+  // what the editor holds stands on the share's text as last known: what
+  // this page changed since is kept on top of the room's
+  s.start(want, doc.cloudMd).then(() => refreshCollabBar(), (e) => {
     console.warn("editing together is off for this deck", e);
     if (collab === s) collab = null;
     refreshCollabBar();
@@ -5878,6 +5908,8 @@ function refreshCollabBar() {
 // changed since the last one; the edits were kept as they were made.
 async function editModeChanged(why) {
   collab?.setEditing(app.isEditing()).catch(() => {});
+  // Edit or Save pressed: the deck opens so again in this tab
+  if (why !== "open") editKeep().set(editKey(), app.isEditing());
   refreshCollabBar();
   needsPaint = true;
   if (why !== "save") return;
@@ -7551,7 +7583,9 @@ fileAdd.addEventListener("change", async () => {
 // editor, the chart editor, the theme); and once more as the page goes.
 setInterval(() => { saveDoc().catch(fail); }, 1500);
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") saveDoc().catch(() => {});
+  if (document.visibilityState !== "hidden") return;
+  keepDraft();
+  saveDoc().catch(() => {});
 });
 
 // --- sharing: the markdown in the URL ------------------------------------------
@@ -7689,11 +7723,19 @@ async function cloudSync() {
   const { deck, sig } = await cloudDeck();
   if (doc.cloud && (sig === doc.cloudSig || doc.cloudHalt)) return doc.cloud;
   const which = doc.id;
+  // in a room the Markdown is not sent from here: the share has what the
+  // room took, not this page's text
+  const roomed = collabOn();
   // the deck `which` is this share's from here on, in this browser too,
   // whichever deck is open by then: `files` are the paths the share has
   const keepShare = async (id, files) => {
-    const kept = { cloud: id, cloudMd: deck.md, cloudCss: deck.css, cloudTheme: deck.theme, cloudFiles: files };
-    if (doc.id === which) Object.assign(doc, kept);
+    const kept = { cloud: id, cloudCss: deck.css, cloudTheme: deck.theme, cloudFiles: files };
+    if (!roomed) kept.cloudMd = deck.md;
+    else if (doc.id === which && collabOn()) kept.cloudMd = collab.roomText() ?? doc.cloudMd;
+    if (doc.id === which) {
+      Object.assign(doc, kept);
+      keepDraft();
+    }
     const cur = await vfs.getDoc(which);
     if (cur) await vfs.putDoc({ ...cur, ...kept });
   };
@@ -7725,7 +7767,7 @@ async function cloudSync() {
     } else {
       try {
         sent = new Set(deck.files.filter((f) => doc.cloudStamps.get(f.path) !== f.stamp).map((f) => f.path));
-        entries = await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps, collab: collabOn() });
+        entries = await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps, collab: roomed });
         files = entries.map((f) => f.path);
       } catch (e) {
         if (e?.code !== "changed-elsewhere") throw e;
@@ -7792,12 +7834,17 @@ async function openOwnCloudNow(id) {
   const mine = typeof p.mayChange === "function" ? p.mayChange(shared) : shared.owner === who.uid;
   if (!shared || !mine) return false;
   const local = (await vfs.listDocs()).find((d) => d.cloud === id);
-  // changes made here that the cloud does not have yet, and nobody changed
-  // it since: this browser's copy is the newer, and goes up on the next save
-  if (local && local.md !== local.cloudMd && shared.md === local.cloudMd) return openDoc(local.id);
+  // changes made here that the cloud does not have yet (this browser's
+  // record; on sliqtly.com's editor, its draft after a reload): nobody
+  // changed the cloud's since, this copy is the newer and goes up on the
+  // next save; changed there too, this one's changes go on top of it
+  // (web/drafts.js)
+  const plan = openPlan({ RdOtDelta }, local || (CLOUD_ONLY ? drafts().get(id) : null), shared.md || "");
+  if (plan.from === "kept" && local) return openDoc(local.id);
+  const text = plan.md;
   await leaveDoc();
   if (overtaken(turn)) return OVERTAKEN;
-  beginDoc(shared.md || "");
+  beginDoc(text);
   doc.src = "cloud:" + id;
   doc.id = local?.id || newId();
   // the cloud's files replace this browser's (its versions stay), but not
@@ -7850,7 +7897,7 @@ async function openOwnCloudNow(id) {
   }
   if (overtaken(turn)) return OVERTAKEN;
   docName = shared.name || "presentation";
-  shownDoc(shared.md || "");
+  shownDoc(text);
   doc.cloud = id;
   doc.cloudFiles = (shared.files || []).map((f) => f.path);
   // on a server of one's own the rooms panel shows the deck's room
@@ -7862,9 +7909,12 @@ async function openOwnCloudNow(id) {
   doc.cloudCss = shared.css ?? null;
   doc.cloudTheme = shared.theme || "";
   await saveDoc(true);
-  // with files of this browser's the share lacks, the next sync sends them
-  doc.cloudSig = unsent.length ? "" : (await cloudDeck()).sig;
-  if (unsent.length) cloudSoon();
+  // with files of this browser's the share lacks, or text, the next sync
+  // sends them
+  const ahead = unsent.length > 0 || text !== doc.cloudMd;
+  doc.cloudSig = ahead ? "" : (await cloudDeck()).sig;
+  if (ahead) cloudSoon();
+  if (plan.from !== "shared") toast(t("Your changes that were not saved yet are back in the presentation."));
   if (shared.head) await followCloudHead(shared.head).catch((e) => console.warn("versions not read", e));
   plainAddress();
   dropThumbs();

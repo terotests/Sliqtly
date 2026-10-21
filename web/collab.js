@@ -105,6 +105,18 @@ export function deckPeople(people, editedAt, me = "", now = Date.now(), activeMs
     || a.name.localeCompare(b.name) || (a.who < b.who ? -1 : a.who > b.who ? 1 : 0));
 }
 
+// `mine` and `theirs`, both made from `base`: theirs with mine's changes on
+// top (where both inserted at one place, mine first). The same as either
+// when the other did not change; `theirs` already holding all of `mine`
+// (the room took it before this page heard back) is not doubled.
+export function rebaseText(ot, base, mine, theirs, caret = -1) {
+  if (mine === base || mine === theirs) return theirs;
+  if (theirs === base) return mine;
+  const own = ot.RdOtDelta.diff(base, mine, caret);
+  const other = ot.RdOtDelta.diff(base, theirs, -1);
+  return ot.RdOtDelta.transform(own, other).a.apply(theirs);
+}
+
 // A delta as editor replaces, each at an offset of the text as the ones
 // before it left it: [{ offset, removed, text }]
 export function editsOf(delta) {
@@ -131,6 +143,9 @@ export class CollabDoc {
   constructor(ot, { text, rev, client }) {
     this.ot = ot;
     this.text = text;
+    // the room's text at `rev`: `text` without what is still to be
+    // acknowledged here (what a page read again rebases its own edits from)
+    this.room = text;
     this.client = client;
     this.state = new ot.RdOtClient(rev);
     // client → { who, name, color, caret, anchor } (offsets in `text`)
@@ -165,11 +180,13 @@ export class CollabDoc {
   // else's: applied here, and returned as the editor's replaces.
   op(m) {
     if (m.rev !== this.state.rev + 1) return null; // seen already, or a gap (the caller resets)
+    const theirs = this.ot.RdOtDelta.fromJson(JSON.stringify(m.ops));
+    this.room = theirs.apply(this.room);
     if (m.client === this.client && this.state.waiting()) {
       this.state.ack();
       return [];
     }
-    const d = this.state.receive(this.ot.RdOtDelta.fromJson(JSON.stringify(m.ops)));
+    const d = this.state.receive(theirs);
     this.text = d.apply(this.text);
     for (const p of this.peers.values()) {
       const own = p.client === m.client;
@@ -236,6 +253,7 @@ export class CollabSession {
     this.people = [];
     this.stopped = false;
     this.resetting = null;
+    this.base = null;
     this.joined = false;
     this.epoch = "";
     // who → when an edit of theirs last came (deckPeople)
@@ -245,11 +263,20 @@ export class CollabSession {
   active() { return !!(this.doc && !this.stopped); }
 
   // Joins the deck's room with the editor holding `text` (what this page
-  // has): the room's text replaces it where they differ.
-  async start(id) {
+  // has): the room's text replaces it where they differ, unless `base` is
+  // given: the room's text as the editor's was made from it (the share as
+  // last read or written), whose changes since are this page's own and are
+  // kept, on top of the room's.
+  async start(id, base = null) {
     this.id = id;
     this.stopped = false;
+    this.base = typeof base === "string" ? base : null;
     await this.resync();
+  }
+
+  // the room's text as this page last heard it (null before it joined)
+  roomText() {
+    return this.doc ? this.doc.room : null;
   }
 
   stop() {
@@ -265,14 +292,24 @@ export class CollabSession {
     this.resetting = (async () => {
       if (this.close) this.close();
       this.close = null;
+      // what the editor's text stands on: the room's as last heard (read
+      // again: the room was opened again, a send refused, a gap), or the
+      // one start() was given
+      const base = this.doc ? this.doc.room : this.base;
       const s = await this.t.snapshot(this.id);
       if (!s || this.stopped) return;
-      // the editor takes the room's text, its caret kept where it can be
+      // the editor takes the room's text, its caret kept where it can be,
+      // with what was typed here and the room never got on top of it (it
+      // was not acknowledged: lost with the room's run, or refused)
       const here = this.ed.text();
-      const d = this.ot.RdOtDelta.diff(here, s.md, -1);
+      const want = base == null ? s.md : rebaseText(this.ot, base, here, s.md, this.ed.caret());
+      const d = this.ot.RdOtDelta.diff(here, want, -1);
       for (const e of editsOf(d)) this.ed.apply(e.offset, e.removed, e.text);
       this.ed.synced();
       this.doc = new CollabDoc(this.ot, { text: s.md, rev: s.rev, client: this.me.client });
+      this.base = null;
+      // this page's own goes to the room as an edit of its own
+      if (want !== s.md) this.doc.local(want, this.ed.caret());
       this.version = this.ed.version();
       this.sending = null;
       this.doc.setPeers(s.peers);
