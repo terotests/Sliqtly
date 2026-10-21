@@ -1996,5 +1996,6 @@
   "Vault: ": "Vault: ",
   "Put in the vault: ": "Lisätty vaultiin: ",
   "Taken out of the vault: ": "Poistettu vaultista: ",
-  "Nothing in the vault opens yet: put presentations in it from their menu (Vault ▸).": "Vaultissa ei ole vielä avattavaa: lisää esityksiä niiden valikosta (Vault ▸)."
+  "Nothing in the vault opens yet: put presentations in it from their menu (Vault ▸).": "Vaultissa ei ole vielä avattavaa: lisää esityksiä niiden valikosta (Vault ▸).",
+  "Your changes that were not saved yet are back in the presentation.": "Tallentamatta jääneet muutoksesi on palautettu esitykseen."
 }

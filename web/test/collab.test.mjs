@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { editsOf, loadMe, saveMe, cleanName, rgbOf, chatTime, CollabDoc, CollabSession, ANIMALS, deckPeople } from "../collab.js";
+import { rebaseText, editsOf, loadMe, saveMe, cleanName, rgbOf, chatTime, CollabDoc, CollabSession, ANIMALS, deckPeople } from "../collab.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist", "rangerdiff.mjs");
@@ -229,4 +229,75 @@ test("who is in the room: the ones editing first, the latest change first among 
   assert.equal(rows[2].editing, true, "one of the pages is editing");
   assert.equal(rows[3].editing, false);
   assert.deepEqual(deckPeople([], null, "me", now), []);
+});
+
+t2("own changes on another's: rebased, never doubled", () => {
+  const base = "# A\n\none\ntwo\n";
+  assert.equal(rebaseText(ot, base, base, "x"), "x", "nothing of mine: theirs");
+  assert.equal(rebaseText(ot, base, base + "mine\n", base), base + "mine\n", "nothing of theirs: mine");
+  assert.equal(rebaseText(ot, base, base + "mine\n", base + "mine\n"), base + "mine\n", "theirs has mine already");
+  assert.equal(rebaseText(ot, base, "# A\n\none ME\ntwo\n", "# A\n\none\ntwo THEM\n"), "# A\n\none ME\ntwo THEM\n");
+  const r = rng(11);
+  for (let i = 0; i < 500; i += 1) {
+    let b = "";
+    for (let k = 3 + Math.floor(r() * 10); k > 0; k -= 1) b += PIECES[Math.floor(r() * PIECES.length)];
+    const mine = randomEdit(r, b).next;
+    const theirs = randomEdit(r, b).next;
+    const got = rebaseText(ot, b, mine, theirs);
+    // the same as the room would make of the two edits
+    const p = ot.RdOtDelta.transform(ot.RdOtDelta.diff(b, mine, -1), ot.RdOtDelta.diff(b, theirs, -1));
+    assert.equal(got, mine === theirs ? theirs : p.a.apply(theirs));
+  }
+});
+
+t2("typed while the room was opened again (server restarted) is kept and sent", async () => {
+  const room = fakeRoom("# Deck\n\nfirst\n");
+  const ed = fakeEditor(room.hub.text);
+  const tr = room.transport("c1");
+  const s = new CollabSession(ot, tr, ed, { who: "w", name: "P", color: "#000000", client: "c1" });
+  await s.start("deck01");
+  // someone else's edit the page heard, then the room's run ends
+  const other = new CollabSession(ot, room.transport("c2"), fakeEditor(room.hub.text), { who: "w2", name: "Q", color: "#111111", client: "c2" });
+  await other.start("deck01");
+  other.ed.type(other.ed.s.replace("first", "first!"), 0);
+  other.tick();
+  await flush();
+  for (const q of room.streams.get("c1").queue.splice(0)) s.event(q);
+  assert.equal(ed.s, "# Deck\n\nfirst!\n");
+  // the room refuses the next edit: opened again since
+  const send = tr.send;
+  let refused = 0;
+  tr.send = async (id, body) => {
+    if (!refused++) throw Object.assign(new Error("reset"), { code: "reset" });
+    return send(id, body);
+  };
+  ed.type(ed.s + "typed during the restart\n", ed.s.length + 24);
+  s.tick();
+  // meanwhile one more edit reached the room from elsewhere
+  room.hub.submit(room.hub.rev, ot.RdOtDelta.diff(room.hub.text, "# Deck!\n\nfirst!\n", -1), "c3");
+  for (let i = 0; i < 20; i += 1) {
+    await flush();
+    s.tick();
+    for (const q of room.streams.get("c1")?.queue.splice(0) || []) s.event(q);
+  }
+  assert.equal(refused, 2, "refused once, then sent");
+  assert.equal(room.hub.text, "# Deck!\n\nfirst!\ntyped during the restart\n", "the room has it");
+  assert.equal(ed.s, room.hub.text);
+  assert.equal(s.roomText(), room.hub.text);
+});
+
+t2("a page opening with changes of its own keeps them over the room's", async () => {
+  const base = "abc\n";
+  const room = fakeRoom("abc\nroom line\n");
+  const ed = fakeEditor("abc\nmine\n");
+  const s = new CollabSession(ot, room.transport("p"), ed, { who: "w", name: "P", color: "#000000", client: "p" });
+  await s.start("deck01", base);
+  assert.equal(ed.s, "abc\nmine\nroom line\n");
+  s.tick();
+  await flush();
+  assert.equal(room.hub.text, ed.s, "sent");
+  // without a base (a page joining late) the room's text is taken
+  const ed2 = fakeEditor("abc\nother\n");
+  await new CollabSession(ot, room.transport("q"), ed2, { who: "w2", name: "Q", color: "#000000", client: "q" }).start("deck01");
+  assert.equal(ed2.s, room.hub.text);
 });
