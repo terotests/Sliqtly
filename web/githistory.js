@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // A deck's versions in the Git repository of a server of one's own
-// (mcp-go/githistory.go, /api/history/…): listed in Version history beside
+// (mcp-go/githistory.go, /api/history/…) or of the account's GitHub
+// repository on sliqtly.com (mcp-go/cloudgithistory.go,
+// /editor/api/history/…, setHistoryBase): listed in Version history beside
 // the browser's own, looked at, restored, and opened by a link that names
 // one (/s/{id}@{version}). Kept apart from main.js so it can be tested under
 // Node (web/test/githistory.test.mjs); `get` is fetch.
@@ -44,7 +46,14 @@ async function json(get, url) {
   return out;
 }
 
-const base = (deck) => "/api/history/" + encodeURIComponent(deck);
+let historyBase = "/api/history/";
+
+/** Where the history is asked: "/api/history/" (a server of one's own) or "/editor/api/history/". */
+export function setHistoryBase(prefix) {
+  historyBase = prefix;
+}
+
+const base = (deck) => historyBase + encodeURIComponent(deck);
 
 /**
  * The deck's commits as the history panel lists its versions, newest first;

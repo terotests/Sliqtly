@@ -202,6 +202,12 @@ type Env struct {
 	Admin *adminConfig
 	// the editor for signed-in people at /editor (editor.go); nil: none
 	EditorGate *editorGate
+	// CloudGit: the accounts' GitHub repositories on sliqtly.com
+	// (cloudgit.go); nil without a GitHub App
+	CloudGit *cloudGit
+	// githubMint: a Firebase custom token for an account signing in with
+	// GitHub (firebase.go); nil elsewhere
+	githubMint func(ctx context.Context, uid string, u ghUser) (string, error)
 	// warden: shared spaces at /apps/warden (warden.go), with DB; nil
 	// elsewhere
 	warden *wardenService
@@ -263,6 +269,9 @@ func NewApp(env *Env) http.Handler {
 		}
 		if strings.HasPrefix(r.URL.Path, adminPath) {
 			serveAdmin(env, w, r)
+			return
+		}
+		if serveGitHub(env, w, r) {
 			return
 		}
 		if r.URL.Path == editorPath || strings.HasPrefix(r.URL.Path, editorPath+"/") {
@@ -1236,7 +1245,10 @@ func (h *McpHost) ShortID(n int64) string {
 	return string(b)
 }
 
-func (h *McpHost) UUID() string {
+func (h *McpHost) UUID() string { return newUUID() }
+
+// a random UUID (version 4)
+func newUUID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	b[6] = b[6]&0x0f | 0x40

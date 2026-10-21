@@ -23,6 +23,10 @@ rules_version = '2';
 // their members and the people of their chat (mcp-go/roomsapi.go, written
 // through POST /editor/api/rooms/<op>). No rule matches them: only the
 // server reads or writes them.
+// git_links/{uid}, git_users/{github id}: an account's GitHub repository, its
+// last commit and conflicts, and which account a GitHub sign-in is
+// (mcp-go/cloudgit.go). No rule matches them: only the server reads or
+// writes them.
 // room_chat/{tenant~room}/msgs/{id}: a room's chat messages, written by the
 // server only (mcp-go/fschat.go). A member of the room reads them (its page
 // listens to the new ones, web/cloudchat.js): someone whose membership

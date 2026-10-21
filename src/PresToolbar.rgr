@@ -1145,6 +1145,7 @@ class PresToolbar {
         this.exportGroups(xs)
         m.addSeparator()
         m.addItem("aiClaude" (PresI18n.t("Connect to AI…")) false)
+        m.addItem("gitHub" (PresI18n.t("Git and GitHub…")) false)
         m.addSeparator()
         m.addItem("docset" (PresI18n.t("Document settings…")) false)
         if canDelete {

@@ -31,7 +31,7 @@ import { scaled, previewOf, render, asPicture } from "./image-adjust.js";
 import { decodePicture, pictureCache, isSvg, isSmartArt, SMARTART_TYPE } from "./picture.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats, unifiedText } from "./versions.js";
 import { showHistory, askMerge, showVersionView, messageText } from "./versions-ui.js";
-import { isGitVersion, gitEntries, gitCheckout, gitChanges, gitTexts, mergeEntries, versionAddress } from "./githistory.js";
+import { isGitVersion, gitEntries, gitCheckout, gitChanges, gitTexts, mergeEntries, versionAddress, setHistoryBase } from "./githistory.js";
 import { isViewFrame, readyMessage, readPacket, viewPacket } from "./version-view.js";
 import { audiencePair, openAudience, openChannel, newPair } from "./twoscreen.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
@@ -94,6 +94,8 @@ const DOC_PATH = /^\/editor\/d\//;
 // store lasts as long as the page, and a deck goes by its cloud id
 // ("cloud:<id>") in tabs, the Rooms and the deck opened next time.
 const CLOUD_ONLY = !!EDITOR_ROOT;
+// the versions in the account's GitHub repository (mcp-go/cloudgit.go)
+if (CLOUD_ONLY) setHistoryBase("/editor/api/history/");
 function editAddress(id) {
   return EDITOR_ROOT ? EDITOR_ROOT + "/d/" + id : "/s/" + id + "?edit";
 }
@@ -7817,6 +7819,7 @@ async function cloudSync() {
     plainAddress();
     // a server's room lists it by the server's time of this save
     if (ownServer()) roomDecksAfterSave();
+    gitQuiet(id);
     return id;
   })();
   try { return await cloudBusy; } finally {
@@ -8314,7 +8317,7 @@ async function openHistory() {
   if (!h) return;
   // the versions a server of one's own keeps in Git, by their panel id
   const gitSeen = new Map();
-  const gitDeck = () => (ownServer() && doc.cloud ? doc.cloud.replace(/^cloud:/, "") : "");
+  const gitDeck = () => ((ownServer() || CLOUD_ONLY) && doc.cloud ? doc.cloud.replace(/^cloud:/, "") : "");
   showHistory({
     entries: async () => {
       let remote = [];
@@ -8341,7 +8344,8 @@ async function openHistory() {
       await saveDoc(true);
       const id = await commitVersion(message || "@auto", false, [], !!message);
       const git = await gitSave(message);
-      if (git?.error) toast(t("Version saved here, but not in the server's Git: ") + git.error);
+      if (git?.error) toast((CLOUD_ONLY ? t("Version saved here, but not in GitHub: ") : t("Version saved here, but not in the server's Git: ")) + git.error);
+      else if (git && CLOUD_ONLY) toast(git.commit ? t("Version saved, also in GitHub.") : t("Version saved. GitHub had it already."));
       else if (git) toast(git.commit ? t("Version saved, also in the server's Git.") : t("Version saved. The server's Git had it already."));
       else toast(id ? t("Version saved.") : t("Nothing changed since the last version."));
     },
@@ -8350,16 +8354,23 @@ async function openHistory() {
 
 // A server of one's own that keeps its decks in Git (mcp-go/gitpush.go)
 // commits a saved version there too, with its message, and pushes it to
-// its GitHub repository. → { commit } ("" when nothing changed), { error },
-// or null when the deck is not on such a server
+// its GitHub repository; on sliqtly.com the account's own GitHub repository
+// gets it (mcp-go/cloudgit.go). → { commit } ("" when nothing changed),
+// { error }, or null when the deck is kept in no Git
+const GIT_API = CLOUD_ONLY ? "/editor/api/git" : "/api/git";
+async function gitEnabled() {
+  const on = await fetch(GIT_API, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  return !!on?.enabled;
+}
 async function gitSave(message) {
-  if (!ownServer() || !doc.cloud) return null;
+  if (!(ownServer() || CLOUD_ONLY) || !doc.cloud) return null;
   try {
-    const on = await fetch("/api/git", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null));
-    if (!on?.enabled) return null;
+    if (!(await gitEnabled())) return null;
+    clearTimeout(gitQuietTimer);
+    gitQuietTimer = 0;
     // what the editor shows is what the server commits
     await cloudSync();
-    const res = await fetch("/api/git/save", {
+    const res = await fetch(GIT_API + "/save", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ deck: doc.cloud.replace(/^cloud:/, ""), message: message || "" }),
     });
@@ -8370,6 +8381,37 @@ async function gitSave(message) {
   }
 }
 document.getElementById("history").addEventListener("click", () => { openHistory().catch(fail); });
+
+// On sliqtly.com with a GitHub repository connected, the decks are
+// committed a while after the last save to the cloud (and when the page is
+// left before that), so the repository follows without "Save version"
+const GIT_QUIET = 5 * 60 * 1000;
+let gitQuietTimer = 0;
+let gitQuietDeck = "";
+function gitSyncNow(keepalive) {
+  const deck = gitQuietDeck;
+  gitQuietTimer = 0;
+  return fetch(GIT_API + "/sync", { method: "POST", keepalive, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deck }) }).catch(() => {});
+}
+function gitQuiet(deck) {
+  if (!CLOUD_ONLY || !deck) return;
+  clearTimeout(gitQuietTimer);
+  gitQuietDeck = deck;
+  gitQuietTimer = setTimeout(() => { gitEnabled().then((on) => on && gitSyncNow(false)); }, GIT_QUIET);
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "hidden" || !gitQuietTimer) return;
+  clearTimeout(gitQuietTimer);
+  gitSyncNow(true);
+});
+
+// File → Git and GitHub…: sliqtly.com's page for the account's repository,
+// or a server of one's own's Git settings
+document.getElementById("gitHub").addEventListener("click", () => {
+  if (CLOUD_ONLY) window.open("/editor/git", "_blank", "noopener");
+  else if (ownServer()) window.open("/settings#git", "_blank", "noopener");
+  else toast(t("Git and GitHub are on sliqtly.com's editor and on a Sliqtly server of your own."));
+});
 
 // Share, signed in: the deck's own share, saved first. → the share's id
 async function shareCloud() {
