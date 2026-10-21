@@ -29,8 +29,9 @@ import { lang, LANGS, t, translateDom, chooseLang, chooseTerm, handOver } from "
 import { createLiveSheets } from "./sheets-live.js";
 import { scaled, previewOf, render, asPicture } from "./image-adjust.js";
 import { decodePicture, pictureCache, isSvg, isSmartArt, SMARTART_TYPE } from "./picture.js";
-import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
-import { showHistory, askMerge } from "./versions-ui.js";
+import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats, unifiedText } from "./versions.js";
+import { showHistory, askMerge, showVersionView, messageText } from "./versions-ui.js";
+import { isGitVersion, gitEntries, gitCheckout, gitChanges, gitTexts, mergeEntries, versionAddress } from "./githistory.js";
 import { isViewFrame, readyMessage, readPacket, viewPacket } from "./version-view.js";
 import { audiencePair, openAudience, openChannel, newPair } from "./twoscreen.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
@@ -81,6 +82,11 @@ import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPag
 // /editor/s/{id}?edit still opens it.
 const EDITOR_ROOT = /^\/editor(\/|$)/.test(location.pathname) ? "/editor" : "";
 const DECK_PATH = /^(?:\/editor\/[sd]|\/s)\/([A-Za-z0-9]{6,32})\/?$/;
+// /s/{id}@{version}: the deck opens as usual, and that version of it, as the
+// server's Git keeps it, is shown over it (web/githistory.js); the address
+// keeps the deck's own form from here on
+const AT_VERSION = versionAddress(location.pathname);
+if (AT_VERSION) history.replaceState(history.state, "", AT_VERSION.path + location.search + location.hash);
 const SHARED_PATH = /^(?:\/editor\/[sd]|\/s)\//;
 const DOC_PATH = /^\/editor\/d\//;
 // sliqtly.com's editor keeps nothing in IndexedDB (Tero, 2026-10-09: the
@@ -6107,6 +6113,10 @@ async function followLink(href) {
   }
   const to = linkTarget(href, location.origin, SITE);
   if (!to) return;
+  if (to.deck && to.rev && ownServer()) {
+    peekVersion(to.deck, to.rev);
+    return;
+  }
   if (to.deck) {
     if (to.deck === doc.cloud) {
       if (!(to.name && app.followLink(to.name))) app.selectSlide(to.slide);
@@ -6134,6 +6144,24 @@ async function followLink(href) {
     }
   }
   window.open(to.url, "_blank", "noopener");
+}
+
+// One version of a deck, as the server's Git keeps it, read only over what
+// is open (a link /s/{id}@{version}); Back or Esc returns to where it was
+function peekVersion(deck, rev) {
+  let label = rev.length >= 40 ? rev.slice(0, 7) : rev;
+  showVersionView({
+    title: label,
+    time: "",
+    snap: async () => {
+      const s = await gitCheckout(fetch, deck, rev);
+      label = (s.name ? s.name + " · " : "") + messageText(s.message);
+      const bar = document.querySelector("#versionView .vViewWhat .vMeta");
+      if (bar) bar.textContent = label + " · " + rev.slice(0, 12) + " · " + t("read only, the presentation is not changed");
+      return s;
+    },
+    restore: null,
+  });
 }
 
 function handleRequests() {
@@ -8231,6 +8259,22 @@ async function restoreVersion(id) {
   if (!snap) throw new Error(t("This version is not here or in the cloud."));
   const when = h.repo.commit(id)?.time || "";
   const now = h.head ? h.repo.tree(h.repo.commit(h.head).tree) : null;
+  await applyVersion(snap, now, when);
+}
+
+// a version the server's Git keeps, restored as one of this browser's is:
+// the deck before it stays a version of its own
+async function restoreGitVersion(deck, commit) {
+  if (!deckVersions()) return;
+  await saveDoc();
+  await commitVersion("@auto");
+  const snap = await gitCheckout(fetch, deck, commit);
+  await applyVersion(snap, null, snap.time);
+}
+
+// the deck becomes snap (a checked-out version); now: the tree of the
+// version it is at, so files as they are stay untouched (null: all written)
+async function applyVersion(snap, now, when) {
   merging = true;
   try {
     applyCopy({ md: snap.md, css: snap.css, theme: snap.theme });
@@ -8268,6 +8312,9 @@ async function openHistory() {
   await saveDoc();
   const h = deckVersions();
   if (!h) return;
+  // the versions a server of one's own keeps in Git, by their panel id
+  const gitSeen = new Map();
+  const gitDeck = () => (ownServer() && doc.cloud ? doc.cloud.replace(/^cloud:/, "") : "");
   showHistory({
     entries: async () => {
       let remote = [];
@@ -8275,13 +8322,21 @@ async function openHistory() {
         const s = await window.sliqtly.readHead(doc.cloud).catch(() => null);
         remote = s?.log || [];
       }
-      const list = await h.log(remote);
-      return list.map((e) => ({ ...e, current: e.id === h.head }));
+      const list = (await h.log(remote)).map((e) => ({ ...e, current: e.id === h.head }));
+      const deck = gitDeck();
+      const git = deck ? await gitEntries(fetch, deck).catch((e) => { console.warn("git history", e); return []; }) : [];
+      for (const e of git) gitSeen.set(e.id, e);
+      return mergeEntries(list, git);
     },
-    changes: (id) => h.changes(id),
-    diff: (id, path) => h.diffText(id, path),
-    checkout: (id) => h.checkout(id, renderPlans),
-    restore: (id) => restoreVersion(id),
+    changes: (id) => (isGitVersion(id) ? gitChanges(fetch, gitDeck(), gitSeen.get(id).commit, gitSeen.get(id).parent, lineStats) : h.changes(id)),
+    diff: async (id, path) => {
+      if (!isGitVersion(id)) return h.diffText(id, path);
+      const e = gitSeen.get(id);
+      const { was, now } = await gitTexts(fetch, gitDeck(), e.commit, e.parent, path);
+      return unifiedText(was, now);
+    },
+    checkout: (id) => (isGitVersion(id) ? gitCheckout(fetch, gitDeck(), gitSeen.get(id).commit) : h.checkout(id, renderPlans)),
+    restore: (id) => (isGitVersion(id) ? restoreGitVersion(gitDeck(), gitSeen.get(id).commit) : restoreVersion(id)),
     save: async (message) => {
       await saveDoc(true);
       const id = await commitVersion(message || "@auto", false, [], !!message);
@@ -11822,6 +11877,8 @@ async function start() {
   if (!introPending) await new Promise((r) => setTimeout(r, Math.max(0, 1200 - performance.now())));
   document.body.classList.remove("booting");
   if (!viewer && !isCoarse()) focusKeys("editor");
+  // /s/{id}@{version}: that version over the deck, once the page is there
+  if (AT_VERSION && !versionFrame && ownServer()) peekVersion(AT_VERSION.deck, AT_VERSION.rev);
   window.__pageStarted = true;
   if (introPending) {
     playIntro().then(introPending);

@@ -405,7 +405,7 @@ sudo systemctl start sliqtly
 `backup_test.go` takes backups beside a running server, restores them and
 reads the decks and pictures back through a server on the restored folder.
 
-**Decks in Git** (`gitstore.go`, `gitpush.go`, `gitcmd.go`, `rgit/`). With `git.json`
+**Decks in Git** (`gitstore.go`, `gitpush.go`, `githistory.go`, `gitcmd.go`, `rgit/`). With `git.json`
 on, the server also keeps its decks in `repo.git`, a bare Git repository it
 writes itself with Ranger's Git client (`go generate` writes `rgit/rgit.go`
 from Ranger's `pkg/src`; no `git` program is needed). `sliqtly.db` stays the
@@ -464,6 +464,15 @@ Before every push the repository's `private` flag is read from GitHub's
 API: a public one gets nothing. The server is its branch's only writer:
 when the GitHub branch has commits it has not got, it stops and says so on
 the settings page.
+
+The history comes back from the repository (`githistory.go`):
+`GET /api/history/{deck}` lists the commits that changed `decks/<id>/`,
+`/api/history/{deck}/{rev}` is the deck as a commit (7–40 hex) or a branch
+has it, `…/{rev}/changes` what that commit changed and `…/{rev}/file/{path}`
+a file's bytes. The editor's Version history lists these beside the
+browser's own versions (view, show changes, restore), and an address or a
+link `/s/{id}@{rev}` shows that version of the deck read only over what is
+open (`web/githistory.js`), so a reference can stay on what it pointed at.
 
 Formats 1–3 kept a JSON file per document (`db/<collection>/<sh>/<id>.json`)
 and the files under `files/shares/<sh>/{id}/…`; the migration to format 4

@@ -83,6 +83,11 @@ export function lineStats(a, b) {
   return { added: d.added, removed: d.removed };
 }
 
+// The unified diff of two texts (for a version the server's Git keeps).
+export function unifiedText(a, b) {
+  return RdText.unified(RdText.diff(a ?? "", b ?? ""), 2);
+}
+
 // --- three-way merge of two working copies -------------------------------------------
 // base, mine, theirs: { md, css, theme, name }. files: [{ path, base, mine,
 // theirs }] where each side is null (no such file) or { sig, rec }: the same

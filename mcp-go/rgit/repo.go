@@ -544,3 +544,33 @@ func short(sha string) string {
 	}
 	return sha
 }
+
+// TreeAt is the id of the tree at dir ("a/b") under tree, "" when there is
+// none; dir "" is tree itself.
+func (r *Repo) TreeAt(tree, dir string) (string, error) {
+	if dir == "" {
+		return tree, nil
+	}
+	at := tree
+	for _, name := range strings.Split(dir, "/") {
+		kind, payload, err := r.Get(at)
+		if err != nil {
+			return "", err
+		}
+		if kind != "tree" {
+			return "", fmt.Errorf("rgit: %s is a %s, not a tree", at, kind)
+		}
+		next := ""
+		for _, it := range GitObjects_static_parseTree(payload) {
+			if it.name == name && it.isTree() {
+				next = it.sha
+				break
+			}
+		}
+		if next == "" {
+			return "", nil
+		}
+		at = next
+	}
+	return at, nil
+}
