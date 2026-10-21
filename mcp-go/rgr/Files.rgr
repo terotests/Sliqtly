@@ -106,10 +106,17 @@ class Files {
         return (startsWith path "media/")
     }
 
-    ; a program on a slide (```app) or its stylesheet: kept as apps/<name>
+    ; a program on a slide (```app), its stylesheet, or a library programs
+    ; share (import { f } from "./lib.ts"): kept as apps/<name>
     sfn isProgram:boolean (name:string) {
         def n:string (to_lowercase name)
-        return ((((endsWith n ".tsx") || (endsWith n ".jsx")) || (endsWith n ".tsx.css")) || (endsWith n ".jsx.css"))
+        return ((((endsWith n ".tsx") || (endsWith n ".jsx")) || (endsWith n ".tsx.css")) || ((endsWith n ".jsx.css") || (Files.isLibrary(n))))
+    }
+
+    ; code programs share: apps/<name>.ts, .js or .mjs
+    sfn isLibrary:boolean (name:string) {
+        def n:string (to_lowercase name)
+        return (((endsWith n ".ts") || (endsWith n ".js")) || (endsWith n ".mjs"))
     }
 
     ; picture, workbook, chart, data or file
@@ -141,7 +148,7 @@ class Files {
         if ((endsWith n ".tsx.css") || (endsWith n ".jsx.css")) {
             return "text/css"
         }
-        if ((endsWith n ".tsx") || (endsWith n ".jsx")) {
+        if (((endsWith n ".tsx") || (endsWith n ".jsx")) || (Files.isLibrary(n))) {
             return "text/plain"
         }
         if (endsWith n ".xlsx") {
@@ -548,7 +555,7 @@ class Files {
                 }
             }
             if ((strlen type) == 0) {
-                res.err = ("File " + name + ": data files are .xlsx, .csv, .tsv, .json, .txt, .gltf or .glb; a program for an app block is .tsx (or .jsx) with its .tsx.css.")
+                res.err = ("File " + name + ": data files are .xlsx, .csv, .tsv, .json, .txt, .gltf or .glb; a program for an app block is .tsx (or .jsx) with its .tsx.css, a library programs share .ts, .tsx or .js.")
                 return res
             }
             def hasText:boolean ((f.field("text")).kind == 3)

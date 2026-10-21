@@ -21,6 +21,12 @@
 //   presentation.video({ seconds })  how long the slide stays when the deck
 //     plays on its own (video, light player, autoplay): a demo that runs on
 //     its own clock is seen through; said with the next frame
+//   import { vec3, lerp, clamp, smoothstep, mixColor, orbit, camera } from "Sliqtly"
+//     the helpers programs keep writing: vector math, easing, colours, and
+//     a camera that projects a world point to the program's own units as
+//     <scene3d fit="box"> with <perspectiveCamera> draws it (labels on 3-D)
+//   the deck's own libraries (apps/x.ts, .tsx, .js) a program imports by
+//     its path, each run once (__deckFiles)
 //
 // Nothing here changes the deck: each call is a request the page reads after
 // the frame (PresApp.playAsks), and grants or refuses by the fence's allow:.
@@ -132,7 +138,86 @@ function __sayVideo() {
   if (__video) __asks.push(__video);
   __video = null;
 }
+// Helpers for programs (the "Sliqtly" module): numbers, vectors as
+// [x, y, z] arrays, "#rrggbb" colours, and the camera a <scene3d> draws
+// with. Plain functions, no state: a program or a library of the deck
+// imports what it needs. Kept in a function of their own: the program's
+// own names (its lerp, its orbit) are not taken from it.
+var __helpers = (function () {
+  function lerp(a, b, k) { return a + (b - a) * k; }
+  function clamp(x, lo, hi) {
+    if (lo === undefined) lo = 0;
+    if (hi === undefined) hi = 1;
+    return x < lo ? lo : x > hi ? hi : x;
+  }
+  // 0 before edge0, 1 after edge1, eased in between (GLSL's smoothstep):
+  // smoothstep(2, 4, t) is a step that plays from second 2 to second 4
+  function smoothstep(edge0, edge1, x) {
+    if (edge1 === edge0) return x < edge0 ? 0 : 1;
+    var k = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+    return k * k * (3 - 2 * k);
+  }
+  var vec3 = {
+    add: function (a, b) { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; },
+    sub: function (a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; },
+    scale: function (a, k) { return [a[0] * k, a[1] * k, a[2] * k]; },
+    dot: function (a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; },
+    cross: function (a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; },
+    length: function (a) { return Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]); },
+    distance: function (a, b) { return vec3.length(vec3.sub(a, b)); },
+    normalize: function (a) { var l = vec3.length(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
+    lerp: function (a, b, k) { return [lerp(a[0], b[0], k), lerp(a[1], b[1], k), lerp(a[2], b[2], k)]; }
+  };
+  function __rgbOf(c) {
+    var h = String(c).replace("#", "");
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var n = parseInt(h.slice(0, 6), 16);
+    if (!(n >= 0)) n = 0;
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function __hex2(n) {
+    var v = Math.max(0, Math.min(255, Math.round(n)));
+    return (v < 16 ? "0" : "") + v.toString(16);
+  }
+  // colour a to colour b ("#rgb" or "#rrggbb") by k from 0 to 1
+  function mixColor(a, b, k) {
+    k = clamp(k, 0, 1);
+    var x = __rgbOf(a), y = __rgbOf(b);
+    return "#" + __hex2(lerp(x[0], y[0], k)) + __hex2(lerp(x[1], y[1], k)) + __hex2(lerp(x[2], y[2], k));
+  }
+  // a point on a circle round the y axis: at angle 0 on +z, height h
+  function orbit(radius, height, angle) { return [Math.sin(angle) * radius, height, Math.cos(angle) * radius]; }
+  // The camera of a <scene3d fit="box"> with <perspectiveCamera position fov
+  // lookAt>: project(p) is where the world point p is drawn, in the
+  // program's own units (its size:) from the box's top left, as
+  // [x, y, depth]; depth <= 0 is behind the camera. Vertical fov in degrees
+  // (50 when left out), up +y, width / height the program's size.
+  function camera(o) {
+    o = o || {};
+    var cam = {
+      position: o.position || [0, 0, 5],
+      lookAt: o.lookAt || [0, 0, 0],
+      fov: o.fov === undefined ? 50 : o.fov,
+      width: o.width || 480,
+      height: o.height || 270
+    };
+    cam.project = function (p) {
+      var f = vec3.normalize(vec3.sub(cam.lookAt, cam.position));
+      var side = vec3.cross(f, [0, 1, 0]);
+      // looking straight up or down: the screen's up is -z
+      if (vec3.length(side) < 1e-9) side = vec3.cross(f, [0, 0, -1]);
+      var r = vec3.normalize(side), u = vec3.cross(r, f);
+      var d = vec3.sub(p, cam.position), z = vec3.dot(d, f);
+      var k = 1 / Math.tan(cam.fov * Math.PI / 360);
+      var zz = Math.abs(z) < 1e-9 ? 1e-9 : z;
+      return [(vec3.dot(d, r) / zz * k / (cam.width / cam.height) + 1) / 2 * cam.width, (1 - vec3.dot(d, u) / zz * k) / 2 * cam.height, z];
+    };
+    return cam;
+  }
+  return { vec3: vec3, lerp: lerp, clamp: clamp, smoothstep: smoothstep, mixColor: mixColor, orbit: orbit, camera: camera };
+})();
 var __sliqtly = { presentation: presentation, el: el, machine: machine, sound: sound };
+Object.keys(__helpers).forEach(function (k) { __sliqtly[k] = __helpers[k]; });
 if (typeof defineModule === "function") defineModule("Sliqtly", __sliqtly);
 // The deck's files a program imports (src/PresPlayFiles.rgr puts this call
 // on its first line): import rows from "data/sales.csv". Each is a module:
@@ -165,7 +250,7 @@ function __csvValue(s) {
   var t = s.trim();
   return t !== "" && /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(t) ? Number(t) : s;
 }
-function __deckFile(path, text) {
+function __deckFile(path, text, why) {
   var m = {};
   var fail = function (why) {
     var thrower = function () { throw new Error(why); };
@@ -174,7 +259,7 @@ function __deckFile(path, text) {
     Object.defineProperty(m, "rows", { enumerable: true, get: thrower });
     return m;
   };
-  if (text === null) return fail(path + " is not a file of the presentation (send it with the deck's files)");
+  if (text === null) return fail(why || path + " is not a file of the presentation (send it with the deck's files)");
   var ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
   m.text = text;
   if (ext === "json" || ext === "gltf") {
@@ -191,9 +276,23 @@ function __deckFile(path, text) {
   } else m["default"] = text;
   return m;
 }
+// A library of the deck (apps/x.ts, .tsx, .js): its code, run once on its
+// first import (CErXes defineSourceModule); its own imports are read from
+// its folder. A data file is known by its import and its path, so a
+// library's import of it (by path) finds the same module.
 function __deckFiles(list) {
   if (typeof defineModule !== "function") return;
-  list.forEach(function (f) { defineModule(f[0], __deckFile(f[1], f[2])); });
+  list.forEach(function (f) {
+    if (/\.(ts|tsx|js|jsx|mjs)$/i.test(f[1])) {
+      if (f[2] === null) defineModule(f[0], __deckFile(f[1], null));
+      else if (typeof defineSourceModule === "function") defineSourceModule(f[0], f[2], f[1]);
+      else defineModule(f[0], __deckFile(f[1], null, "this viewer's program engine is too old to import " + f[1] + " (reload the page)"));
+      return;
+    }
+    var m = __deckFile(f[1], f[2]);
+    defineModule(f[0], m);
+    if (f[1] !== f[0]) defineModule(f[1], m);
+  });
 }
 function __deckState(d) {
   __deck.data = d.data || {};

@@ -8507,7 +8507,8 @@ class PresCheck {
             + "import cfg, { text } from './world.json'\nimport {\n  rows\n} from \"/data/sales.csv\";\nimport notes from \"data/notes.txt\"\nimport util from \"./util.ts\";\nimport lodash from \"lodash\";\n"
             + "// import no from \"data/no.json\"\nconst s = \"import x from 'y.json'\";\nfunction view() { return null }\n")
         def specs:[string] (PresPlayFiles.specs(src))
-        this.ok(((join specs "|") == "../data/sales.csv|./world.json|/data/sales.csv|data/notes.txt") ("playFiles: the deck's files imported, got " + (join specs "|")))
+        this.ok(((join specs "|") == "../data/sales.csv|./world.json|/data/sales.csv|data/notes.txt|./util.ts") ("playFiles: the deck's files and libraries imported, got " + (join specs "|")))
+        this.ok((((PresPlayFiles.isDeckFile("./util.ts")) == false) && (PresPlayFiles.isCode("./util.ts"))) "playFiles: a library is code, not a data file")
         this.ok(((PresPlayFiles.resolve("apps/g.tsx" "../data/sales.csv")) == "data/sales.csv") "playFiles: ../ from the program's folder")
         this.ok(((PresPlayFiles.resolve("apps/g.tsx" "./world.json")) == "apps/world.json") "playFiles: ./ beside the program")
         this.ok(((PresPlayFiles.resolve("apps/g.tsx" "/data/sales.csv")) == "data/sales.csv") "playFiles: / from the root")
@@ -8536,6 +8537,36 @@ class PresCheck {
         def wsc:PresFlightScene (PresFlightScene.of(deck))
         def wst:FlightStation (itemAt wsc.stations 0)
         this.ok(wst.waits "flight: a station whose program has not drawn waits for it")
+        this.playLibraries()
+    }
+
+    ; A library of the deck (apps/x.ts) a program imports: the program
+    ; gets it, and what it imports from its own folder, each once.
+    fn playLibraries:void () {
+        def md:string "# Kolme\n\n```app\nsrc: apps/a.tsx\nsize: 200x100\n```\n"
+        def deck (new PresDeck())
+        deck.setText(md)
+        PresTimeline.planAll(deck)
+        deck.setChartData("apps/a.tsx" "import { project } from \"./scene.ts\";\nimport rows from \"../data/s.csv\";\nfunction view() { return null }\n")
+        def asked:[string] (deck.playFiles())
+        this.ok((((indexOf asked "apps/scene.ts") >= 0) && ((indexOf asked "data/s.csv") >= 0)) ("playLibs: the page is asked for the library, got " + (join asked "|")))
+        this.ok(((deck.linkedSource("apps/a.tsx")) == "") "playLibs: the program waits for its library")
+        deck.setChartData("apps/scene.ts" "import { lerp } from \"Sliqtly\";\nimport { W } from \"./size.ts\";\nimport rows from \"../data/s.csv\";\nexport function project(p) { return p; }\n")
+        asked = (deck.playFiles())
+        this.ok(((indexOf asked "apps/size.ts") >= 0) ("playLibs: the library's own imports are asked for, got " + (join asked "|")))
+        deck.setChartData("apps/size.ts" "export const W = 560;\n")
+        deck.setChartData("data/s.csv" "a\n1\n")
+        def linked:string (deck.linkedSource("apps/a.tsx"))
+        def first:string (substring linked 0 (indexOf linked (strfromcode 10)))
+        this.ok((startsWith first "__deckFiles([[\"./scene.ts\",\"apps/scene.ts\",\"import { lerp }") ("playLibs: the library on the first line by the program's import, got " + first))
+        this.ok(((indexOf first "[\"apps/size.ts\",\"apps/size.ts\",\"export const W = 560;\\n\"]") > 0) ("playLibs: the library's import by its path, got " + first))
+        def csvs:int ((array_length (strsplit first ",\"data/s.csv\",")) - 1)
+        this.ok((csvs == 1) ("playLibs: a file both import is given once, got " + (to_string csvs)))
+        this.ok(((array_length (strsplit linked (strfromcode 10))) == 4) "playLibs: the program keeps its line numbers")
+        def link:PresPlayLink (PresPlayLink.of("apps/a.tsx" "import { f } from \"./gone.ts\";\n"))
+        link.give("apps/gone.ts" "" false)
+        this.ok(((join (link.missing()) "|") == "apps/gone.ts") "playLibs: a library the deck lacks is missing")
+        this.ok(((link.pending()) == false) "playLibs: nothing more to give")
     }
 
     ; A program starting on the stage shows a turning ring of dashes, not

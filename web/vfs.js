@@ -271,19 +271,20 @@ export function kindOf(path, type) {
 
 export function isText(path, type) {
   if (/^text\//.test(type || "") || /json/.test(type || "")) return true;
-  return /\.(csv|tsv|json|topojson|geojson|txt|css|md|markdown|tsx|ts|jsx)$/i.test(path);
+  return /\.(csv|tsv|json|topojson|geojson|txt|css|md|markdown|tsx|ts|jsx|js|mjs)$/i.test(path);
 }
 
 // Where a file added from the computer goes: pictures and music under media/, a chart
-// spec under charts/, a questionnaire under forms/, a program (```app) and
-// its stylesheet under apps/, other data under data/.
+// spec under charts/, a questionnaire under forms/, a program (```app), its
+// stylesheet and the libraries programs share (.ts, .js) under apps/, other
+// data under data/.
 export function placeFor(name, type) {
   const clean = name.replace(/[\\/:*?"<>|]+/g, "-");
   const k = kindOf(clean, type);
   if (k === "image" || k === "audio") return "media/" + clean;
   if (k === "chart") return "charts/" + clean;
   if (k === "form") return "forms/" + clean;
-  if (/\.(tsx|jsx)(\.css)?$/i.test(clean)) return "apps/" + clean;
+  if (/\.(tsx|jsx)(\.css)?$/i.test(clean) || /\.(ts|js|mjs)$/i.test(clean)) return "apps/" + clean;
   if (/\.json$/i.test(clean)) {
     return "data/" + clean;
   }

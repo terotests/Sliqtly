@@ -268,8 +268,15 @@ test("the script-api declarations name what the runtime has", () => {
   for (const k of members("Input")) assert.ok(k in S.input, "input." + k);
   for (const k of members("Env")) assert.ok(k in S.env, "env." + k);
   const exported = [...guide.matchAll(/^\s+export const (\w+)/gm)].map((x) => x[1]);
-  assert.deepEqual(exported, ["presentation", "input", "env", "sprites", "presenter"]);
+  assert.deepEqual(exported, ["presentation", "input", "env", "sprites", "presenter", "vec3"]);
   for (const k of exported) assert.ok(S[k], k);
+  const decl = guide.slice(guide.indexOf('declare module "Sliqtly" {'));
+  const fns = [...decl.slice(0, decl.indexOf("\n}")).matchAll(/^\s+export function (\w+)/gm)].map((x) => x[1]);
+  assert.deepEqual(fns, ["lerp", "clamp", "smoothstep", "mixColor", "orbit", "camera"]);
+  for (const k of fns) assert.equal(typeof S[k], "function", k);
+  for (const k of members("Vec3")) assert.equal(typeof S.vec3[k], "function", "vec3." + k);
+  const cam = S.camera({});
+  for (const k of members("Camera")) assert.ok(k in cam, "camera." + k);
   for (const k of members("Presenters")) assert.ok(k in S.presenter, "presenter." + k);
   const p = S.presenter.create();
   for (const k of members("Presenter")) assert.ok(k in p, "a presenter's " + k);

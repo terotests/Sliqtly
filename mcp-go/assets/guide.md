@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-18.** If a result names a newer version, read Core
+**Guide version 2026-10-21.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -1138,6 +1138,38 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
   `data/<book>-<Sheet>.csv`. A file the deck does not have, or JSON that
   does not parse, is said when the deck is saved and throws where the
   program reads it. Slide scripts (topic `scripts`) import the same way.
+- Code several programs share goes in a library of the deck: a `.ts` (or
+  `.tsx` when it returns JSX, `.js`) file sent with `files` like a
+  program, kept as `apps/<name>`. A program imports it as
+  `import { project, label } from "./scene3d.ts"`; the library `export`s
+  what it gives (`export function`, `export const`, `export default`,
+  `export { a, b }`). It runs once, the first time it is imported, and
+  every program on the slide that imports it shares it; its other names
+  are its own. A library can import the deck's files, `"Sliqtly"` and
+  other libraries (`./x` from its own folder). It cannot import the
+  program back (an import cycle is an error). A library the deck does not
+  have, or one that does not parse, is said when the deck is saved
+  (`apps/a.tsx does not run: SyntaxError: … (apps/scene3d.ts line 4)`).
+  A value a program changes must be passed to the library's functions (a
+  camera made with `camera({ … })`), not read from the program's own
+  variables.
+- `"Sliqtly"` has the helpers programs keep writing, so they need not be
+  copied into each:
+  `import { vec3, lerp, clamp, smoothstep, mixColor, orbit, camera } from "Sliqtly"`.
+  `lerp(a, b, k)`; `clamp(x, lo = 0, hi = 1)`; `smoothstep(edge0, edge1,
+  x)` is 0 before `edge0`, 1 after `edge1`, eased in between (a step of an
+  animation: `smoothstep(2, 4, t)`); `mixColor("#38bdf8", "#fbbf24", k)`;
+  `orbit(radius, height, angle)` is a point on a circle round the y axis.
+  Vectors are `[x, y, z]` arrays: `vec3.add`, `sub`, `scale(a, k)`, `dot`,
+  `cross`, `length`, `distance`, `normalize`, `lerp(a, b, k)`.
+  `camera({ position, lookAt, fov, width, height })` is the camera of a
+  `<scene3d fit="box">` with `<perspectiveCamera position fov lookAt>`
+  (vertical `fov` in degrees, 50 when left out; `width` and `height` the
+  program's `size:`). Its `project(p)` gives `[x, y, depth]`, where the
+  world point `p` is drawn in the program's units, from the box's top left
+  (`depth` <= 0 is behind the camera). That puts a text label on a 3-D
+  object:
+  `<span style={{ left: s[0], top: s[1] }}>…</span>` over the world.
 - Its elements are `div`, and `span`, `p`, `b`, `label` for text;
   `className` and `style` as in React. A number in `style` is px, except
   `opacity`, `zIndex`, `flex`, `fontWeight` and `lineHeight`.
@@ -1516,6 +1548,46 @@ declare module "Sliqtly" {
   export const sprites: any;
   /** The cut-out presenter of `::: story` slides, led by the script (topic scripts). */
   export const presenter: Presenters;
+  /** Vectors as [x, y, z] arrays. The helpers below are a program's too (topic apps). */
+  export const vec3: Vec3;
+  export function lerp(a: number, b: number, k: number): number;
+  /** lo 0 and hi 1 when left out. */
+  export function clamp(x: number, lo?: number, hi?: number): number;
+  /** 0 before edge0, 1 after edge1, eased in between. */
+  export function smoothstep(edge0: number, edge1: number, x: number): number;
+  /** "#rgb" or "#rrggbb" colours mixed by k (0..1), as "#rrggbb". */
+  export function mixColor(a: string, b: string, k: number): string;
+  /** A point on a circle round the y axis, at angle 0 on +z. */
+  export function orbit(radius: number, height: number, angle: number): V3;
+  /** The camera of a <scene3d fit="box"> with <perspectiveCamera position fov lookAt>. */
+  export function camera(options?: { position?: V3; lookAt?: V3; fov?: number; width?: number; height?: number }): Camera;
+}
+
+type V3 = [number, number, number];
+
+interface Vec3 {
+  add(a: V3, b: V3): V3;
+  sub(a: V3, b: V3): V3;
+  scale(a: V3, k: number): V3;
+  dot(a: V3, b: V3): number;
+  cross(a: V3, b: V3): V3;
+  length(a: V3): number;
+  distance(a: V3, b: V3): number;
+  normalize(a: V3): V3;
+  lerp(a: V3, b: V3, k: number): V3;
+}
+
+interface Camera {
+  /** Change these between frames; project reads them. */
+  position: V3;
+  lookAt: V3;
+  /** Vertical, in degrees; 50 when left out. */
+  fov: number;
+  /** The program's size: (its own units). */
+  width: number;
+  height: number;
+  /** Where p is drawn, from the box's top left, and its depth (<= 0 behind the camera). */
+  project(p: V3): [number, number, number];
 }
 
 interface Presenters {

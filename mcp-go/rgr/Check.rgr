@@ -124,36 +124,31 @@ class Check {
     ; a file a chart reads, as text: this call's files, the deck's stored
     ; ones, a workbook's sheet by its CSV name, or (live) an https address;
     ; "" when there is none
-    ; The program at `path` as it runs: the deck's files it imports made
-    ; modules on its first line (PresPlayFiles); a file that is empty or
-    ; not the deck's is one its import says is missing.
+    ; The program at `path` as it runs: the deck's files and libraries it
+    ; reaches made modules on its first line (PresPlayLink); a file that is
+    ; empty or not the deck's is one its import says is missing.
     sfn programText:string (host:McpHost din:DeckIn path:string) {
         def src:string (Check.dataText(host din path))
         if ((strlen src) == 0) {
             return ""
         }
-        def files:[PresPlayFile]
-        for (PresPlayFiles.specs(src)) spec:string si {
-            def f:PresPlayFile (new PresPlayFile())
-            f.spec = spec
-            f.path = (PresPlayFiles.resolve(path spec))
-            f.text = (Check.dataText(host din f.path))
-            f.have = ((strlen f.text) > 0)
-            push files f
-        }
-        return ((PresPlayFiles.prelude(files)) + src)
+        return ((Check.programLink(host din path src)).source())
     }
 
-    ; The files the program at `path` imports that the deck does not have.
-    sfn importsMissing:[string] (host:McpHost din:DeckIn path:string) {
-        def out:[string]
-        for (PresPlayFiles.specs((Check.dataText(host din path)))) spec:string si {
-            def fp:string (PresPlayFiles.resolve(path spec))
-            if ((strlen (Check.dataText(host din fp))) == 0) {
-                push out fp
-            }
+    sfn programLink:PresPlayLink (host:McpHost din:DeckIn path:string src:string) {
+        def link:PresPlayLink (PresPlayLink.of(path src))
+        while (link.pending()) {
+            def fp:string (link.wanted())
+            def text:string (Check.dataText(host din fp))
+            link.give(fp text ((strlen text) > 0))
         }
-        return out
+        return link
+    }
+
+    ; The files the program at `path` reaches (its imports, its libraries')
+    ; that the deck does not have.
+    sfn importsMissing:[string] (host:McpHost din:DeckIn path:string) {
+        return ((Check.programLink(host din path (Check.dataText(host din path)))).missing())
     }
 
     sfn dataText:string (host:McpHost din:DeckIn url:string) {
@@ -248,14 +243,19 @@ class Check {
     sfn chartData:[string] (host:McpHost din:DeckIn d:PresDeck) {
         def missing:[string]
         def tried:[string]
+        ; a program's files are wanted once it is read, and a library's once
+        ; that is (PresPlayLink): rounds until nothing new is wanted
         def round:int 0
-        while (round < 2) {
+        def fresh:boolean true
+        while (fresh && (round < 12)) {
+            fresh = false
             def wanted:[string] (strsplit (d.chartDataWanted()) (strfromcode 10))
             for wanted w:string wi {
                 def u:string (trim w)
                 if (((strlen u) == 0) || ((indexOf tried u) >= 0)) {
                     continue
                 }
+                fresh = true
                 push tried u
                 def body:string (Check.dataText(host din u))
                 if ((strlen body) > 0) {
@@ -507,6 +507,21 @@ class Check {
         return false
     }
 
+    ; `file` is a slide's script or the program of an app block (not a
+    ; library they import)
+    sfn isProgramOf:boolean (d:PresDeck file:string) {
+        if (Check.isScript(d file)) {
+            return true
+        }
+        def f:string (MdVegaRender.resolveUrl(file))
+        for (d.playUses()) pu:PresPlayUse pui {
+            if ((MdVegaRender.resolveUrl(pu.spec.src)) == f) {
+                return true
+            }
+        }
+        return false
+    }
+
     sfn baseName:string (path:string) {
         def at:int (lastIndexOf path "/")
         if (at < 0) {
@@ -572,6 +587,11 @@ class Check {
             def lg:string (to_lowercase gone)
             ; a program's stylesheet beside it is optional
             if ((endsWith lg ".tsx.css") || (endsWith lg ".jsx.css")) {
+                continue
+            }
+            ; a library a program imports: the program's warning names it
+            ; (Check.importsMissing)
+            if ((PresPlayFiles.isCode(gone)) && ((Check.isProgramOf(d gone)) == false)) {
                 continue
             }
             if (((endsWith lg ".tsx") || (endsWith lg ".jsx")) && (Check.isScript(d gone))) {
