@@ -402,7 +402,7 @@ func serveEditor(env *Env, w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		io.WriteString(w, editorLoginHTML)
+		io.WriteString(w, githubLoginOn(editorLoginHTML, env.CloudGit != nil && env.CloudGit.mint != nil))
 		return
 	}
 	if page {
@@ -492,6 +492,18 @@ func serveEditorAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Requ
 	}
 	if op == "layout" {
 		serveLayout(env, g, w, r)
+		return
+	}
+	if op == "git" || strings.HasPrefix(op, "git/") {
+		serveGitAPI(env, g, w, r, strings.TrimPrefix(strings.TrimPrefix(op, "git"), "/"))
+		return
+	}
+	if strings.HasPrefix(op, "history/") {
+		if env.CloudGit == nil {
+			editorJSON(w, 404, map[string]any{"error": "no GitHub repository is connected", "git": false})
+			return
+		}
+		env.CloudGit.serveHistory(g, w, r, op)
 		return
 	}
 	if what, ok := strings.CutPrefix(op, "ai/"); ok {

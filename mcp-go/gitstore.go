@@ -320,17 +320,10 @@ func (m *gitMirror) snapshot(ctx context.Context, write bool) (*gitSnapshot, err
 	for _, r := range docs {
 		switch r.col {
 		case "shares":
-			md, _ := r.doc["md"].(string)
 			name, _ := r.doc["name"].(string)
 			s.Decks[r.id] = name
-			if err := text("decks/"+r.id+"/deck.md", []byte(md)); err != nil {
-				return nil, err
-			}
-			if err := text("decks/"+r.id+"/deck.json", gitJSON(pick(r.doc, "name", "theme", "room", "folder", "created", "source", "deck"), deckFiles(r.doc["files"]))); err != nil {
-				return nil, err
-			}
-			if css, _ := r.doc["css"].(string); css != "" {
-				if err := text("decks/"+r.id+"/theme.css", []byte(css)); err != nil {
+			for _, f := range deckRepoFiles(r.id, r.doc) {
+				if err := text(f.path, f.data); err != nil {
 					return nil, err
 				}
 			}
@@ -390,15 +383,8 @@ func (m *gitMirror) snapshot(ctx context.Context, write bool) (*gitSnapshot, err
 		}
 		s.Files = append(s.Files, rgit.Entry{Path: p, ID: id})
 	}
-	for _, f := range []struct {
-		p string
-		b []byte
-	}{
-		{"sliqtly.json", []byte("{\n  \"format\": 1\n}\n")},
-		{".gitattributes", []byte("*.md text eol=lf\n*.json text eol=lf\n*.css text eol=lf\n*.csv text\n*.png binary\n*.jpg binary\n*.xlsx binary\n*.pptx binary\n")},
-		{"README.md", gitReadme(s)},
-	} {
-		if err := text(f.p, f.b); err != nil {
+	for _, f := range append(gitFormatFiles(), gitText{"README.md", gitReadme(s)}) {
+		if err := text(f.path, f.data); err != nil {
 			return nil, err
 		}
 	}
@@ -713,6 +699,35 @@ func (ch *gitChangeSet) describe(s *gitSnapshot) string {
 }
 
 // --- documents as files
+
+// gitText is one file of the repository and its bytes.
+type gitText struct {
+	path string
+	data []byte
+}
+
+// deckRepoFiles: a deck's own files in the repository, from its share: its
+// text, what deck.json keeps of it and its CSS (when it has one). The
+// folder server and the cloud (cloudgit.go) write the same.
+func deckRepoFiles(id string, doc map[string]any) []gitText {
+	md, _ := doc["md"].(string)
+	out := []gitText{
+		{"decks/" + id + "/deck.md", []byte(md)},
+		{"decks/" + id + "/deck.json", gitJSON(pick(doc, "name", "theme", "room", "folder", "created", "source", "deck"), deckFiles(doc["files"]))},
+	}
+	if css, _ := doc["css"].(string); css != "" {
+		out = append(out, gitText{"decks/" + id + "/theme.css", []byte(css)})
+	}
+	return out
+}
+
+// the repository's files that say what it is: written in every snapshot
+func gitFormatFiles() []gitText {
+	return []gitText{
+		{"sliqtly.json", []byte("{\n  \"format\": 1\n}\n")},
+		{".gitattributes", []byte("*.md text eol=lf\n*.json text eol=lf\n*.css text eol=lf\n*.csv text\n*.png binary\n*.jpg binary\n*.xlsx binary\n*.pptx binary\n")},
+	}
+}
 
 // a document as kept in sliqtly.db, times as time.Time
 func decodeDocJSON(raw string) (map[string]any, error) {

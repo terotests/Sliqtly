@@ -1,7 +1,7 @@
 // node --test: a deck's versions in a server's Git (web/githistory.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { versionAddress, gitEntries, gitCheckout, gitChanges, mergeEntries, isGitVersion } from "../githistory.js";
+import { versionAddress, gitEntries, gitCheckout, gitChanges, mergeEntries, isGitVersion, setHistoryBase } from "../githistory.js";
 import { linkTarget } from "../stagelink.js";
 
 const O = "http://localhost:8787";
@@ -77,4 +77,15 @@ test("what a version changed, lines counted", async () => {
   const rows = await gitChanges(get, "AbCdEf1234", C2, C1, (a, b) => ({ added: b.split("\n").length - a.split("\n").length, removed: 0 }));
   assert.deepEqual(rows[0], { path: "deck.md", kind: "changed", added: 2, removed: 0, text: true });
   assert.deepEqual(rows[1], { path: "media/dot.png", kind: "added", added: 0, removed: 0, text: false });
+});
+
+test("on sliqtly.com the history comes from the account's GitHub repository", async () => {
+  const asked = [];
+  setHistoryBase("/editor/api/history/");
+  try {
+    await gitEntries(async (url) => { asked.push(url); return new Response(JSON.stringify({ commits: [] }), { status: 200 }); }, "AbCdEf1234");
+  } finally {
+    setHistoryBase("/api/history/");
+  }
+  assert.deepEqual(asked, ["/editor/api/history/AbCdEf1234?n=100"]);
 });

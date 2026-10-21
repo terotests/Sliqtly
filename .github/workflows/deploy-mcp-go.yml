@@ -96,6 +96,16 @@ jobs:
           # SLIQTLY_AI_MODEL picks the model (empty = the provider's default)
           AI: ${{ vars.SLIQTLY_AI || 'gemini' }}
           AI_MODEL: ${{ vars.SLIQTLY_AI_MODEL }}
+          # optional: GitHub sign-in and each account's own repository of
+          # Markdown (mcp-go/cloudgit.go, docs/github-app.md); unset, off.
+          # The private key is the App's .pem file base64-encoded.
+          GH_APP_ID: ${{ vars.SLIQTLY_GITHUB_APP_ID }}
+          GH_APP_CLIENT_ID: ${{ vars.SLIQTLY_GITHUB_APP_CLIENT_ID }}
+          GH_APP_SLUG: ${{ vars.SLIQTLY_GITHUB_APP_SLUG }}
+          GH_APP_CLIENT_SECRET: ${{ secrets.SLIQTLY_GITHUB_APP_CLIENT_SECRET }}
+          GH_APP_KEY: ${{ secrets.SLIQTLY_GITHUB_APP_KEY }}
+          GH_HOOK_SECRET: ${{ secrets.SLIQTLY_GITHUB_HOOK_SECRET }}
+          GIT_SWEEP_KEY: ${{ secrets.SLIQTLY_GIT_SWEEP_KEY }}
         run: |
           # GOMEMLIMIT: the Go heap kept under 400 MB of the 512 MB. Cloud
           # Run's sandbox need not show the cgroup limit memlimit.go reads,
@@ -116,6 +126,18 @@ jobs:
           # GEMINI_API_KEY (optional): Gemini through AI Studio, not Vertex AI
           if [ -n "$GEMINI_KEY_SECRET" ]; then
             ENV_VARS="$ENV_VARS|GEMINI_API_KEY=$GEMINI_KEY_SECRET"
+          fi
+          if [ -n "$GH_APP_ID" ]; then
+            ENV_VARS="$ENV_VARS|SLIQTLY_GITHUB_APP_ID=$GH_APP_ID|SLIQTLY_GITHUB_APP_CLIENT_ID=$GH_APP_CLIENT_ID|SLIQTLY_GITHUB_APP_SLUG=$GH_APP_SLUG|SLIQTLY_GITHUB_APP_CLIENT_SECRET=$GH_APP_CLIENT_SECRET|SLIQTLY_GITHUB_APP_KEY=$GH_APP_KEY|SLIQTLY_GITHUB_HOOK_SECRET=$GH_HOOK_SECRET|SLIQTLY_GIT_SWEEP_KEY=$GIT_SWEEP_KEY"
+            # signing in with GitHub mints a Firebase custom token, which
+            # the service's account signs as itself
+            SA=$(gcloud run services describe sliqtly-mcp --region "$REGION" --project "$PROJECT" --format 'value(spec.template.spec.serviceAccountName)' || true)
+            if [ -z "$SA" ]; then
+              SA="$(gcloud projects describe "$PROJECT" --format 'value(projectNumber)')-compute@developer.gserviceaccount.com"
+            fi
+            gcloud iam service-accounts add-iam-policy-binding "$SA" --project "$PROJECT" \
+              --member "serviceAccount:$SA" --role roles/iam.serviceAccountTokenCreator >/dev/null \
+              || echo "::warning::$SA could not be let sign its own tokens: signing in with GitHub fails until it has Service Account Token Creator on itself"
           fi
           ENV_ARGS=(--update-env-vars "^|^$ENV_VARS")
           gcloud run deploy sliqtly-mcp --image "$IMAGE:$GITHUB_SHA" \

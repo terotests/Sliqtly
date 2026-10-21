@@ -1,0 +1,232 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Git and GitHub · Sliqtly</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  /* File → Git and GitHub (mcp-go/cloudgithttp.go): the account's GitHub,
+     the repository its decks are kept in, and conflicts to choose from. */
+  :root { --bg: #f6f7fb; --card: #fff; --fg: #1d2233; --muted: #5d6480; --line: #dfe3ef; --accent: #18181b; --on-accent: #fafafa; --bad: #b3261e; --ok: #1e7b3a; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #111113; --card: #1b1b1f; --fg: #f4f4f5; --muted: #a1a1aa; --line: #2e2e33; --accent: #c8ff3c; --on-accent: #111113; --bad: #ff8a80; --ok: #7ee2a0; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 16px; }
+  main { width: 100%; max-width: 620px; margin: 6vh auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px 24px; }
+  header { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; margin-bottom: 18px; }
+  header img { width: 30px; height: 30px; }
+  h1 { font-size: 22px; line-height: 1.25; margin: 0 0 10px; }
+  h2 { font-size: 17px; margin: 22px 0 8px; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+  button, .button { border-radius: 9px; padding: 9px 14px; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
+  .primary { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
+  .secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  button:disabled { opacity: 0.6; cursor: default; }
+  input[type=text] { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); min-width: 0; flex: 1; }
+  label.choice { display: flex; gap: 8px; align-items: center; padding: 6px 0; color: var(--fg); }
+  .error { color: var(--bad); }
+  .ok { color: var(--ok); }
+  .facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 8px 0 12px; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; overflow-wrap: anywhere; }
+  .conflict { border-top: 1px solid var(--line); padding: 10px 0; }
+  a { color: inherit; }
+  .small { font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="/favicon.svg" alt="">Sliqtly</header>
+  <h1 data-t="title">Git and GitHub</h1>
+  <p data-t="lead">Keep your presentations in a private GitHub repository of your own: every saved version is a commit there, and what you change on GitHub comes back here.</p>
+  <p id="busy" data-t="loading">Loading…</p>
+  <p class="error" id="err" hidden></p>
+  <p class="ok" id="note" hidden></p>
+
+  <section id="nogh" hidden>
+    <h2 data-t="step1">1. Connect GitHub</h2>
+    <p data-t="step1text">Sign in to GitHub and let Sliqtly's GitHub App see your repositories. It may write only the one repository you pick.</p>
+    <div class="row"><a class="button primary" href="/editor/github/login?mode=link" data-t="connect">Connect GitHub</a></div>
+  </section>
+
+  <section id="pick" hidden>
+    <h2 data-t="step2">2. Choose the repository</h2>
+    <p id="who"></p>
+    <div id="choices"></div>
+    <div class="row" id="useRow" hidden><button class="primary" id="use" data-t="use">Keep my presentations here</button></div>
+    <h2 data-t="new">Or make a new private repository</h2>
+    <div class="row"><input type="text" id="name" value="sliqtly-decks" aria-label="Repository name"><button class="secondary" id="create" data-t="create">Make it</button></div>
+    <p class="small"><a id="install" href="#" target="_blank" rel="noopener" data-t="install">Choose which repositories the App may use on GitHub</a> · <a href="/editor/github/login?mode=link" data-t="refresh">List them again</a></p>
+  </section>
+
+  <section id="on" hidden>
+    <h2 data-t="kept">Kept in GitHub</h2>
+    <dl class="facts">
+      <dt data-t="repo">Repository</dt><dd><a id="repo" target="_blank" rel="noopener"></a></dd>
+      <dt data-t="branch">Branch</dt><dd id="branch"></dd>
+      <dt data-t="last">Last commit</dt><dd><a id="head" target="_blank" rel="noopener"></a></dd>
+      <dt data-t="synced">Synced</dt><dd id="synced"></dd>
+    </dl>
+    <p class="small" data-t="how">A commit is made when you save a version (Versions → Save version), a few minutes after you stop editing, and when you press Back up now. Changes pushed to the repository on GitHub are merged into your presentations. A presentation deleted in Sliqtly stays in the repository's history.</p>
+    <div class="row">
+      <button class="primary" id="sync" data-t="sync">Back up now</button>
+      <button class="secondary" id="off" data-t="off">Disconnect</button>
+    </div>
+    <section id="conf" hidden>
+      <h2 data-t="conflicts">Changed in both places</h2>
+      <p data-t="conflictsText">These presentations were changed on GitHub and in Sliqtly on the same lines. Sliqtly kept its own text; choose which one stays.</p>
+      <div id="conflicts"></div>
+    </section>
+  </section>
+
+  <p class="small" style="margin-top:22px"><a href="/editor/" data-t="back">Back to the editor</a></p>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const fi = /^fi\b/i.test(navigator.language || "");
+  const FI = {
+    title: "Git ja GitHub", lead: "Pidä esityksesi omassa yksityisessä GitHub-repossasi: jokainen tallennettu versio on siellä commit, ja GitHubissa tehdyt muutokset tulevat tänne.",
+    loading: "Ladataan…", step1: "1. Yhdistä GitHub", step1text: "Kirjaudu GitHubiin ja anna Sliqtlyn GitHub Appin nähdä repositoriosi. Se saa kirjoittaa vain valitsemaasi repoon.",
+    connect: "Yhdistä GitHub", step2: "2. Valitse repo", use: "Pidä esitykseni tässä", new: "Tai tee uusi yksityinen repo", create: "Tee se",
+    install: "Valitse GitHubissa, mitä repoja App saa käyttää", refresh: "Listaa uudelleen", kept: "Tallessa GitHubissa", repo: "Repo", branch: "Haara",
+    last: "Viimeisin commit", synced: "Synkattu", how: "Commit tehdään, kun tallennat version (Versiot → Tallenna versio), muutama minuutti muokkauksen jälkeen ja Varmuuskopioi nyt -napista. GitHubiin pushatut muutokset yhdistetään esityksiisi. Sliqtlyssä poistettu esitys jää repon historiaan.",
+    sync: "Varmuuskopioi nyt", off: "Irrota", conflicts: "Muutettu molemmissa", conflictsText: "Näitä esityksiä on muutettu GitHubissa ja Sliqtlyssä samoilta riveiltä. Sliqtly piti oman tekstinsä; valitse kumpi jää.",
+    back: "Takaisin editoriin", none: "Sovellus ei näe vielä yhtään repoa. Tee uusi tai valitse repot GitHubissa.", signed: "GitHub-tili: ",
+    publicRepo: " (julkinen: ei käy)", useGithub: "Käytä GitHubin versiota", keepSliqtly: "Pidä Sliqtlyn versio", done: "Valmis.",
+    committed: "Commit tehty: ", nothing: "Ei muutoksia: repo oli jo ajan tasalla.", imported: "GitHubista tuotu: ", confirmOff: "Irrotetaanko repo? Repo ja sen historia jäävät GitHubiin.",
+    never: "ei vielä", notSetUp: "GitHub ei ole käytössä tällä palvelimella.",
+  };
+  const t = (k, en) => (fi && FI[k]) || en;
+  if (fi) {
+    document.documentElement.lang = "fi";
+    for (const el of document.querySelectorAll("[data-t]")) if (FI[el.dataset.t]) el.textContent = FI[el.dataset.t];
+  }
+  const show = (id, on) => { $(id).hidden = !on; };
+  const say = (text, bad) => { $(bad ? "err" : "note").textContent = text; show(bad ? "err" : "note", !!text); if (text) show(bad ? "note" : "err", false); };
+
+  async function call(path, body) {
+    const res = await fetch("/editor/api/git" + path, body === undefined ? { cache: "no-store" } : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const out = await res.json().catch(() => ({}));
+    if (res.status === 401) { location.href = "/editor/"; throw new Error("signed out"); }
+    if (!res.ok) throw new Error(out.error || res.statusText);
+    return out;
+  }
+  function when(ms) {
+    if (!ms) return t("never", "not yet");
+    return new Date(ms).toLocaleString(fi ? "fi-FI" : undefined);
+  }
+  function result(r) {
+    const parts = [];
+    parts.push(r.commit ? t("committed", "Committed: ") + r.commit.slice(0, 7) : t("nothing", "Nothing changed: the repository was up to date."));
+    if (r.imported?.length || r.created?.length) parts.push(t("imported", "Taken in from GitHub: ") + (r.imported.length + r.created.length));
+    return parts.join(" ");
+  }
+
+  let state = null;
+  async function load() {
+    show("busy", true);
+    try {
+      state = await call("");
+    } catch (e) {
+      show("busy", false);
+      say(/not set up/.test(e.message) ? t("notSetUp", e.message) : e.message, true);
+      return;
+    }
+    show("busy", false);
+    if (state.error) say(state.error, true);
+    $("install").href = state.install || "#";
+    show("nogh", !state.github);
+    show("pick", !!state.github && !state.enabled);
+    show("on", !!state.enabled);
+    if (state.github) $("who").textContent = t("signed", "GitHub account: ") + state.github.login;
+    const box = $("choices");
+    box.textContent = "";
+    for (const c of state.choices || []) {
+      const l = document.createElement("label");
+      l.className = "choice";
+      const r = document.createElement("input");
+      r.type = "radio"; r.name = "repo"; r.value = c.installation + ":" + c.repo; r.disabled = !c.private;
+      l.append(r, document.createTextNode(c.name + (c.private ? "" : t("publicRepo", " (public: not allowed)"))));
+      box.append(l);
+    }
+    if (!(state.choices || []).length) {
+      const p = document.createElement("p");
+      p.textContent = t("none", "The App does not see any repository yet. Make a new one, or choose repositories on GitHub.");
+      box.append(p);
+    }
+    show("useRow", (state.choices || []).some((c) => c.private));
+    if (state.enabled) {
+      $("repo").textContent = state.repo; $("repo").href = state.url;
+      $("branch").textContent = state.branch;
+      $("head").textContent = state.head ? state.head.slice(0, 7) : "–";
+      $("head").href = state.head ? state.url + "/commit/" + state.head : state.url;
+      $("synced").textContent = when(state.synced);
+      const cs = $("conflicts");
+      cs.textContent = "";
+      for (const c of state.conflicts || []) {
+        const d = document.createElement("div");
+        d.className = "conflict";
+        const name = document.createElement("div");
+        const a = document.createElement("a");
+        a.href = "/editor/d/" + encodeURIComponent(c.deck); a.textContent = c.name;
+        name.append(a);
+        if (c.sha) {
+          const g = document.createElement("a");
+          g.href = state.url + "/blob/" + c.sha + "/decks/" + encodeURIComponent(c.deck) + "/deck.md"; g.target = "_blank"; g.rel = "noopener";
+          g.textContent = " · GitHub " + String(c.sha).slice(0, 7);
+          name.append(g);
+        }
+        const row = document.createElement("div");
+        row.className = "row";
+        for (const [take, label] of [["github", t("useGithub", "Use GitHub's version")], ["sliqtly", t("keepSliqtly", "Keep Sliqtly's version")]]) {
+          const b = document.createElement("button");
+          b.className = take === "github" ? "secondary" : "primary";
+          b.textContent = label;
+          b.addEventListener("click", () => act(() => call("/resolve", { deck: c.deck, take })));
+          row.append(b);
+        }
+        d.append(name, row);
+        cs.append(d);
+      }
+      show("conf", (state.conflicts || []).length > 0);
+    }
+  }
+  async function act(f) {
+    for (const b of document.querySelectorAll("button")) b.disabled = true;
+    say("", false); say("", true);
+    try {
+      const r = await f();
+      say(r && "commit" in r ? result(r) : t("done", "Done."), false);
+    } catch (e) {
+      say(e.message, true);
+    } finally {
+      for (const b of document.querySelectorAll("button")) b.disabled = false;
+      await load().catch(() => {});
+    }
+  }
+  $("use").addEventListener("click", () => {
+    const v = document.querySelector("input[name=repo]:checked")?.value;
+    if (!v) return;
+    const [installation, repo] = v.split(":").map(Number);
+    act(() => call("/connect", { installation, repo }));
+  });
+  $("create").addEventListener("click", () => {
+    const n = $("name").value.trim();
+    if (n) location.href = "/editor/github/login?mode=create&name=" + encodeURIComponent(n);
+  });
+  $("sync").addEventListener("click", () => act(() => call("/sync", {})));
+  $("off").addEventListener("click", () => {
+    if (confirm(t("confirmOff", "Disconnect the repository? It stays on GitHub with its history."))) act(() => call("/disconnect", {}));
+  });
+  load();
+})();
+</script>
+</body>
+</html>

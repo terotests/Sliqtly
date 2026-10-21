@@ -18,6 +18,7 @@ import (
 	"cloud.google.com/go/firestore"
 	"cloud.google.com/go/storage"
 	firebase "firebase.google.com/go/v4"
+	fbauth "firebase.google.com/go/v4/auth"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -335,6 +336,10 @@ func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) er
 		verified, _ := t.Claims["email_verified"].(bool)
 		return &IDToken{UID: t.UID, Name: name, Email: email, Verified: verified}, nil
 	}
+	// signing in with GitHub (cloudgithttp.go)
+	env.githubMint = func(ctx context.Context, uid string, u ghUser) (string, error) {
+		return githubCustomToken(ctx, auth, uid, u)
+	}
 	// each account's own Figma files (cloudshared.go), read by the job
 	// SLIQTLY_FIGMA_JOB names
 	env.cloudShared = newCloudShared(gcsBucket{b}, cloudJobStarter(os.Getenv("SLIQTLY_FIGMA_JOB")))
@@ -347,4 +352,36 @@ func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) er
 	// the owner's dashboard (admin.go), for the accounts listed
 	env.Admin = newAdminConfig(splitList(os.Getenv("SLIQTLY_ADMIN_EMAILS")), &cloudAdmin{fs: fs, auth: auth, project: projectID, table: os.Getenv("SLIQTLY_BILLING_TABLE")})
 	return nil
+}
+
+// githubCustomToken: a custom token that signs Firebase in as uid, the
+// account made first when there is none (one signing in with GitHub for
+// the first time). Its address is GitHub's verified primary one, unless
+// another account has it already: that one keeps it (it signs in with
+// Google, and can connect GitHub there). Making custom tokens on Cloud Run
+// needs the service account's Service Account Token Creator role on itself
+// (docs/github-app.md).
+func githubCustomToken(ctx context.Context, auth *fbauth.Client, uid string, u ghUser) (string, error) {
+	if _, err := auth.GetUser(ctx, uid); err != nil {
+		if !fbauth.IsUserNotFound(err) {
+			return "", err
+		}
+		name := u.Name
+		if name == "" {
+			name = u.Login
+		}
+		p := (&fbauth.UserToCreate{}).UID(uid).DisplayName(name)
+		if u.Email != "" {
+			p = p.Email(u.Email).EmailVerified(true)
+		}
+		if _, err := auth.CreateUser(ctx, p); err != nil {
+			if !fbauth.IsEmailAlreadyExists(err) {
+				return "", err
+			}
+			if _, err := auth.CreateUser(ctx, (&fbauth.UserToCreate{}).UID(uid).DisplayName(name)); err != nil {
+				return "", err
+			}
+		}
+	}
+	return auth.CustomTokenWithClaims(ctx, uid, map[string]any{"github": u.Login})
 }

@@ -298,6 +298,13 @@ func main() {
 			if e.EditorGate != nil {
 				e.Editor = true
 				kind += ", editor at /editor"
+				// the accounts' own GitHub repositories (cloudgit.go)
+				if c, err := cloudGitFromEnv(e); err != nil {
+					log.Printf("GitHub App: %v", err)
+				} else if c != nil {
+					e.CloudGit = c
+					kind += ", GitHub " + c.app.Slug
+				}
 				if m, what := newAIModel(context.Background()); m != nil {
 					e.EditorGate.ai = newAIAssist(m, e.DB)
 					kind += ", AI assistant: " + what

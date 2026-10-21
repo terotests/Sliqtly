@@ -40,6 +40,7 @@
   <p id="busy" hidden>Signing in…</p>
   <button class="primary" id="go" disabled>Continue with Google</button>
   <button class="secondary" id="other" hidden>Use another Google account</button>
+  <button class="secondary" id="github" hidden>Continue with GitHub</button>
   <p class="error" id="err" hidden></p>
   <p class="small"><a href="/" id="home">Sliqtly home</a></p>
 </main>
@@ -55,9 +56,20 @@
     $("busy").textContent = "Kirjaudutaan…";
     $("go").textContent = "Jatka Googlella";
     $("other").textContent = "Käytä toista Google-tiliä";
+    $("github").textContent = "Jatka GitHubilla";
     $("home").textContent = "Sliqtlyn etusivu";
   }
   const say = (en, fiText) => (fi ? fiText : en);
+  // GitHub's sign-in (mcp-go/cloudgithttp.go), shown when the server has it:
+  // it comes back through the server, and finishes only in the browser
+  // that kept this nonce
+  $("github").onclick = () => {
+    const b = new Uint8Array(24);
+    crypto.getRandomValues(b);
+    const nonce = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+    try { sessionStorage.setItem("sliqtly:github-nonce", nonce); } catch {}
+    location.href = "/editor/github/login?mode=in&nonce=" + nonce + "&next=" + encodeURIComponent(location.pathname + location.search);
+  };
   // a sign-in that came back but did not let the editor in: no reload loop
   const TRIED = "sliqtly:editor-entered";
 
