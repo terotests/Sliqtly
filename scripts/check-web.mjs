@@ -7908,7 +7908,9 @@ try {
     const under = box && await pg.evaluate(({ x, y }) => ({ layer: window.__app.layerAt(x, y), play: window.__app.playAt(x, y) }), box);
     check("a dialog over a program: the program is not under the pointer there", !!box && under.layer === "dialog" && under.play === "", JSON.stringify({ box, under }));
     // the Copy button and the link's field where they lie over the slide
-    const spot = (id) => pg.evaluate((id) => { const a = window.__app; let best = null; for (let y = 0; y < 860; y += 4) for (let x = 0; x < 1400; x += 4) if (a.panels.ownerAt(x, y) === id && a.slideRect.has(x, y)) best = { x, y }; return best; }, id);
+    // (over the slide where it reaches it: the fonts decide how far it does)
+    const spot = (id) => pg.evaluate((id) => { const a = window.__app; let best = null; let any = null; for (let y = 0; y < 860; y += 4) for (let x = 0; x < 1400; x += 4) if (a.panels.ownerAt(x, y) === id) { any = { x, y, over: false }; if (a.slideRect.has(x, y)) best = { x, y, over: true }; } return best || any; }, id);
+    await pg.evaluate(() => navigator.clipboard.writeText("-"));
     const btn = await spot("pn-copy-show");
     if (btn) await pg.mouse.click(btn.x - 4, btn.y - 4);
     await pg.waitForTimeout(600);
