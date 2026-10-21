@@ -792,7 +792,7 @@ class PresApp {
     ; {"x", "y", "id"}; "" off the slide or when the stage shows another.
     fn scriptHit:string (key:string x:double y:double) {
         def pg:int (deck.scriptPage(key))
-        if (((pg < 0) || (pg != selected)) || ((slideRect.has(x y)) == false)) {
+        if (((pg < 0) || (pg != selected)) || ((this.stageFree(x y)) == false)) {
             return ""
         }
         this.slidePoint(x y)
@@ -1017,11 +1017,21 @@ class PresApp {
 
     ; The program under window point (x, y) on the stage, "" for none.
     fn playAt:string (x:double y:double) {
-        if (((deck.slideCount()) == 0) || ((slideRect.has(x y)) == false)) {
+        if (((deck.slideCount()) == 0) || ((this.stageFree(x y)) == false)) {
             return ""
         }
         this.slidePoint(x y)
         return (deck.playAt(selected spX spY))
+    }
+
+    ; Window point (x, y) on the slide with nothing over it there: a dialog,
+    ; a window, a menu or a toast (`layerAt`) takes its own presses, and a
+    ; program under it neither gets them nor the keyboard with them.
+    fn stageFree:boolean (x:double y:double) {
+        if ((slideRect.has(x y)) == false) {
+            return false
+        }
+        return ((strlen (this.layerAt(x y))) == 0)
     }
 
     ; Window point (x, y) in program `key`'s units with the id under it
@@ -1034,7 +1044,7 @@ class PresApp {
     ; Window point (x, y) on the worlds programs on the slide shown draw
     ; past their boxes: [{"key", "src", "u", "v"}] (PresDeck.playPast).
     fn playPast:string (x:double y:double) {
-        if ((deck.slideCount()) == 0) {
+        if (((deck.slideCount()) == 0) || ((strlen (this.layerAt(x y))) > 0)) {
             return "[]"
         }
         this.slidePoint(x y)

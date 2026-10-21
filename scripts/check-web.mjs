@@ -7888,6 +7888,44 @@ try {
     await pc.close();
   }
 
+  // A dialog over a program on the stage (```app) takes its own presses:
+  // the program under it neither gets them nor the keyboard (Share's Copy
+  // and a selection's Ctrl+C both went to the game under the dialog)
+  {
+    const pg = await browser.newPage({ viewport: { width: 1400, height: 860 } });
+    await pg.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await pg.goto(url + "?sample=pelit");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const playing = () => pg.evaluate(() => { const a = window.__app; const r = a.slideRect; for (let y = r.y + 5; y < r.y + r.h; y += 10) for (let x = r.x + 5; x < r.x + r.w; x += 10) { const k = a.playAt(x, y); if (k) return { x, y, k }; } return null; });
+    let box = null;
+    for (let i = 0; i < 6 && !box; i += 1) {
+      box = await playing();
+      if (!box) { await pg.evaluate(() => window.__app.next()); await pg.waitForTimeout(500); }
+    }
+    const link = "https://example.test/r/abc/123";
+    await pg.evaluate((link) => { window.__lastShareShow = link; window.__app.openShare(link, "", "note"); }, link);
+    await pg.waitForTimeout(400);
+    const under = box && await pg.evaluate(({ x, y }) => ({ layer: window.__app.layerAt(x, y), play: window.__app.playAt(x, y) }), box);
+    check("a dialog over a program: the program is not under the pointer there", !!box && under.layer === "dialog" && under.play === "", JSON.stringify({ box, under }));
+    // the Copy button and the link's field where they lie over the slide
+    const spot = (id) => pg.evaluate((id) => { const a = window.__app; let best = null; for (let y = 0; y < 860; y += 4) for (let x = 0; x < 1400; x += 4) if (a.panels.ownerAt(x, y) === id && a.slideRect.has(x, y)) best = { x, y }; return best; }, id);
+    const btn = await spot("pn-copy-show");
+    if (btn) await pg.mouse.click(btn.x - 4, btn.y - 4);
+    await pg.waitForTimeout(600);
+    const copied = await pg.evaluate(() => navigator.clipboard.readText().catch(() => ""));
+    const focus1 = await pg.evaluate(() => window.__app.playFocus());
+    check("…its Copy button over the slide copies the link", !!btn && copied === link && focus1 === "", JSON.stringify({ btn, copied, focus1 }));
+    await pg.evaluate(() => navigator.clipboard.writeText("-"));
+    const fld = await spot("pn-url-show");
+    if (fld) await pg.mouse.click(fld.x - 4, fld.y - 4, { clickCount: 3 });
+    await pg.waitForTimeout(300);
+    await pg.keyboard.press("Control+c");
+    await pg.waitForTimeout(300);
+    const keyed = await pg.evaluate(() => navigator.clipboard.readText().catch(() => ""));
+    check("…the link selected in its field over the slide, Ctrl+C copies it", !!fld && keyed === link, JSON.stringify({ fld, keyed }));
+    await pg.close();
+  }
+
   // the interface in another language: ?lang=fi, the canvas bar and the page alike
   const pageFi = await browser.newPage({ viewport: { width: 1200, height: 760 } });
   await pageFi.goto(url + "?lang=fi&sample=talous");
