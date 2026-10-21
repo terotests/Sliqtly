@@ -84,6 +84,12 @@ type gitConfig struct {
 	MaxFileMB   int `json:"maxFileMB,omitempty"`
 	IdleSeconds int `json:"idleSeconds,omitempty"`
 	MaxMinutes  int `json:"maxMinutes,omitempty"`
+	// the GitHub repository commits are pushed to
+	// ("https://github.com/owner/name.git"); "" for none (gitpush.go). Its
+	// token is kept encrypted with the connectors' key, not here.
+	Remote string `json:"remote,omitempty"`
+	// how long after a commit it is pushed (300); "Save version" pushes at once
+	PushSeconds int `json:"pushSeconds,omitempty"`
 }
 
 func (c *gitConfig) defaults() {
@@ -108,6 +114,9 @@ func (c *gitConfig) defaults() {
 	if c.MaxMinutes <= 0 {
 		c.MaxMinutes = 10
 	}
+	if c.PushSeconds <= 0 {
+		c.PushSeconds = 300
+	}
 }
 
 func (c gitConfig) check() error {
@@ -119,6 +128,11 @@ func (c gitConfig) check() error {
 	}
 	if strings.ContainsAny(c.Branch, " ~^:?*[\\") || strings.Contains(c.Branch, "..") {
 		return fmt.Errorf("git.json: bad branch %q", c.Branch)
+	}
+	if c.Remote != "" {
+		if _, _, err := githubRepoOf(c.Remote); err != nil {
+			return fmt.Errorf("git.json: remote: %w", err)
+		}
 	}
 	return nil
 }
@@ -170,6 +184,9 @@ type gitMirror struct {
 
 	edMu    sync.Mutex
 	editors map[string][]string // deck → the names of who edited it since the last commit
+
+	// told each new commit (the pusher, gitpush.go); nil: no one
+	onCommit func(id string)
 }
 
 // openGitMirror opens (makes, when there is none) the repository of the
@@ -462,8 +479,9 @@ func (m *gitMirror) blobID(ctx context.Context, h store.Hash, write bool, s *git
 // --- commits
 
 // commit snapshots the folder and commits it when it differs from the
-// branch's head; message "" says what changed. → the commit ("" when
-// nothing changed)
+// branch's head. The message is what changed; one given ("Save version",
+// an assistant's end_work) comes first, what changed under it. → the
+// commit ("" when nothing changed)
 func (m *gitMirror) commit(ctx context.Context, message string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -507,12 +525,14 @@ func (m *gitMirror) commit(ctx context.Context, message string) (string, error) 
 		}
 	}
 	m.edMu.Unlock()
-	if message == "" {
-		if head == "" {
-			message = "Import from SQLite"
-		} else {
-			message = ch.describe(s)
-		}
+	switch {
+	case head == "" && message == "":
+		message = "Import from SQLite"
+	case head == "":
+	case message == "":
+		message = ch.describe(s)
+	default:
+		message = strings.TrimRight(message, "\n") + "\n\n" + ch.describe(s)
 	}
 	now := time.Now()
 	server := rgit.Ident{Name: m.cfg.Name, Email: m.cfg.Email, When: now}
@@ -543,6 +563,9 @@ func (m *gitMirror) commit(ctx context.Context, message string) (string, error) 
 		delete(m.editors, d)
 	}
 	m.edMu.Unlock()
+	if m.onCommit != nil {
+		m.onCommit(id)
+	}
 	if len(s.TooBig) > 0 {
 		m.logf("git: left out of %s, over %d MB: %s", short7(id), m.cfg.MaxFileMB, strings.Join(s.TooBig, ", "))
 	}

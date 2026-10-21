@@ -8285,9 +8285,34 @@ async function openHistory() {
     save: async (message) => {
       await saveDoc(true);
       const id = await commitVersion(message || "@auto", false, [], !!message);
-      toast(id ? t("Version saved.") : t("Nothing changed since the last version."));
+      const git = await gitSave(message);
+      if (git?.error) toast(t("Version saved here, but not in the server's Git: ") + git.error);
+      else if (git) toast(git.commit ? t("Version saved, also in the server's Git.") : t("Version saved. The server's Git had it already."));
+      else toast(id ? t("Version saved.") : t("Nothing changed since the last version."));
     },
   });
+}
+
+// A server of one's own that keeps its decks in Git (mcp-go/gitpush.go)
+// commits a saved version there too, with its message, and pushes it to
+// its GitHub repository. → { commit } ("" when nothing changed), { error },
+// or null when the deck is not on such a server
+async function gitSave(message) {
+  if (!ownServer() || !doc.cloud) return null;
+  try {
+    const on = await fetch("/api/git", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null));
+    if (!on?.enabled) return null;
+    // what the editor shows is what the server commits
+    await cloudSync();
+    const res = await fetch("/api/git/save", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deck: doc.cloud.replace(/^cloud:/, ""), message: message || "" }),
+    });
+    const out = await res.json().catch(() => ({}));
+    return res.ok ? { commit: out.commit || "" } : { error: out.error || res.statusText };
+  } catch (e) {
+    return { error: e?.message || String(e) };
+  }
 }
 document.getElementById("history").addEventListener("click", () => { openHistory().catch(fail); });
 

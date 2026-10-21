@@ -228,22 +228,21 @@ func main() {
 		if page == nil {
 			kind += ", no editor (npm run build, then go generate)"
 		}
-		// the decks' Git repository (gitstore.go), when git.json turns it on
+		// the decks' Git repository (gitstore.go, gitpush.go), when git.json
+		// turns it on; the settings page turns it on and off later
+		ls.gits = &gitService{data: *data, docs: bucket.docs, blobs: bucket.blobs, feed: e.Store, bucket: bucket, client: newPublicClient(), logf: log.Printf}
 		if gc, on, err := readGitConfig(*data); err != nil {
 			log.Fatalf("data folder %s: %v", *data, err)
 		} else if on && gc.Enabled {
-			m, err := openGitMirror(*data, gc, bucket.docs, bucket.blobs)
-			if err == nil {
-				err = m.start(stop)
-			}
-			if err != nil {
+			if err := ls.gits.start(stop, gc); err != nil {
 				log.Fatalf("git: %v", err)
 			}
-			ls.git = m
-			bucket.gitMax = gc.maxFile()
 			kind += ", decks in Git"
-			go m.run(stop, e.Store)
+			if gc.Remote != "" {
+				kind += " (pushed to " + gc.Remote + ")"
+			}
 		}
+		e.agents.ended = ls.endWork
 		// the server's own token, said in the log, when it needs one
 		if ls.authRequired() {
 			ls.secret()
@@ -262,9 +261,7 @@ func main() {
 		// no edit can come in now: what the rooms took is written before
 		// the folder is let go
 		ls.flushRooms()
-		if ls.git != nil {
-			ls.git.stop()
-		}
+		ls.gits.stop()
 		return
 	}
 	var handler http.Handler

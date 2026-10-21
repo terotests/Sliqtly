@@ -19,6 +19,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/terotests/sliqtly/mcp-go/store"
@@ -31,15 +32,16 @@ type localBucket struct {
 	mu    sync.Mutex // Save and Remove of one path in order
 	// in Git mode (gitstore.go): the largest deck or room file kept, in
 	// bytes; 0: no limit
-	gitMax int64
+	gitMax atomic.Int64
 }
 
 // a deck's or a room's file over the Git repository's limit is refused
 func (b *localBucket) tooBigForGit(p string, size int64) error {
-	if b.gitMax <= 0 || size <= b.gitMax || !(strings.HasPrefix(p, "shares/") || strings.HasPrefix(p, "rooms/")) {
+	most := b.gitMax.Load()
+	if most <= 0 || size <= most || !(strings.HasPrefix(p, "shares/") || strings.HasPrefix(p, "rooms/")) {
 		return nil
 	}
-	return fail(413, "too-large", fmt.Sprintf("files over %d MB are not kept: this server keeps its decks in Git (maxFileMB in git.json)", b.gitMax>>20))
+	return fail(413, "too-large", fmt.Sprintf("files over %d MB are not kept: this server keeps its decks in Git (maxFileMB in git.json)", most>>20))
 }
 
 // a kept file's path, refused when it would leave the files
@@ -90,8 +92,8 @@ func (b *localBucket) SaveFrom(ctx context.Context, p, contentType string, r io.
 	if err != nil {
 		return store.BlobInfo{}, err
 	}
-	if b.gitMax > 0 && b.tooBigForGit(c, b.gitMax+1) != nil {
-		r = &gitLimitReader{r: r, left: b.gitMax, err: b.tooBigForGit(c, b.gitMax+1)}
+	if most := b.gitMax.Load(); most > 0 && b.tooBigForGit(c, most+1) != nil {
+		r = &gitLimitReader{r: r, left: most, err: b.tooBigForGit(c, most+1)}
 	}
 	info, err := b.blobs.Put(ctx, r, contentType)
 	if err != nil {

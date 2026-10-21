@@ -68,8 +68,9 @@ type localServer struct {
 	env    *Env
 	app    http.Handler
 	bucket *localBucket
-	// the decks' Git repository, when git.json turns it on (gitstore.go)
-	git   *gitMirror
+	// the decks' Git repository, when git.json turns it on (gitstore.go,
+	// gitpush.go); nil without a data folder
+	gits  *gitService
 	token string
 	// the server's own token when it needs one and token is "" (secret,
 	// localaccess.go), kept in tokenFile ("": in memory only)
@@ -275,6 +276,10 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if p == "/connectors/oauth/callback" && s.conn != nil && r.Method == http.MethodGet {
 		s.connectorCallback(w, r)
+		return
+	}
+	if p == "/api/git" || strings.HasPrefix(p, "/api/git/") || p == "/api/settings/git" || strings.HasPrefix(p, "/api/settings/git/") {
+		s.gitAPI(w, r)
 		return
 	}
 	if p == "/api/settings" || p == "/api/settings/check" || p == "/api/settings/network" || p == "/api/settings/listing" {
