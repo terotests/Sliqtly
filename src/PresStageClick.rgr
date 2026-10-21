@@ -136,24 +136,35 @@ class PresStageClick {
             if ((((b.page != pg) || (b.kind != 0)) || ((strlen b.link) == 0)) || ((strlen (trim b.text)) == 0)) {
                 continue
             }
-            def n:int (array_length out)
-            if (n > 0) {
-                def last:PresLinkArea (itemAt out (n - 1))
-                if (((last.href == b.link) && ((PresStageClick.near(last.y b.y)) && (PresStageClick.near(last.h b.h)))) && (b.x >= last.x)) {
-                    last.w = ((b.x + b.w) - last.x)
-                    continue
-                }
+            if (PresStageClick.addRun(out b.x b.y b.w b.h b.link)) {
+                def a:PresLinkArea (itemAt out ((array_length out) - 1))
+                a.slide = (PresStageClick.slideOf(deck b.link))
             }
-            def a (new PresLinkArea)
-            a.x = b.x
-            a.y = b.y
-            a.w = b.w
-            a.h = b.h
-            a.href = b.link
-            a.slide = (PresStageClick.slideOf(deck b.link))
-            push out a
         }
         return out
+    }
+
+    ; One word of a link at x, y, w × h, added to `out`: the area before
+    ; it grows over it when it is the same link on the same line, else it
+    ; is an area of its own at the end (true; the caller says which slide
+    ; it goes to).
+    sfn addRun:boolean (out:[PresLinkArea] x:double y:double w:double h:double href:string) {
+        def n:int (array_length out)
+        if (n > 0) {
+            def last:PresLinkArea (itemAt out (n - 1))
+            if (((last.href == href) && ((PresStageClick.near(last.y y)) && (PresStageClick.near(last.h h)))) && (x >= last.x)) {
+                last.w = ((x + w) - last.x)
+                return false
+            }
+        }
+        def a (new PresLinkArea)
+        a.x = x
+        a.y = y
+        a.w = w
+        a.h = h
+        a.href = href
+        push out a
+        return true
     }
 
     sfn near:boolean (a:double b:double) {

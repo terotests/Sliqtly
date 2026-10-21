@@ -6252,6 +6252,73 @@ class PresCheck {
         this.ok(((PresCheck.countIn(pdf3 "/S /URI")) == 1) "pdf links: …the address still is")
     }
 
+    ; The portrait PDF (the View page on A4 sheets) clicks through as the
+    ; slides' one does: an address as a URI link over its words, a link to
+    ; a slide of this deck as a GoTo to the sheet that slide starts on, the
+    ; slides' titles as bookmarks to their sheets. With only some slides
+    ; read, a link to one left out is none.
+    fn docPdfNavigation:void () {
+        def text:string ("---\ntitle: Pysty\nslide-split-level: 2\n---\n\n"
+            + "## Start\n\nSee [the site](https://example.com/docs), [the end](#the-end), [ten](#10) or [elsewhere](#no-such).\n\n")
+        def s:int 0
+        while (s < 8) {
+            text = (text + "## Middle " + (to_string (s + 1)) + "\n\n")
+            def p:int 0
+            while (p < 3) {
+                text = (text + "Kappale, jossa on niin monta sanaa, että se rivittyy kahdelle tai kolmelle riville sivun leveydellä.\n\n")
+                p = (p + 1)
+            }
+            s = (s + 1)
+        }
+        text = (text + "## The end\n\nBye, back to [the start](#start).\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        this.ok(((deck.slideCount()) == 10) ("doc pdf links: ten slides, got " + (to_string (deck.slideCount()))))
+        def v (new PresDocView())
+        v.build(deck)
+        this.ok(((array_length v.links) == 5) ("doc pdf links: the page keeps five link areas, got " + (to_string (array_length v.links))))
+        def cuts:[double] (PresExport.docCuts(v))
+        def sheets:int (idiv (array_length cuts) 2)
+        this.ok((sheets >= 2) ("doc pdf links: the deck is on several sheets, got " + (to_string sheets)))
+        def endAt:int (PresExport.docSheetOfSlide(v cuts 9))
+        this.ok((endAt > 0) ("doc pdf links: the end starts on a later sheet, got " + (to_string endAt)))
+        this.ok(((PresExport.docSheetOfSlide(v cuts 0)) == 0) "doc pdf links: the start is on the first sheet")
+        def first:[PresLinkArea] (PresExport.docSheetLinks(deck v cuts 0))
+        this.ok(((array_length first) == 3) ("doc pdf links: three links on the first sheet (not #no-such), got " + (to_string (array_length first))))
+        if ((array_length first) == 3) {
+            def a:PresLinkArea (itemAt first 0)
+            this.ok((a.href == "https://example.com/docs") ("doc pdf links: the address, got " + a.href))
+            this.ok((((a.y >= v.flow.margin) && (a.w > 0.0)) && (a.h > 0.0)) "doc pdf links: …on the sheet, below its margin")
+            this.ok(((itemAt first 1).href == ("#page=" + (to_string (endAt + 1)))) ("doc pdf links: #the-end to its sheet, got " + (itemAt first 1).href))
+            this.ok(((itemAt first 2).href == ("#page=" + (to_string (endAt + 1)))) "doc pdf links: #10 to the same sheet")
+        }
+        def ex (new PresExport())
+        ex.deck = deck
+        def pdf:string (buffer_to_string (ex.docPdf(v)))
+        def kids:[string] (PresCheck.pdfKids(pdf))
+        this.ok(((array_length kids) == sheets) ("doc pdf links: a page per sheet, got " + (to_string (array_length kids))))
+        this.ok(((PresCheck.countIn(pdf "/S /URI /URI (https://example.com/docs)")) == 1) "doc pdf links: the address is a URI link")
+        this.ok(((PresCheck.countIn(pdf "/S /GoTo")) == 3) ("doc pdf links: three jumps, got " + (to_string (PresCheck.countIn(pdf "/S /GoTo")))))
+        if ((array_length kids) == sheets) {
+            this.ok(((PresCheck.countIn(pdf ("/S /GoTo /D [" + (itemAt kids endAt) + " /Fit]"))) == 2) "doc pdf links: #the-end and #10 go to the end's sheet")
+            this.ok(((PresCheck.countIn(pdf ("/S /GoTo /D [" + (itemAt kids 0) + " /Fit]"))) == 1) "doc pdf links: #start back to the first sheet")
+        }
+        this.ok(((indexOf pdf "no-such") < 0) "doc pdf links: a name no slide has is no link")
+        this.ok((((indexOf pdf "/Title (Start)") > 0) && ((indexOf pdf "/Title (The end)") > 0)) "doc pdf links: the slides' titles as bookmarks")
+        ; the end only: a jump to the start (not read) is none
+        def v2 (new PresDocView())
+        def only:[int] ([] _:int ( 9 ))
+        v2.only = only
+        v2.build(deck)
+        def ex2 (new PresExport())
+        ex2.deck = deck
+        ex2.only = only
+        def pdf2:string (buffer_to_string (ex2.docPdf(v2)))
+        this.ok(((PresCheck.countIn(pdf2 "/S /GoTo")) == 0) "doc pdf links: a jump to a slide not read is none")
+        this.ok(((indexOf pdf2 "/Title (Start)") < 0) "doc pdf links: no bookmark for a slide not read")
+        this.ok(((indexOf pdf2 "/Title (The end)") > 0) "doc pdf links: …the one read has its own")
+    }
+
     ; The page objects of a PDF, in order ("12 0 R" each), from its /Kids.
     sfn pdfKids:[string] (pdf:string) {
         def out:[string]
@@ -10666,6 +10733,7 @@ class PresCheck {
         c.docx()
         c.pptxLinks()
         c.pdfNavigation()
+        c.docPdfNavigation()
         c.a11ySlide()
         c.calmMotion()
         c.htmlPage()
