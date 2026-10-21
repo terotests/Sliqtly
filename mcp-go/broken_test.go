@@ -161,6 +161,24 @@ func TestAppProgramRuns(t *testing.T) {
 	bad := withFiles("import cfg from \"../data/w.json\";\nfunction view() { return <div>{cfg.title}</div>; }\n",
 		map[string]any{"name": "data/w.json", "text": "{nope"})
 	match(t, bad, `apps/game\.tsx does not run: .*data/w\.json is not JSON`)
+	// a library programs share (apps/scene.ts), with its own import from
+	// its folder and the "Sliqtly" helpers; the program's own names stay
+	shared := withFiles("import { label, W } from \"./scene.tsx\";\nfunction lerp(a, b, k) { return 0; }\nconst orbit = 1;\n"+
+		"function view() {\n  if (W !== 560) throw new Error(\"W \" + W);\n  return <div className=\"b\">{label([0, 0, 0], \"x\")}</div>;\n}\n",
+		map[string]any{"name": "scene.tsx", "text": "import { camera } from \"Sliqtly\";\nimport { W, H } from \"./size.ts\";\nexport { W };\n" +
+			"const cam = camera({ position: [0, 2, 8], width: W, height: H });\nexport function label(p: number[], t: string) { const s = cam.project(p); return <span style={{ left: s[0], top: s[1] }}>{t}</span>; }\n"},
+		map[string]any{"name": "apps/size.ts", "text": "export const W: number = 560, H: number = 420;\n"})
+	if strings.Contains(shared, "does not run") || strings.Contains(shared, "imports") || strings.Contains(shared, "has no such file") {
+		t.Fatal(shared)
+	}
+	noLib := withFiles("import { label } from \"./scene.tsx\";\nfunction view() { return <div>{label([0, 0, 0], \"x\")}</div>; }\n")
+	match(t, noLib, `apps/game\.tsx imports apps/scene\.tsx, which the presentation does not have`)
+	if strings.Contains(noLib, "program of an app block") {
+		t.Fatal("a missing library was taken for a program:", noLib)
+	}
+	badLib := withFiles("import { a } from \"./lib.ts\";\nfunction view() { return <div>{a}</div>; }\n",
+		map[string]any{"name": "lib.ts", "text": "export const b = 1;\nexport const = 2;\n"})
+	match(t, badLib, `apps/game\.tsx does not run: .*SyntaxError: .*\(apps/lib\.ts line 2\)`)
 	// a demo on its own clock is told how its slide is seen through on a
 	// video (presentation.video); one that says it, or has no tick, is not
 	demo := try("let t = 0;\nfunction tick(dt) { t += dt; }\nfunction view() { return <div className=\"b\" />; }\n")

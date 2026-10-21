@@ -6,7 +6,10 @@
 ;
 ;   import sales from "../data/sales.csv"      a program (```app src, or a
 ;   import cfg from "data/world.json"          slide's {script=…}) reads the
-;                                              deck's files as modules
+;   import { project } from "./scene3d.ts"     deck's files as modules, and
+;                                              shares code with other
+;                                              programs in a library of the
+;                                              deck (apps/x.ts, .tsx, .js)
 ;
 ; CErXes reads an import from a module the host defined (defineModule). The
 ; host here is whoever runs the program (the editor, the viewer, the MCP
@@ -17,7 +20,10 @@
 ;
 ; so the program's own lines keep their numbers in what it reports. The
 ; runtime (web/apps-runtime.js __deckFiles) turns each into a module: JSON
-; parsed, CSV rows, any other file its text.
+; parsed, CSV rows, any other file its text, and a library the module its
+; code exports (CErXes defineSourceModule, run on its first import). A
+; library's own imports are the deck's too: PresPlayLink follows them, so
+; the program gets every file it reaches, each once.
 ; ============================================================================
 
 Import "JsonValue.rgr"
@@ -29,14 +35,16 @@ class PresPlayFile {
     def path:string ""
     def text:string ""
     def have:boolean false
+    ; given its text (have tells whether the deck has it)
+    def read:boolean false
 }
 
 class PresPlayFiles {
 
-    ; The modules a program's source imports that name the deck's files,
-    ; each once, in order: not "Sliqtly", "ranger:three" or another host's
-    ; module (a name with ':'), not a bare name with no extension (a
-    ; package), not a code file (CErXes runs one source).
+    ; The modules a program's source imports that name the deck's files or
+    ; libraries, each once, in order: not "Sliqtly", "ranger:three" or
+    ; another host's module (a name with ':'), not a bare name with no
+    ; extension (a package).
     ; An import is read at the start of a line, as a program writes it.
     sfn specs:[string] (source:string) {
         def out:[string]
@@ -56,7 +64,7 @@ class PresPlayFiles {
             }
             if (lineStart && (PresPlayFiles.wordAt(source i "import"))) {
                 def spec:string (PresPlayFiles.moduleAfter(source (i + 6)))
-                if ((PresPlayFiles.isDeckFile(spec)) && ((indexOf out spec) < 0)) {
+                if ((PresPlayFiles.isImport(spec)) && ((indexOf out spec) < 0)) {
                     push out spec
                 }
             }
@@ -111,7 +119,9 @@ class PresPlayFiles {
         return ""
     }
 
-    sfn isDeckFile:boolean (spec:string) {
+    ; A file or a library of the deck: a name with an extension, not a
+    ; host's module ("Sliqtly", a name with ':').
+    sfn isImport:boolean (spec:string) {
         if ((strlen spec) == 0) {
             return false
         }
@@ -120,17 +130,25 @@ class PresPlayFiles {
         }
         ; a file has an extension: a bare name is a package, not the deck's
         def last:string (substring spec ((lastIndexOf spec "/") + 1) (strlen spec))
-        if ((indexOf last ".") <= 0) {
-            return false
-        }
-        def low:string (to_lowercase spec)
+        return ((indexOf last ".") > 0)
+    }
+
+    ; A file a program reads as data: an import that is not code.
+    sfn isDeckFile:boolean (spec:string) {
+        return ((PresPlayFiles.isImport(spec)) && ((PresPlayFiles.isCode(spec)) == false))
+    }
+
+    ; Code: a library the program imports, or a program itself (.ts, .tsx,
+    ; .js, .jsx, .mjs).
+    sfn isCode:boolean (path:string) {
+        def low:string (to_lowercase path)
         def code:[string] ([] _:string (".ts" ".tsx" ".js" ".jsx" ".mjs"))
         for code ext:string ei {
             if (endsWith low ext) {
-                return false
+                return true
             }
         }
-        return true
+        return false
     }
 
     ; The deck's path of `spec` imported by the program at `program`:
@@ -191,3 +209,118 @@ class PresPlayFiles {
         return ("__deckFiles([" + (join items ",") + "]);")
     }
 }
+
+; The files one program reaches through its imports, and its libraries'
+; imports, each once (by its path), as the host gives them:
+;
+;   def link:PresPlayLink (PresPlayLink.of(path src))
+;   while (link.pending()) {
+;       def want:string (link.wanted())
+;       link.give(want (the deck's text of want) (whether the deck has it))
+;   }
+;   (link.source())                 the program with them on its first line
+;
+; A library's imports are read from its own folder; a file the program
+; and a library both import is one module.
+class PresPlayLink {
+    def path:string ""
+    def src:string ""
+    def files:[PresPlayFile]
+
+    sfn of:PresPlayLink (path:string src:string) {
+        def l:PresPlayLink (new PresPlayLink())
+        l.path = path
+        l.src = src
+        l.add(path src)
+        return l
+    }
+
+    ; the imports of the code at `from` (its text `text`)
+    fn add:void (from:string text:string) {
+        for (PresPlayFiles.specs(text)) spec:string si {
+            def fp:string (PresPlayFiles.resolve(from spec))
+            if ((fp != path) && ((this.find(fp)) < 0)) {
+                def f:PresPlayFile (new PresPlayFile())
+                ; the program names a file by its import; a library's file
+                ; is found by its path (CErXes reads a library's imports
+                ; from its folder)
+                f.spec = spec
+                if (from != path) {
+                    f.spec = fp
+                }
+                f.path = fp
+                push files f
+            }
+        }
+    }
+
+    fn find:int (fp:string) {
+        def i:int 0
+        while (i < (array_length files)) {
+            def f:PresPlayFile (itemAt files i)
+            if (f.path == fp) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; a file not given yet
+    fn pending:boolean () {
+        return ((strlen (this.wanted())) > 0)
+    }
+
+    ; the path of the next file to give, "" when all are
+    fn wanted:string () {
+        for files f:PresPlayFile fi {
+            if (f.read == false) {
+                return f.path
+            }
+        }
+        return ""
+    }
+
+    ; the deck's text of `fp`; `have` false when the deck has no such file
+    fn give:void (fp:string text:string have:boolean) {
+        def at:int (this.find(fp))
+        if (at < 0) {
+            return
+        }
+        def f:PresPlayFile (itemAt files at)
+        f.read = true
+        f.have = have
+        if have {
+            f.text = text
+            if (PresPlayFiles.isCode(fp)) {
+                this.add(fp text)
+            }
+        }
+    }
+
+    ; the paths of the files the program reaches that the deck lacks
+    fn missing:[string] () {
+        def out:[string]
+        for files f:PresPlayFile fi {
+            if (f.read && (f.have == false)) {
+                push out f.path
+            }
+        }
+        return out
+    }
+
+    ; the paths of every file the program reaches, as far as given
+    fn paths:[string] () {
+        def out:[string]
+        for files f:PresPlayFile fi {
+            push out f.path
+        }
+        return out
+    }
+
+    ; the program with its files on its first line (PresPlayFiles.prelude)
+    fn source:string () {
+        return ((PresPlayFiles.prelude(files)) + src)
+    }
+}
+
