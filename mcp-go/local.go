@@ -199,8 +199,11 @@ var (
 	slidePath    = regexp.MustCompile(`^/s/([A-Za-z0-9]{6,32})/([0-9]{1,4})\.jpg$`)
 	overviewPath = regexp.MustCompile(`^/s/([A-Za-z0-9]{6,32})/overview\.jpg$`)
 	deckPath     = regexp.MustCompile(`^/s/([A-Za-z0-9]{6,32})/?$`)
-	slidesPath   = regexp.MustCompile(`^/s/([A-Za-z0-9]{6,32})/slides$`)
-	themePath    = regexp.MustCompile(`^/themes/([a-z0-9-]{1,40})\.css$`)
+	// a deck as a version of the server's Git has it (githistory.go): the
+	// editor opens the deck and shows that version over it
+	deckAtPath = regexp.MustCompile(`^/s/([A-Za-z0-9]{6,32})@([A-Za-z0-9._-]{1,64})/?$`)
+	slidesPath = regexp.MustCompile(`^/s/([A-Za-z0-9]{6,32})/slides$`)
+	themePath  = regexp.MustCompile(`^/themes/([a-z0-9-]{1,40})\.css$`)
 )
 
 func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -278,6 +281,10 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.connectorCallback(w, r)
 		return
 	}
+	if strings.HasPrefix(p, "/api/history/") {
+		s.historyAPI(w, r)
+		return
+	}
 	if p == "/api/git" || strings.HasPrefix(p, "/api/git/") || p == "/api/settings/git" || strings.HasPrefix(p, "/api/settings/git/") {
 		s.gitAPI(w, r)
 		return
@@ -353,7 +360,7 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.picture(w, r, "render_slide", map[string]any{"deck_id": m[1], "slide": n})
 	case overviewPath.MatchString(p):
 		s.picture(w, r, "render_overview", map[string]any{"deck_id": overviewPath.FindStringSubmatch(p)[1]})
-	case deckPath.MatchString(p) && s.web != nil:
+	case (deckPath.MatchString(p) || deckAtPath.MatchString(p)) && s.web != nil:
 		s.page(w, r)
 	case playPath.MatchString(p) && s.web != nil:
 		s.playPage(w, r)

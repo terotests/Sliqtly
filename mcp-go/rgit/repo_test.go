@@ -203,3 +203,26 @@ func TestBadPathsAndRefs(t *testing.T) {
 		}
 	}
 }
+
+func TestTreeAt(t *testing.T) {
+	r, err := Init(filepath.Join(t.TempDir(), "repo.git"), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := commitFiles(t, r, map[string]string{"decks/a/deck.md": "A", "decks/b/deck.md": "B", "README.md": "R"}, "", "m\n", time.Now())
+	cm, _ := r.ReadCommit(c)
+	sub, err := r.TreeAt(cm.Tree, "decks/a")
+	if err != nil || sub == "" {
+		t.Fatalf("decks/a: %q %v", sub, err)
+	}
+	files, _ := r.ReadTree(sub)
+	if len(files) != 1 || files[0].Path != "deck.md" {
+		t.Fatalf("files %v", files)
+	}
+	if none, err := r.TreeAt(cm.Tree, "decks/zz"); err != nil || none != "" {
+		t.Fatalf("missing: %q %v", none, err)
+	}
+	if none, _ := r.TreeAt(cm.Tree, "README.md"); none != "" {
+		t.Fatal("a file is not a tree")
+	}
+}
