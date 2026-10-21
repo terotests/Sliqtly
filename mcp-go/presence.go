@@ -50,6 +50,10 @@ type agentBoard struct {
 	// pub: on sliqtly.com, where the board is told to Firestore for the
 	// page (presencecloud.go); nil on a server of one's own
 	pub *presencePub
+	// told when an end_work call has run: the deck, what the work was
+	// (begin_work's note) and who did it (a server keeping its decks in
+	// Git commits it, gitpush.go); nil: no one
+	ended func(deck, note, agent string)
 }
 
 type agentSeen struct {
@@ -140,6 +144,10 @@ func (b *agentBoard) hello(key, client string, now time.Time) {
 // keeps the session known.
 func (b *agentBoard) begin(key string, c agentCall, now time.Time) (done func(time.Time)) {
 	if key == "" {
+		if c.Tool == "end_work" && c.Deck != "" && b.ended != nil {
+			ended := b.ended
+			return func(time.Time) { go ended(c.Deck, "", "") }
+		}
 		return func(time.Time) {}
 	}
 	b.mu.Lock()
@@ -161,7 +169,15 @@ func (b *agentBoard) begin(key string, c agentCall, now time.Time) (done func(ti
 	d.busy++
 	d.tool = c.Tool
 	d.last = now
+	var ended func()
 	if c.Tool == "end_work" {
+		if b.ended != nil {
+			tell, deck, note, who := b.ended, c.Deck, d.note, a.name
+			if who == "" {
+				who = a.client
+			}
+			ended = func() { go tell(deck, note, who) }
+		}
 		d.slides, d.whole, d.note = nil, false, ""
 	}
 	once := false
@@ -175,6 +191,9 @@ func (b *agentBoard) begin(key string, c agentCall, now time.Time) (done func(ti
 		d.busy--
 		d.last = end
 		a.last = end
+		if ended != nil {
+			ended()
+		}
 	}
 }
 

@@ -178,7 +178,7 @@ func TestGitRefusesTooBigFiles(t *testing.T) {
 	ls, _, stop := startLocalServer(t, filepath.Join(t.TempDir(), "data"))
 	defer stop()
 	b := ls.bucket
-	b.gitMax = 1 << 10
+	b.gitMax.Store(1 << 10)
 	big := bytes.Repeat([]byte("x"), 2<<10)
 	var api *apiError
 	if err := b.Save(ctx, "shares/abc/media/big.bin", "", big, nil); !errors.As(err, &api) || api.status != 413 {
@@ -196,7 +196,7 @@ func TestGitRefusesTooBigFiles(t *testing.T) {
 	if _, err := b.SaveFrom(ctx, "shared/f1/source.fig", "", bytes.NewReader(big)); err != nil {
 		t.Fatal(err)
 	}
-	b.gitMax = 0
+	b.gitMax.Store(0)
 	if err := b.Save(ctx, "shares/abc/media/big.bin", "", big, nil); err != nil {
 		t.Fatal(err)
 	}

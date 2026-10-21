@@ -377,6 +377,25 @@ ul { padding-left: 20px; }
 <p class="muted">Services outside Sliqtly that scripts and workflows in presentations may use, through this server. Each is a file in the data folder's connectors/ folder; every presentation that wants one needs the admin's grant here.</p>
 <div id="conn"><p class="muted">Loading…</p></div>
 
+<h2 id="git">Git</h2>
+<p class="muted">Keep the presentations in a Git repository as well: their text, files, rooms and links, committed after each pause in editing, on "Save version" and when an assistant ends its work. Owners, invitations, chat and form answers are never put in it. The repository is a plain bare one in the data folder (<code>git clone</code> reads it), and may be pushed to a private GitHub repository as a backup.</p>
+<form id="gf">
+<fieldset id="gitset">
+<label class="inline"><input type="checkbox" id="gon"> Keep the presentations in Git</label>
+<label for="gremote">Push to this private GitHub repository (optional)</label>
+<input type="text" id="gremote" class="mono" spellcheck="false" autocomplete="off" placeholder="https://github.com/you/sliqtly-decks">
+<label for="gtoken">Its token <span class="muted" id="ghas"></span></label>
+<input type="password" id="gtoken" class="mono" spellcheck="false" autocomplete="off" placeholder="github_pat_…" style="width:100%;box-sizing:border-box;font:14px ui-monospace,monospace;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg)">
+<p class="muted">Make a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained token</a> for that one repository with Contents: Read and write. It is kept encrypted in the data folder. A public repository is never pushed to.</p>
+<label for="gauthor">Commits are by</label>
+<select id="gauthor"><option value="editor">the people who edited</option><option value="server">the server</option></select>
+<label for="gmax">Largest file kept (MB, at most 100)</label>
+<input type="text" id="gmax" inputmode="numeric" style="max-width:8em"><br>
+<button type="submit">Save</button> <span id="gsaved" aria-live="polite"></span>
+</fieldset>
+</form>
+<div id="gstate"></div>
+
 <h2>Names of presentations</h2>
 <p class="muted" style="margin-top:0">Whoever can connect can change this.</p>
 
@@ -630,6 +649,71 @@ async function loadGrants(box) {
   box.append(sec);
 }
 window.addEventListener("message", (e) => { if (e.origin === location.origin && e.data && e.data.sliqtly === "connector") loadConn(); });
+async function gitApi(path, method, body) {
+  const r = await fetch("/api/settings/git" + path, { method: method || "GET", cache: "no-store", headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  let out = {};
+  try { out = await r.json(); } catch (e) {}
+  return { ok: r.ok, out };
+}
+const gitStates = { off: "not pushed anywhere", waiting: "waiting to push", pushing: "pushing…", done: "up to date", error: "the last push failed; it is tried again", stopped: "stopped" };
+function showGit(g, stateOnly) {
+  const set = g.settings || {};
+  if (!stateOnly) showGitForm(g, set);
+  showGitState(g);
+}
+function showGitForm(g, set) {
+  $("gon").checked = !!g.enabled;
+  $("gremote").value = set.remote || "";
+  $("gtoken").value = "";
+  $("ghas").textContent = set.hasToken ? "(one is kept: leave empty to keep it)" : "";
+  $("gauthor").value = set.author || "editor";
+  $("gmax").value = set.maxFileMB || 20;
+}
+function showGitState(g) {
+  const box = $("gstate");
+  box.textContent = "";
+  if (!g.enabled) { if (g.error) box.append(el("p", g.error, "bad")); return; }
+  box.append(el("p", "On: " + (g.repository || "") + ", branch " + (g.branch || "main") + (g.head ? ", at " + g.head.slice(0, 7) : ""), "muted"));
+  const p = g.push;
+  if (p && p.remote) {
+    const line = el("p");
+    line.append(el("span", "GitHub: " + (gitStates[p.state] || p.state) + (p.waiting ? " (" + p.waiting + " not pushed)" : "") + (p.pushedAt ? ", last pushed " + when(p.pushedAt) : "") + " ", p.state === "done" ? "ok" : (p.state === "error" || p.state === "stopped") ? "bad" : ""));
+    const b = el("button", "Push now");
+    b.style.margin = "0";
+    b.onclick = async () => { b.disabled = true; const r = await gitApi("/push", "POST", {}); showGit(r.out); };
+    line.append(b);
+    box.append(line);
+    if (p.error) box.append(el("p", p.error, "bad"));
+  }
+  if (g.commits && g.commits.length) {
+    const t = el("table");
+    t.innerHTML = "<tr><th>When</th><th>By</th><th>Commit</th></tr>";
+    for (const c of g.commits) {
+      const tr = el("tr");
+      for (const v of [when(c.when), c.author, c.id.slice(0, 7) + "  " + c.subject]) tr.append(el("td", v));
+      t.append(tr);
+    }
+    box.append(t);
+  }
+}
+async function loadGit() {
+  const r = await gitApi("");
+  if (r.ok) showGit(r.out);
+}
+$("gf").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = { enabled: $("gon").checked, remote: $("gremote").value.trim(), author: $("gauthor").value, maxFileMB: parseInt($("gmax").value, 10) || 20 };
+  if ($("gtoken").value.trim()) body.token = $("gtoken").value.trim();
+  $("gsaved").className = "";
+  $("gsaved").textContent = body.enabled ? "Saving: the first time, every presentation is committed…" : "Saving…";
+  const r = await gitApi("", "PUT", body);
+  $("gsaved").className = r.ok ? "ok" : "bad";
+  $("gsaved").textContent = r.ok ? "Saved." : r.out.error + (r.out.tooBig ? ": " + r.out.tooBig.join(", ") : "");
+  if (r.ok) showGit(r.out);
+});
+loadGit();
+// the push's state moves on its own: the state below the form follows it
+setInterval(async () => { if (document.hidden) return; const r = await gitApi(""); if (r.ok) showGit(r.out, true); }, 10000);
 loadConn();
 loadNet();
 loadList();

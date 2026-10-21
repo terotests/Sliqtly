@@ -405,7 +405,7 @@ sudo systemctl start sliqtly
 `backup_test.go` takes backups beside a running server, restores them and
 reads the decks and pictures back through a server on the restored folder.
 
-**Decks in Git** (`gitstore.go`, `gitcmd.go`, `rgit/`). With `git.json`
+**Decks in Git** (`gitstore.go`, `gitpush.go`, `gitcmd.go`, `rgit/`). With `git.json`
 on, the server also keeps its decks in `repo.git`, a bare Git repository it
 writes itself with Ranger's Git client (`go generate` writes `rgit/rgit.go`
 from Ranger's `pkg/src`; no `git` program is needed). `sliqtly.db` stays the
@@ -424,7 +424,9 @@ Owners, edit keys, invitations, memberships, chat and form answers stay out:
 Git keeps every version for good. A commit is taken when the decks have
 been still for `idleSeconds` (60) after a change, at the latest
 `maxMinutes` (10) after the first change, every 5 minutes for a room's
-files, and when the server stops. Its author is the person who edited the
+files, when the server stops, on Version history → Save version in the
+editor (`POST /api/git/save`, its message first) and when an assistant calls
+`end_work` (begin_work's note as the message). Its author is the person who edited the
 deck in the editor (`Co-authored-by` for the others), else the server.
 Files over `maxFileMB` (20, at most 100, GitHub's limit) are refused in
 Git mode.
@@ -446,8 +448,22 @@ it back against the folder and writes `git.json`:
   "email": "server@sliqtly.invalid", "maxFileMB": 20, "idleSeconds": 60, "maxMinutes": 10 }
 ```
 
-`git clone /var/lib/sliqtly/repo.git` gives the decks as files. Pushing to
-GitHub is not there yet.
+`git clone /var/lib/sliqtly/repo.git` gives the decks as files.
+
+Git is also turned on and off on the settings page (`/settings#git`,
+`/api/settings/git`; changed as the connectors are), with the same dry run
+for too-big files. There a private GitHub repository can be set (`remote`
+in `git.json`, `https://github.com/owner/name`) with a fine-grained token for
+that one repository (Contents: read and write), kept encrypted with the
+connectors' key as `connectors/tokens/git/…`, never in `git.json`. The
+branch is pushed 5 minutes (`pushSeconds`) after the newest commit, at once
+on Save version, again after a failure (1 min, doubling to 30), over smart
+HTTP with Ranger's `GitWalk` / `GitPush` (`rgit/push.go`, checked against
+git's own `http-backend` in `rgit/push_test.go` and `gitpush_test.go`).
+Before every push the repository's `private` flag is read from GitHub's
+API: a public one gets nothing. The server is its branch's only writer:
+when the GitHub branch has commits it has not got, it stops and says so on
+the settings page.
 
 Formats 1–3 kept a JSON file per document (`db/<collection>/<sh>/<id>.json`)
 and the files under `files/shares/<sh>/{id}/…`; the migration to format 4
