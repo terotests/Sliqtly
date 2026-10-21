@@ -1372,6 +1372,35 @@ class SpacesApp {
         return h
     }
 
+    ; The coming night's lowest temperature (18 tonight to 8 in the
+    ; morning; from now while the night is still on), or 999 when the
+    ; hours are not known.
+    fn nightLow:int (w:SpWeather) {
+        def nowH:int (idiv nowMin 60)
+        def from:int 18
+        def till:int 32
+        if (nowH < 6) {
+            from = nowH
+            till = 8
+        }
+        if (from < nowH) {
+            from = nowH
+        }
+        if ((array_length w.hourT) <= till) {
+            return 999
+        }
+        def low:int 999
+        def h:int from
+        while (h <= till) {
+            def v:int (itemAt w.hourT h)
+            if (v < low) {
+                low = v
+            }
+            h = (h + 1)
+        }
+        return low
+    }
+
     ; The weather of one place; with more, the others' names to switch to.
     fn weatherCard:EVGElement () {
         def all:[SpWeather] (this.shownWeather())
@@ -1491,19 +1520,25 @@ class SpacesApp {
                 l2 = (when + ": " + nrange + ", " + (SpWords.wxText(lang nworst)))
                 nextIcon = (SpWords.wxIcon(nworst))
             }
-            ; frost before school: the roads may be slippery
-            def cold:int 999
-            def nh:int 0
-            while (nh <= sh) {
-                def nv:int (itemAt w.hourT (off + nh))
-                if (nv < cold) {
-                    cold = nv
+        }
+        ; frost in the coming night: the shown place's low, and the other
+        ; places' that go below zero
+        def frost:[string]
+        def fk:int 0
+        while (fk < (array_length all)) {
+            def fw:SpWeather (itemAt all fk)
+            def low:int (this.nightLow(fw))
+            if (low < 0) {
+                if ((array_length all) > 1) {
+                    push frost (fw.place + " " + (to_string low) + "°")
+                } {
+                    push frost ((to_string low) + "°")
                 }
-                nh = (nh + 1)
             }
-            if (cold < 0) {
-                warn = ((SpWords.pick(lang "Slippery roads: " "Liukas keli: ")) + (to_string cold) + (SpWords.pick(lang "° in the night" "° yöllä")))
-            }
+            fk = (fk + 1)
+        }
+        if ((array_length frost) > 0) {
+            warn = ((SpWords.pick(lang "Frost tonight: " "Pakkasta tänä yönä: ")) + (join frost ", "))
         }
         c.role = "region"
         def label:string ((SpWords.pick(lang "Weather" "Sää")) + ": " + t + ", " + l1 + ", " + l2)
