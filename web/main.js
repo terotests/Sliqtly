@@ -55,6 +55,7 @@ import { RoomChat, unreadRooms, chatMe } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
+import { textMenu, TextTarget } from "./textmenu.js";
 import { linkTarget, FOLLOW_MS, returnTo } from "./stagelink.js";
 import { deckSafety, safetyText } from "./decksafe.js";
 import { slideText, runAt, indexAt, withBand, bandRects, TextSelection } from "./slidetext.js";
@@ -10366,7 +10367,7 @@ keys.addEventListener("input", (ev) => {
   afterInput();
 });
 
-keys.addEventListener("copy", (ev) => {
+function keysCopy(ev) {
   const kind = app.clipCopyKind();
   if (kind) {
     ev.preventDefault();
@@ -10381,15 +10382,17 @@ keys.addEventListener("copy", (ev) => {
   // into a word processor or a mail
   const html = app.copySelectionHtml();
   if (html) ev.clipboardData?.setData("text/html", html);
-});
-keys.addEventListener("cut", (ev) => {
+}
+keys.addEventListener("copy", keysCopy);
+function keysCut(ev) {
   const text = app.cutSelection();
   if (!text) return;
   ev.preventDefault();
   ev.clipboardData?.setData("text/plain", text);
   afterInput();
-});
-keys.addEventListener("paste", (ev) => {
+}
+keys.addEventListener("cut", keysCut);
+function keysPaste(ev) {
   ev.preventDefault();
   const items = ev.clipboardData ? [...ev.clipboardData.items] : [];
   // while a room's chat is shown, files go with the message being written
@@ -10461,7 +10464,8 @@ keys.addEventListener("paste", (ev) => {
     app.pasteText(text);
     afterInput();
   }
-});
+}
+keys.addEventListener("paste", keysPaste);
 keys.addEventListener("focus", () => { composing = false; mirrorLine(); needsPaint = true; });
 keys.addEventListener("blur", () => { composing = false; showPreedit(""); });
 
@@ -11231,6 +11235,10 @@ canvas.addEventListener("pointerdown", (ev) => {
     ev.preventDefault();
     return;
   }
+  // the secondary button on text: the browser's text menu for it (below);
+  // on a selection the press does not reach the editor, which would let go
+  // of it
+  if (secondaryPress(ev, IS_MAC) && textMenuPress(ev, x, y)) return;
   // when the press happened, not when this got to it: a busy frame (a slide
   // effect drawn in software) held the second press of a double click back
   // past the double click's time, and it counted as a click of its own
@@ -11338,6 +11346,14 @@ canvas.addEventListener("pointerdown", (ev) => {
     focusStrip();
   } else {
     focusKeys(where === "editor" ? "editor" : app.focusTarget());
+  }
+  // the secondary button in the editor, nothing selected: the caret is
+  // where it was pressed, and the text menu opens there (Paste); the press
+  // ends here, its release is the field's
+  if (where === "editor" && secondaryPress(ev, IS_MAC)) {
+    app.pointerUp();
+    try { canvas.releasePointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
+    textMenuAfterPress(ev, x, y);
   }
   afterInput();
 });
@@ -11526,6 +11542,64 @@ window.addEventListener("pointerup", () => apps.pointerUp());
 // A right click on a slide of the strip: New, Duplicate, Move, Delete; on
 // a room's chat, a message's menu; on a presentation in Rooms or a deck tab:
 // the File menu's rows for it.
+// --- the text menu (web/textmenu.js) -------------------------------------------------
+// A right click on drawn text opened the browser's menu for a picture. On
+// text the secondary press puts a hidden field holding that text, selected,
+// under the pointer, and the menu that opens is the browser's text menu:
+// Copy for any selection, Cut and Paste for the editor's (done as Ctrl+X and
+// Ctrl+V do them).
+const textArea = document.createElement("textarea");
+document.body.appendChild(textArea);
+const textTarget = new TextTarget(textArea);
+function textMenuAt(x, y) {
+  const layer = app.layerAt(x, y);
+  const slide = textSelectable();
+  const overDoc = !slide && !!docPlace(x, y) && layer === "";
+  return textMenu({
+    overSlide: slide && layer === "",
+    slide: slide && textSel.has() ? textSel.selected() : "",
+    overDoc,
+    doc: overDoc && docSel.has() ? docCopied() : "",
+    overEditor: !slide && app.editorAt(x, y),
+    editor: app.editorSelection(),
+    editing: app.isEditing(),
+    overLayer: layer !== "",
+    read: layer !== "" ? app.readSelection() : "",
+  });
+}
+// true when the press is the text menu's alone
+function textMenuPress(ev, x, y) {
+  const menu = textMenuAt(x, y);
+  if (!menu) return false;
+  const editorHooks = {
+    copy: (e) => {
+      e.preventDefault();
+      e.clipboardData?.setData("text/plain", menu.text);
+      const html = app.copySelectionHtml();
+      if (html) e.clipboardData?.setData("text/html", html);
+    },
+    cut: keysCut,
+    paste: keysPaste,
+    remove: () => { app.key("delete", false, false); afterInput(); },
+  };
+  // nothing selected in the editor: the press puts the caret there first,
+  // where Paste goes
+  if (!menu.keep) return false;
+  textTarget.place(ev.clientX, ev.clientY, menu, menu.editable ? editorHooks : {}, keys);
+  ev.preventDefault();
+  return true;
+}
+// The editor's menu with nothing selected: after the press placed the caret.
+function textMenuAfterPress(ev, x, y) {
+  const menu = textMenuAt(x, y);
+  if (!menu || menu.keep || !menu.editable) return;
+  textTarget.place(ev.clientX, ev.clientY, menu, { cut: keysCut, paste: keysPaste }, keys);
+}
+// any other press: the field's menu is over
+window.addEventListener("pointerdown", (ev) => {
+  if (textTarget.open && ev.target !== textArea) textTarget.close(false);
+}, true);
+
 canvas.addEventListener("contextmenu", (ev) => {
   const [x, y] = at(ev);
   // on a room's chat: the message's menu (React, Reply, Quote, Copy, Edit, Delete)

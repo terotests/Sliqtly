@@ -483,6 +483,23 @@ try {
   const lines = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => "(" + e.message + ")");
   if (lines !== "A budget, a buffer and compound interest – three things that go a long way.") fail(`a drag over the slide's text copied ${JSON.stringify(lines)}`);
   if ((await text(page, "vCount")) !== `1 / ${slides}`) fail("a drag over the slide's text went to another slide");
+  // a right click on it: the browser's text menu, opened for a hidden field
+  // holding the words (web/textmenu.js), not its menu for the picture; its
+  // Copy copies them and the slide stays
+  {
+    await page.evaluate(() => window.addEventListener("contextmenu", (ev) => { window.__menuOn = ev.target.tagName; }, true));
+    const [rx, ry] = await toPage(300, 154.2 + 20);
+    await page.mouse.click(rx, ry, { button: "right" });
+    await page.waitForTimeout(150);
+    const m = await page.evaluate(() => ({ on: window.__menuOn, value: document.activeElement.value, readOnly: document.activeElement.readOnly }));
+    if (m.on !== "TEXTAREA" || m.value !== lines || !m.readOnly) fail(`a right click on the selected text opened no text menu for it: ${JSON.stringify(m)}`);
+    await page.evaluate(() => navigator.clipboard.writeText("before"));
+    await page.evaluate(() => document.execCommand("copy"));
+    await page.waitForTimeout(100);
+    const viaMenu = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => "(" + e.message + ")");
+    if (viaMenu !== lines) fail(`the text menu's Copy copied ${JSON.stringify(viaMenu)}`);
+    if ((await text(page, "vCount")) !== `1 / ${slides}`) fail("a right click on the selected text went to another slide");
+  }
   const [tx, ty] = await toPage(600, 154.2 + 20);
   await page.mouse.click(tx, ty);
   await page.waitForTimeout(200);
