@@ -18093,6 +18093,12 @@ class PresApp {
         return (! (editor.sel.isCollapsed()))
     }
 
+    ; The editor's own selection ("" none), for the text menu of a right
+    ; click on it (web/textmenu.js): not a window's, as copySelection may be.
+    fn editorSelection:string () {
+        return (editor.selectionText())
+    }
+
     fn setFocus:void (where:string) {
         ; the keys stay with the chart editor while it is open (Document
         ; settings lets them go: a press outside it gave them back)

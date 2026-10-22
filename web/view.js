@@ -14,6 +14,8 @@
 
 import { prepareDisplayList, setFontFallback, imageChanged, fontSpec } from "./gl/evg-webgl.js";
 import { slideText, sideBySide, runAt, indexAt, withBand, TextSelection } from "./slidetext.js";
+import { textMenu, TextTarget } from "./textmenu.js";
+import { secondaryPress } from "./press.js";
 import { registerDeckEffects, effectStill, reducedMotion, holdStill } from "./fxdeck.js";
 import { decodePicture } from "./picture.js";
 import { INTRO_MS } from "./brand.js";
@@ -696,6 +698,24 @@ const letHold = (ev) => {
 };
 canvas.addEventListener("pointerup", letHold);
 canvas.addEventListener("pointercancel", letHold);
+// A right click on the selected text: the browser's text menu with Copy
+// (web/textmenu.js), not its menu for a picture; the press is not the
+// slide's.
+const textArea = document.createElement("textarea");
+document.body.appendChild(textArea);
+const textTarget = new TextTarget(textArea);
+window.addEventListener("pointerdown", (ev) => {
+  if (textTarget.open && ev.target !== textArea) textTarget.close(false);
+}, true);
+canvas.addEventListener("pointerdown", (ev) => {
+  if (!secondaryPress(ev, /Mac|iPhone|iPad/.test(navigator.platform || ""))) return;
+  const menu = textMenu({ overSlide: selectable(), slide: sel.has() ? sel.selected() : "" });
+  if (!menu) return;
+  ev.stopImmediatePropagation();
+  // the press's own default would move the keys to the page, off the field
+  ev.preventDefault();
+  textTarget.place(ev.clientX, ev.clientY, menu, {}, document.activeElement);
+});
 // The mouse over the slide's text: its press is the selection's, and the
 // tap below does not see it (a click on text is let through as one).
 let selPress = null;

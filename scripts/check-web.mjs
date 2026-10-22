@@ -6629,6 +6629,78 @@ try {
     await ctx.close();
   }
 
+  // A right click on drawn text (web/textmenu.js): the menu is the
+  // browser's text menu, opened for a hidden field holding the selected
+  // text, not its menu for the canvas's picture; Copy copies that text, and
+  // in the editor Cut cuts and Paste pastes as Ctrl+X and Ctrl+V do.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    await ctx.addInitScript(() => { try { localStorage.setItem("sliqtly.openIn", "view"); } catch (_) {} });
+    const pg = await ctx.newPage();
+    const merr = [];
+    pg.on("pageerror", (e) => merr.push(e.message));
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pg.evaluate(() => {
+      window.addEventListener("contextmenu", (ev) => { window.__menuOn = ev.target.tagName; }, true);
+      window.addEventListener("copy", (ev) => { window.__copied = ev.clipboardData.getData("text/plain"); });
+      window.addEventListener("cut", (ev) => { window.__copied = ev.clipboardData.getData("text/plain"); });
+    });
+    const md = "# D\n\nEnsimmäinen kappale tekstiä.\n\nToinen kappale.\n";
+    await pg.evaluate((m) => { window.__app.setSource(m); window.__app.setEditing(false, false); window.__app.showTab("view"); }, md);
+    await pg.waitForFunction((o) => window.__app.docScreenAt(o) !== "", md.indexOf("tekstiä"), { timeout: 30000 });
+    const xy = (o) => pg.evaluate((o) => window.__app.docScreenAt(o), o).then((s) => s.split(",").map(Number));
+    const [x1, y1] = await xy(md.indexOf("Ensimmäinen"));
+    const [x2, y2] = await xy(md.indexOf("tekstiä") + 7);
+    await pg.mouse.move(x1 + 1, y1);
+    await pg.mouse.down();
+    await pg.mouse.move(x1 + 20, y1, { steps: 4 });
+    await pg.mouse.move(x2, y2, { steps: 6 });
+    await pg.mouse.up();
+    await pg.waitForTimeout(200);
+    const target = () => pg.evaluate(() => {
+      const el = document.activeElement;
+      return { tag: el.tagName, keys: el.id === "keys", value: el.value, all: el.selectionStart === 0 && el.selectionEnd === (el.value || "").length, readOnly: el.readOnly, menuOn: window.__menuOn };
+    });
+    await pg.mouse.click((x1 + x2) / 2, y1, { button: "right" });
+    await pg.waitForTimeout(150);
+    const r1 = await target();
+    const sel1 = await pg.evaluate(() => window.__docSelected());
+    check("Text menu: a right click on the View page's selection opens the text menu for it", r1.menuOn === "TEXTAREA" && !r1.keys && r1.value === sel1 && sel1.includes("Ensimmäinen") && r1.all && r1.readOnly, JSON.stringify({ r1, sel1 }));
+    const pe = await pg.evaluate(() => getComputedStyle(document.activeElement).pointerEvents);
+    check("Text menu: …the field is out of the way once the menu opened", pe === "none", pe);
+    await pg.evaluate(() => document.execCommand("copy"));
+    const c1 = await pg.evaluate(() => window.__copied);
+    check("Text menu: …Copy copies the selected words", c1 === sel1, JSON.stringify(c1));
+    // the Markdown being edited: Cut and Paste are the editor's
+    const src = "# D\n\nhello world\n";
+    await pg.evaluate((m) => { const a = window.__app; a.setSource(m); a.setEditing(true, false); a.showTab("md"); a.setFocus("editor"); }, src);
+    await pg.waitForTimeout(300);
+    await pg.evaluate(() => { const a = window.__app; a.editor.moveCaret(2, 0, false); a.editor.moveCaret(2, 5, true); a.syncEditor(); });
+    await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const cb = await pg.evaluate(() => { const r = document.getElementById("c").getBoundingClientRect(); return [r.left, r.top, ...window.__app.caretBox().split(",").map(Number)]; });
+    await pg.mouse.click(cb[0] + cb[2] - 12, cb[1] + cb[3] + cb[4] / 2, { button: "right" });
+    await pg.waitForTimeout(150);
+    const r2 = await target();
+    const kept = await pg.evaluate(() => window.__app.editorSelection());
+    check("Text menu: a right click on the editor's selection keeps it, Cut offered", r2.menuOn === "TEXTAREA" && r2.value === "hello" && !r2.readOnly && kept === "hello", JSON.stringify({ r2, kept }));
+    await pg.evaluate(() => document.execCommand("cut"));
+    const r3 = await pg.evaluate(() => ({ src: window.__app.source(), copied: window.__copied, keys: document.activeElement.id === "keys" }));
+    check("Text menu: …Cut cuts it from the Markdown, the keys back in the editor", r3.src === "# D\n\n world\n" && r3.copied === "hello" && r3.keys, JSON.stringify(r3));
+    await pg.mouse.click(cb[0] + cb[2] - 12, cb[1] + cb[3] + cb[4] / 2, { button: "right" });
+    await pg.waitForTimeout(150);
+    const r4 = await target();
+    await pg.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData("text/plain", "hei");
+      document.activeElement.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    const r5 = await pg.evaluate(() => window.__app.source());
+    check("Text menu: nothing selected, Paste pastes where the press put the caret", r4.menuOn === "TEXTAREA" && r4.value === "" && !r4.readOnly && r5.includes("hei"), JSON.stringify({ r4, r5 }));
+    check("Text menu: without errors", merr.length === 0, merr.join(" | "));
+    await ctx.close();
+  }
+
   // Editing on the View page (src/PresDocCaret.rgr, PresApp "editing on the
   // View page"): the page is a picture of the Markdown and the Markdown the
   // only document; a press puts the Markdown's caret on the character
