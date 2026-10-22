@@ -349,6 +349,24 @@ func TestLocalWebAndAPI(t *testing.T) {
 	eq(t, code, 409, "a share changed since is not written over")
 	match(t, body, `changed-elsewhere`)
 
+	// the page reads the files at their path on this server, whichever of
+	// its addresses it is at: an entry kept under another (SLIQTLY_URL
+	// then, or localhost) too
+	old := map[string]any{"path": "review/comments.json", "type": "application/json", "size": 2, "url": "http://192.168.1.20:8080/files/shares/" + id + "/review/comments.json"}
+	files, _ = json.Marshal([]any{f, old})
+	code, _ = req(t, "PATCH", srv.URL+"/api/shares/"+id, "application/json", `{"files":`+string(files)+`}`)
+	eq(t, code, 200)
+	code, body = req(t, "GET", srv.URL+"/api/shares/"+id, "", "")
+	eq(t, code, 200)
+	var shown struct {
+		Files []map[string]any `json:"files"`
+	}
+	json.Unmarshal([]byte(body), &shown)
+	eq(t, len(shown.Files), 2)
+	eq(t, shown.Files[0]["url"], "/files/shares/"+id+"/media/dot.png")
+	eq(t, shown.Files[1]["url"], "/files/shares/"+id+"/review/comments.json")
+	eq(t, shown.Files[0]["sha"], fileSha(PNG), "the rest of the entry as kept")
+
 	// the assistant sees what the page saved
 	s := &testServer{root: srv.URL}
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
@@ -479,4 +497,22 @@ func TestLocalListingFromHereOnly(t *testing.T) {
 	w = httptest.NewRecorder()
 	s.listingAPI(w, r)
 	match(t, w.Body.String(), `"editable":false,"enabled":false`)
+}
+
+// a kept file's address as a page reads it: this server's own by their
+// path, Storage's and anything else as it is
+func TestPageFileURL(t *testing.T) {
+	own := &Env{FilesURL: "http://localhost:8080/files"}
+	for in, want := range map[string]string{
+		"http://localhost:8080/files/shares/abc/media/a%20b.png":              "/files/shares/abc/media/a%20b.png",
+		"http://192.168.1.20:8080/files/shares/abc/x.json?v=2":                "/files/shares/abc/x.json?v=2",
+		"https://sliqtly.example.com/files/rooms/r1/a.png":                    "/files/rooms/r1/a.png",
+		"/files/shares/abc/x.json":                                            "/files/shares/abc/x.json",
+		"https://firebasestorage.googleapis.com/v0/b/x/o/a?alt=media&token=t": "https://firebasestorage.googleapis.com/v0/b/x/o/a?alt=media&token=t",
+		"https://example.com/pictures/a.png":                                  "https://example.com/pictures/a.png",
+	} {
+		eq(t, pageFileURL(own, in), want, in)
+	}
+	cloud := &Env{}
+	eq(t, pageFileURL(cloud, "https://sliqtly.com/files/shares/abc/x"), "https://sliqtly.com/files/shares/abc/x", "sliqtly.com keeps its addresses")
 }

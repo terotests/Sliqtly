@@ -613,6 +613,13 @@ operators {
             go ( (e 1) ".FileURL(" (e 2) ", " (e 3) ")" )
         }
     }
+    ; a kept file's address as a page reads it: the server's own files by
+    ; their path, whichever of its addresses the page is at (host.go)
+    host_page_file_url _:string (h:McpHost url:string) {
+        templates {
+            go ( (e 1) ".PageFileURL(" (e 2) ")" )
+        }
+    }
     ; the link the user downloads a kept export from: on the site's own
     ; address (/d/<token>/<name>, download.go), not Storage's
     host_download_url _:string (h:McpHost name:string token:string type:string file:string) {

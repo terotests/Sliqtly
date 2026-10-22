@@ -1063,6 +1063,54 @@ func (h *McpHost) FileURL(name, token string) string {
 	return "https://firebasestorage.googleapis.com/v0/b/" + h.Bucket() + "/o/" + h.URIEncode(name) + "?alt=media&token=" + token
 }
 
+// PageFileURL is a kept file's address as a page reads it (pageFileURL)
+func (h *McpHost) PageFileURL(u string) string { return pageFileURL(h.env, u) }
+
+// A server of one's own is reached at more than one address (localhost,
+// its address on the network, a name), and a file's entry names the one
+// the server had when the file was kept (SLIQTLY_URL, else
+// http://localhost:<port>). A page at another of them cannot read it: it is
+// another origin, which the access cookie does not go to. So the page is
+// given the server's own files by their path, read from wherever the page
+// came from, as /api/view/…/pic already is. Storage's are as they are.
+func pageFileURL(e *Env, u string) string {
+	if e == nil || e.FilesURL == "" {
+		return u
+	}
+	p, err := url.Parse(u)
+	if err != nil || (p.Scheme != "http" && p.Scheme != "https") || p.Host == "" || !strings.HasPrefix(p.Path, "/files/") {
+		return u
+	}
+	return p.RequestURI()
+}
+
+// pageFiles: a share as a page reads it, its files at pageFileURL
+func pageFiles(e *Env, d map[string]any) map[string]any {
+	files, ok := d["files"].([]any)
+	if !ok {
+		return d
+	}
+	out := make([]any, len(files))
+	for i, f := range files {
+		m, ok := f.(map[string]any)
+		if u, isStr := m["url"].(string); ok && isStr {
+			c := make(map[string]any, len(m))
+			for k, v := range m {
+				c[k] = v
+			}
+			c["url"] = pageFileURL(e, u)
+			f = c
+		}
+		out[i] = f
+	}
+	c := make(map[string]any, len(d))
+	for k, v := range d {
+		c[k] = v
+	}
+	c["files"] = out
+	return c
+}
+
 func (h *McpHost) Bucket() string {
 	if h.env.Bucket == nil {
 		return ""

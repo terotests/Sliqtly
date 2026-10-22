@@ -169,7 +169,7 @@ class View {
             if (public && (View.madeForScreen(path (f2.str_("type"))))) {
                 url = (View.pictureUrl(host id path (View.fileStamp(doc url))))
             }
-            o.putStr("url" url)
+            o.putStr("url" (host_page_file_url host url))
             files.add(o)
         }
         ; a screen of a Figma file (figma:<file>/<node>) the slides draw:
