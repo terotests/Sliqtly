@@ -5195,6 +5195,15 @@ class Tools {
         return "#c4b5fd"
     }
 
+    ; A page's review/comments.json united with the one kept (localweb.go):
+    ; a page that could not read the kept copy, or an old one, never writes
+    ; another's comments away, and the same comment twice is kept once.
+    sfn uniteReviewFiles:string (kept:string sent:string) {
+        def r:PresReview (PresReview.parse(kept))
+        r.merge((PresReview.parse(sent)))
+        return (r.toJson())
+    }
+
     ; the deck's comments as kept; a Storage error is left on the host
     sfn reviewOf:PresReview (host:McpHost id:string d:MfJ) {
         for (d.list("files")) f:MfJ i {

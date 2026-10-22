@@ -593,6 +593,9 @@ func nullable(s string) any {
 	return s
 }
 
+// the deck's review comments (src/PresReview.rgr)
+const reviewFile = "review/comments.json"
+
 // PUT and DELETE /api/files/shares/{id}/{path}
 func (s *localServer) fileAPI(r *http.Request, name string) (any, error) {
 	parts := strings.SplitN(name, "/", 3)
@@ -625,6 +628,17 @@ func (s *localServer) fileAPI(r *http.Request, name string) (any, error) {
 		ct := r.Header.Get("Content-Type")
 		if ct == "" {
 			ct = "application/octet-stream"
+		}
+		// the comments are united with the ones kept, never put in their
+		// place: a page that missed some (another address, an old copy)
+		// does not write them away. The deck's lock, as an assistant's
+		// comment takes it (decklock.go).
+		if rel == reviewFile {
+			s.env.decks.lock(id)
+			defer s.env.decks.unlock(id)
+			if kept, err := s.bucket.Read(r.Context(), name, int64(most)); err == nil && len(kept) > 0 {
+				data = []byte(Tools_static_uniteReviewFiles(string(kept), string(data)))
+			}
 		}
 		if err := s.bucket.Save(r.Context(), name, ct, data, nil); err != nil {
 			return nil, fail(400, "", err.Error())

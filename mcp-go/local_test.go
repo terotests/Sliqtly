@@ -367,6 +367,21 @@ func TestLocalWebAndAPI(t *testing.T) {
 	eq(t, shown.Files[1]["url"], "/files/shares/"+id+"/review/comments.json")
 	eq(t, shown.Files[0]["sha"], fileSha(PNG), "the rest of the entry as kept")
 
+	// the comments a page writes are united with the kept ones: a page that
+	// missed some does not write them away, and the same one twice is one
+	one := `{"threads": [{"id": "t1", "slide": 1, "title": "One", "x": 0.5, "y": 0.5, "messages": [{"id": "m1", "who": "u", "name": "U", "text": "Kept", "at": 1000}]}]}`
+	two := `{"threads": [{"id": "t2", "slide": 1, "title": "One", "x": 0.5, "y": 0.5, "messages": [{"id": "m2", "who": "u", "name": "U", "text": "New", "at": 2000}]}, {"id": "t9", "slide": 1, "title": "One", "x": 0.5, "y": 0.5, "messages": [{"id": "m9", "who": "u", "name": "U", "text": "Kept", "at": 1000}]}]}`
+	for _, c := range []string{one, two} {
+		code, _ = req(t, "PUT", srv.URL+"/api/files/shares/"+id+"/review/comments.json", "application/json", c)
+		eq(t, code, 200)
+	}
+	_, _, kept := get(t, srv.URL+"/files/shares/"+id+"/review/comments.json")
+	match(t, kept, `"id": "t1"`)
+	match(t, kept, `"text": "New"`)
+	if strings.Contains(kept, `"id": "t9"`) || strings.Count(kept, `"text": "Kept"`) != 1 {
+		t.Fatalf("the same comment twice: %s", kept)
+	}
+
 	// the assistant sees what the page saved
 	s := &testServer{root: srv.URL}
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
