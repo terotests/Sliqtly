@@ -365,7 +365,7 @@ func (s *localServer) getShare(ctx context.Context, id string) (any, error) {
 	if d == nil {
 		return nil, fail(404, "not-found", "no such presentation")
 	}
-	return plain(d), nil
+	return plain(pageFiles(s.env, d)), nil
 }
 
 func readBody(r *http.Request) (map[string]any, error) {
