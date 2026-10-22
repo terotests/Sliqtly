@@ -549,6 +549,9 @@ class PresReviewUi {
             }
         } {
             model = r
+            ; a file that has the same comment twice (an older version's
+            ; merge) shows it once, and is kept so when next written
+            model.dedupe()
             if ((strlen openId) > 0) {
                 if ((model.has(openId)) == false) {
                     this.closePanel()

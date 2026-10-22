@@ -813,8 +813,21 @@ class PresReview {
 
     ; --- two copies --------------------------------------------------------------
 
-    ; What `other` has that this does not; -> true when anything changed.
+    ; What `other` has that this does not, and then the same comment twice
+    ; made one (`dedupe`); -> true when anything changed.
     fn merge:boolean (other:PresReview) {
+        def before:string (this.toJson())
+        this.unite(other)
+        this.dedupe()
+        if ((this.toJson()) != before) {
+            rev = (rev + 1)
+            return true
+        }
+        return false
+    }
+
+    ; What `other` has that this does not; -> true when anything changed.
+    fn unite:boolean (other:PresReview) {
         def changed:boolean false
         for other.gone g:string gi {
             if ((this.isGone(g)) == false) {
@@ -894,6 +907,111 @@ class PresReview {
             rev = (rev + 1)
         }
         return changed
+    }
+
+    ; --- the same comment twice --------------------------------------------------
+
+    ; whether id a comes before id b (character codes, then length): the one
+    ; of two copies every copy of the file keeps
+    sfn idBefore:boolean (a:string b:string) {
+        def na:int (strlen a)
+        def nb:int (strlen b)
+        def i:int 0
+        while ((i < na) && (i < nb)) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca != cb) {
+                return (ca < cb)
+            }
+            i = (i + 1)
+        }
+        return (na < nb)
+    }
+
+    ; the same message: who wrote it, its text and its time
+    sfn sameMsg:boolean (a:PresReviewMsg b:PresReviewMsg) {
+        return (((a.who == b.who) && (a.text == b.text)) && (a.at == b.at))
+    }
+
+    ; the same thread: its first message the same, on the same slide
+    sfn sameThread:boolean (a:PresReviewThread b:PresReviewThread) {
+        if (((array_length a.msgs) == 0) || ((array_length b.msgs) == 0)) {
+            return false
+        }
+        if ((a.slide != b.slide) && (a.title != b.title)) {
+            return false
+        }
+        return (PresReview.sameMsg((itemAt a.msgs 0) (itemAt b.msgs 0)))
+    }
+
+    ; a message a thread has twice under two ids: one, the smaller id
+    sfn dropSameMsgs:void (t:PresReviewThread) {
+        def i:int 1
+        while (i < (array_length t.msgs)) {
+            def m:PresReviewMsg (itemAt t.msgs i)
+            def dup:boolean false
+            def k:int 0
+            while (k < i) {
+                def p:PresReviewMsg (itemAt t.msgs k)
+                if ((dup == false) && (PresReview.sameMsg(p m))) {
+                    dup = true
+                    if (PresReview.idBefore(m.id p.id)) {
+                        p.id = m.id
+                    }
+                }
+                k = (k + 1)
+            }
+            if dup {
+                remove_index t.msgs i
+            } {
+                i = (i + 1)
+            }
+        }
+    }
+
+    ; The same comment twice: a copy of the file whose ids were made again
+    ; (a deck copied, an old copy brought back) united with this one. A
+    ; thread that is another's (`sameThread`) goes into the one with the
+    ; smaller id, its messages and its later state with it, and its id is
+    ; kept in "gone" so no copy brings it back; a message twice in a thread
+    ; is kept once. Every copy so keeps the same ones.
+    fn dedupe:void () {
+        for threads t:PresReviewThread ti {
+            PresReview.dropSameMsgs(t)
+        }
+        def again:boolean true
+        while again {
+            again = false
+            def i:int 0
+            while ((again == false) && (i < (array_length threads))) {
+                def a:PresReviewThread (itemAt threads i)
+                def j:int (i + 1)
+                while ((again == false) && (j < (array_length threads))) {
+                    def b:PresReviewThread (itemAt threads j)
+                    if (PresReview.sameThread(a b)) {
+                        def keep:PresReviewThread a
+                        def drop:PresReviewThread b
+                        if (PresReview.idBefore(b.id a.id)) {
+                            keep = b
+                            drop = a
+                        }
+                        def into:PresReview (new PresReview())
+                        def moved:PresReviewThread (PresReview.copyThread(drop))
+                        moved.id = keep.id
+                        push into.threads moved
+                        remove_index threads (this.indexOf(drop.id))
+                        if ((this.isGone(drop.id)) == false) {
+                            push gone drop.id
+                        }
+                        this.unite(into)
+                        PresReview.dropSameMsgs(keep)
+                        again = true
+                    }
+                    j = (j + 1)
+                }
+                i = (i + 1)
+            }
+        }
     }
 
     sfn takeCode:void (mine:PresReviewThread ot:PresReviewThread) {
