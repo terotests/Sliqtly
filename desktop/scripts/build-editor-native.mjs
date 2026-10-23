@@ -8,6 +8,10 @@
 //
 //   node scripts/build-editor-native.mjs [--run [args…]]
 //
+// The C++ compile is skipped when PresApp.cpp came out the same as last time
+// and no host or painter source is newer than the binary (FORCE=1 rebuilds).
+// `npm run native:start -- [args…]` starts the built binary without building.
+//
 // EVG_NATIVE=<evg>/storm/native picks the painter; without it, the EVG
 // package `rgrc install` fetched (scripts/ranger.mjs evgDir()).
 //
@@ -37,7 +41,9 @@ fs.mkdirSync(BUILD, { recursive: true });
 
 // --- 1. Ranger → C++ -------------------------------------------------------------
 const ranger = ensureRanger();
-const r = spawnSync(process.execPath, ["--max-old-space-size=12000", "dist/rgrc.js", "-l=cpp", `./${LINK}/PresApp.rgr`, `-d=${BUILD}`, "-o=PresApp.cpp"], {
+const GEN = path.join(BUILD, ".gen");
+fs.mkdirSync(GEN, { recursive: true });
+const r = spawnSync(process.execPath, ["--max-old-space-size=12000", "dist/rgrc.js", "-l=cpp", `./${LINK}/PresApp.rgr`, `-d=${GEN}`, "-o=PresApp.cpp"], {
   cwd: ranger,
   encoding: "utf8",
   maxBuffer: 64 * 1024 * 1024,
@@ -45,7 +51,13 @@ const r = spawnSync(process.execPath, ["--max-old-space-size=12000", "dist/rgrc.
 });
 const out = `${r.stdout || ""}${r.stderr || ""}`;
 if (r.status !== 0 || /Compilation FAILED/.test(out)) die(out.split("\n").filter((l) => /FAIL|error/i.test(l)).slice(0, 30).join("\n"));
-console.log("  1/3 src/PresApp.rgr -> native/build-editor/PresApp.cpp");
+// PresApp.cpp keeps its mtime when the compile gave the same text, so step 3
+// can tell that nothing changed
+const cppOut = path.join(BUILD, "PresApp.cpp");
+const fresh = fs.readFileSync(path.join(GEN, "PresApp.cpp"));
+const same = fs.existsSync(cppOut) && fs.readFileSync(cppOut).equals(fresh);
+if (!same) fs.writeFileSync(cppOut, fresh);
+console.log(`  1/3 src/PresApp.rgr -> native/build-editor/PresApp.cpp${same ? " (unchanged)" : ""}`);
 
 // --- 2. What the host reads at start ---------------------------------------------
 fs.mkdirSync(path.join(RES, "themes"), { recursive: true });
@@ -62,11 +74,17 @@ console.log("  2/3 stylesheets, themes, fonts -> native/build-editor/editor-res/
 const { flags: sdl, framework } = sdl2();
 const EVG_NATIVE = process.env.EVG_NATIVE || path.join(evgDir(), "native");
 if (!fs.existsSync(path.join(EVG_NATIVE, "gl", "EvgGlPainter.h"))) die(`no EVG native painter at ${EVG_NATIVE}`);
-const sources = [path.join(NATIVE, "editor_host.cpp"), path.join(NATIVE, "http_curl.cpp"), ...fs.readdirSync(path.join(EVG_NATIVE, "gl")).filter((f) => f.endsWith(".cpp")).map((f) => path.join(EVG_NATIVE, "gl", f))]
-  .map((f) => JSON.stringify(f)).join(" ");
+const srcFiles = [path.join(NATIVE, "editor_host.cpp"), path.join(NATIVE, "http_curl.cpp"), ...fs.readdirSync(path.join(EVG_NATIVE, "gl")).filter((f) => f.endsWith(".cpp")).map((f) => path.join(EVG_NATIVE, "gl", f))];
+const sources = srcFiles.map((f) => JSON.stringify(f)).join(" ");
 const bin = path.join(BUILD, "sliqtly-native");
+// what the binary is built from: the sources, the headers beside them and PresApp.cpp
+const headers = (dir) => fs.readdirSync(dir).filter((f) => /\.(h|hpp)$/.test(f)).map((f) => path.join(dir, f));
+const inputs = [...srcFiles, cppOut, ...headers(NATIVE), ...headers(path.join(EVG_NATIVE, "gl"))];
+const mtime = (f) => fs.statSync(f).mtimeMs;
+const upToDate = !process.env.FORCE && fs.existsSync(bin) && inputs.every((f) => mtime(f) <= mtime(bin));
 // -w: the generated PresApp.cpp is large and not written for warnings
-execSync(`${cxx()} -std=c++17 ${macFlags(framework)}${process.env.CXX_OPT || "-O1"} -w -I${JSON.stringify(NATIVE)} -I${JSON.stringify(BUILD)} -I${JSON.stringify(EVG_NATIVE)} ${sources} -o ${JSON.stringify(bin)} ${sdl} ${glFlags()} -lcurl -lpthread`, { stdio: "inherit" });
+if (upToDate) console.log("  3/3 native/build-editor/sliqtly-native is up to date, no C++ compile");
+else execSync(`${cxx()} -std=c++17 ${macFlags(framework)}${process.env.CXX_OPT || "-O1"} -w -I${JSON.stringify(NATIVE)} -I${JSON.stringify(BUILD)} -I${JSON.stringify(EVG_NATIVE)} ${sources} -o ${JSON.stringify(bin)} ${sdl} ${glFlags()} -lcurl -lpthread`, { stdio: "inherit" });
 if (MAC) {
   const { icon } = macApp({ nativeDir: NATIVE, buildDir: BUILD, name: APP_NAME, bundleId: BUNDLE_ID, version: VERSION, bin, exe: "sliqtly", resources: [RES], framework });
   console.log(`  3/3 native/build-editor/sliqtly-native, native/build-editor/${APP_NAME}.app${icon ? "" : " (no icon)"}${framework ? ", SDL2.framework inside" : ""}`);
