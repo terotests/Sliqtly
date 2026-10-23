@@ -9,6 +9,7 @@
     "deps": "rgrc install",
     "native": "node scripts/build-editor-native.mjs",
     "native:run": "node scripts/build-editor-native.mjs --run",
+    "native:start": "node scripts/start-editor-native.mjs",
     "native:check": "node scripts/check-editor-native.mjs",
     "icon": "node scripts/make-icon.mjs",
     "test": "node test/run-tests.mjs",
