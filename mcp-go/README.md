@@ -647,6 +647,37 @@ in `packaging/homebrew/`), and the image `ghcr.io/terotests/sliqtly-personal`
 (`packaging/personal/Dockerfile`). How people run them: web/local.html
 (sliqtly.com/local.html).
 
+### A Windows package
+
+The same PRO server for Windows (`packaging/windows/`), made by the
+**Server package** workflow beside the .deb files:
+`build-windows.sh <version> <amd64|arm64>` (on Linux, after `npm run build`
+and `go generate`) builds `sliqtly-server.exe` and
+`dist/sliqtly-server_<version>_windows_<arch>.zip`; `build-msi.ps1` (on
+Windows, WiX 5) makes the installer `sliqtly-server_<version>_windows_amd64.msi`
+from the .exe. The program runs itself as a Windows service
+(`service_windows.go`), what the systemd unit is on Linux:
+
+```
+sliqtly-server service install     # as administrator; the .msi runs it
+sliqtly-server service restart     # after a change to sliqtly.env
+sliqtly-server service status
+sliqtly-server service uninstall   # the decks stay
+```
+
+The service runs as its own account, `NT SERVICE\Sliqtly`, listens on the
+network like the .deb's (so the access token is needed) and keeps
+everything in `%ProgramData%\Sliqtly`: `sliqtly.env` (the settings, which the
+program reads itself, `envfile.go`), `data\`, `backup\` and `log\sliqtly.log`.
+Only administrators and the system can open that folder; the service reads
+the settings and writes the rest. The installer puts the program in
+`C:\Program Files\Sliqtly` and on PATH and lets it in through Windows
+Firewall on domain and private networks. A newer .msi upgrades in place;
+removing it leaves `%ProgramData%\Sliqtly`. The user's guide is
+`packaging/windows/README.txt`, in the .zip and the install folder. The
+**Windows package** workflow runs the server's tests on Windows and installs,
+uses, upgrades and removes the .msi (`smoke-test.ps1`) on a change to it.
+
 ### Connecting an assistant
 
 Claude Code:

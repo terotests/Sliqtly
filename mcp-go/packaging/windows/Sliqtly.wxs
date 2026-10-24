@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Sliqtly server's Windows installer (WiX 5): the program in
+  C:\Program Files\Sliqtly, on PATH, and the service made, upgraded and
+  removed by the program itself (sliqtly-server service install /
+  uninstall, service_windows.go), as the .zip's users do by hand.
+  build-msi.ps1 builds it.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Sliqtly server" Manufacturer="Sliqtly" Version="$(Version)"
+           UpgradeCode="f89474d1-79d6-4aba-8cca-a150b44b1d72" Scope="perMachine" Compressed="yes">
+    <!-- a newer one replaces this; the older's removal keeps C:\ProgramData\Sliqtly -->
+    <MajorUpgrade Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="A newer Sliqtly server is installed already." />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="ARPURLINFOABOUT" Value="https://sliqtly.com" />
+    <Property Id="ARPCOMMENTS" Value="Settings: C:\ProgramData\Sliqtly\sliqtly.env" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Sliqtly">
+        <Component Id="Server">
+          <File Id="ServerExe" Source="$(Exe)" Name="sliqtly-server.exe" KeyPath="yes" />
+          <File Id="Readme" Source="$(Readme)" Name="README.txt" />
+          <Environment Id="PathEntry" Name="PATH" Value="[INSTALLFOLDER]" Part="last" System="yes" Action="set" Permanent="no" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentRef Id="Server" />
+    </Feature>
+
+    <!-- the program's own commands, run as the system, without a console window -->
+    <SetProperty Id="ServiceInstall" Value="&quot;[#ServerExe]&quot; service install" Before="ServiceInstall" Sequence="execute" />
+    <CustomAction Id="ServiceInstall" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <SetProperty Id="ServiceInstallRollback" Value="&quot;[#ServerExe]&quot; service uninstall" Before="ServiceInstallRollback" Sequence="execute" />
+    <CustomAction Id="ServiceInstallRollback" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixQuietExec"
+                  Execute="rollback" Impersonate="no" Return="ignore" />
+    <SetProperty Id="ServiceUninstall" Value="&quot;[#ServerExe]&quot; service uninstall" Before="ServiceUninstall" Sequence="execute" />
+    <CustomAction Id="ServiceUninstall" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <!-- stopped and removed while its program is still there -->
+      <Custom Action="ServiceUninstall" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="ServiceInstallRollback" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="ServiceInstall" After="ServiceInstallRollback" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>
