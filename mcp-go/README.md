@@ -675,7 +675,7 @@ the settings and writes the rest. The installer puts the program in
 Firewall on domain and private networks. A newer .msi upgrades in place;
 removing it leaves `%ProgramData%\Sliqtly`. The user's guide is
 `packaging/windows/README.txt`, in the .zip and the install folder. The
-**Windows package** workflow runs the server's tests on Windows and installs,
+**Windows package** workflow runs the Windows code's tests on Windows and installs,
 uses, upgrades and removes the .msi (`smoke-test.ps1`) on a change to it.
 
 ### Connecting an assistant
