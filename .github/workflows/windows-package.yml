@@ -108,6 +108,10 @@ jobs:
           ./packaging/windows/build-msi.ps1 -Version 0.0.2 -Exe dist/windows_amd64/sliqtly-server.exe
       - name: Install, use, upgrade and remove
         run: ./packaging/windows/smoke-test.ps1 -Msi dist/sliqtly-server_0.0.1_windows_amd64.msi -Upgrade dist/sliqtly-server_0.0.2_windows_amd64.msi
+      # the service's log beside msiexec's, for looking into a failure
+      - name: Collect the logs
+        if: always()
+        run: Copy-Item C:\ProgramData\Sliqtly\log\sliqtly.log* . -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -115,5 +119,5 @@ jobs:
           path: |
             mcp-go/dist/*.msi
             mcp-go/*.log
-            C:/ProgramData/Sliqtly/log/
+            mcp-go/sliqtly.log*
           retention-days: 3
