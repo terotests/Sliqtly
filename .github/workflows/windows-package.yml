@@ -53,6 +53,13 @@ jobs:
       - name: Build the tests for Windows
         working-directory: mcp-go
         run: CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -tags nocloud -o dist/windows_amd64/server-test.exe .
+      # what the tests read that is built, not committed: themes, fonts,
+      # the built web app (mcp-go/webdist, web/dist)
+      - name: The tests' built files
+        run: |
+          git ls-files --others --ignored --exclude-standard mcp-go web/dist \
+            | grep -v -e '\.go$' -e '^mcp-go/\.' -e '^mcp-go/dist/' > built-files.txt
+          tar -czf mcp-go/dist/windows_amd64/built-files.tgz -T built-files.txt
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -60,7 +67,7 @@ jobs:
             mcp-go/dist/windows_amd64/
             mcp-go/dist/*.zip
           retention-days: 3
-  windows:
+  tests:
     needs: build
     runs-on: windows-latest
     defaults:
@@ -74,7 +81,22 @@ jobs:
           name: windows
           path: mcp-go/dist
       - name: The server's tests on Windows
-        run: ./dist/windows_amd64/server-test.exe "-test.timeout=20m"
+        run: |
+          tar -xzf dist/windows_amd64/built-files.tgz -C ..
+          ./dist/windows_amd64/server-test.exe "-test.timeout=20m"
+  msi:
+    needs: build
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: mcp-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: mcp-go/dist
       - name: Build the .msi (and a newer one, for the upgrade)
         run: |
           ./packaging/windows/build-msi.ps1 -Version 0.0.1 -Exe dist/windows_amd64/sliqtly-server.exe
