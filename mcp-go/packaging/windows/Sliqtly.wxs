@@ -18,16 +18,21 @@
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Sliqtly">
+        <!-- one file each: the .exe carries no version resource, so each
+             component's own key path decides its generated guid -->
         <Component Id="Server">
           <File Id="ServerExe" Source="$(Exe)" Name="sliqtly-server.exe" KeyPath="yes" />
-          <File Id="Readme" Source="$(Readme)" Name="README.txt" />
           <Environment Id="PathEntry" Name="PATH" Value="[INSTALLFOLDER]" Part="last" System="yes" Action="set" Permanent="no" />
+        </Component>
+        <Component Id="Guide">
+          <File Id="Readme" Source="$(Readme)" Name="README.txt" KeyPath="yes" />
         </Component>
       </Directory>
     </StandardDirectory>
 
     <Feature Id="Main">
       <ComponentRef Id="Server" />
+      <ComponentRef Id="Guide" />
     </Feature>
 
     <!-- the program's own commands, run as the system, without a console window -->
