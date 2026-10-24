@@ -18,6 +18,9 @@ function Check($ok, $what) {
   Write-Output "ok: $what"
 }
 function Msiexec($verb, $file, $logName) {
+  # msiexec reads neither a relative path nor forward slashes reliably
+  $file = (Resolve-Path $file).Path
+  $logName = Join-Path (Get-Location).Path $logName
   $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "$verb `"$file`" /qn /l*v `"$logName`""
   if ($p.ExitCode -ne 0) {
     Get-Content $logName | Select-String -Pattern "WixQuietExec|error|Error|return value 3" | Select-Object -Last 40
