@@ -35,10 +35,41 @@ README.md, sliqtly.json, .gitattributes
   conflict is shown on `/editor/git`, where the user takes either side.
 - **Version history** in the editor lists the repository's commits.
 
+A public repository is used only when the person says so when picking it
+(a confirmation on the page); one made public on GitHub later stops the
+syncs until the person allows it on the page.
+
 What is never done: the branch is only moved forward (no force push); a deck
 removed on GitHub is not removed from Sliqtly; only decks this account wrote
 are removed from the repository; other paths in the repository are left as
 they are.
+
+## A topic in a repository, with branches
+
+A topic of one's own can be kept in a repository the App may write, or in
+one folder of it (`mcp-go/cloudtopicgit.go`, the page `/editor/git/topic?room=<id>`,
+opened from the topic's **GitHub…** button in its Stories view). Apart from
+the account's repository above, and readable on GitHub as it is:
+
+```
+<folder>/<slug>.md         a presentation's Markdown
+<folder>/<slug>/deck.json  its Sliqtly id, name, theme, its files
+<folder>/<slug>/theme.css  its own CSS, when it has one
+<folder>/<slug>/<file>     its pictures and data files
+```
+
+Markdown files already in the folder become presentations of the topic.
+Main syncs as the account's repository does (Save, quiet minutes, webhook).
+
+A branch (`sliqtly/<name>` on GitHub, the topic's folder "⎇ name" in
+Sliqtly) starts at main. "Edit in the branch" makes a copy of a
+presentation for the branch; a presentation put in the branch's folder is
+new in it. "Update from main" merges main's changes into the copies
+(diff3); clashes are chosen from on the page, one place at a time. "Merge
+into main" updates first, gives the branch a merge commit with main, then
+opens a pull request and merges it. When GitHub requires reviews or checks
+the pull request waits there, and the push to main finishes the merge in
+Sliqtly. "Drop" deletes the copies and keeps the GitHub branch.
 
 ## Registering the App
 
@@ -48,7 +79,7 @@ GitHub → Settings → Developer settings → GitHub Apps → New GitHub App:
 |---|---|
 | Homepage URL | `https://sliqtly.com` |
 | Callback URL | `https://sliqtly.com/editor/github/callback` |
-| Request user authorization (OAuth) during installation | on |
+| Request user authorization (OAuth) during installation | off (GitHub then greys out the setup URL) |
 | Setup URL | `https://sliqtly.com/editor/github/setup` |
 | Redirect on update | on |
 | Webhook URL | `https://sliqtly.com/editor/github/hook` |
@@ -59,8 +90,11 @@ Repository permissions:
 
 - Contents: Read and write
 - Metadata: Read-only
-- Administration: Read and write (only for "Create a new repository"; without
-  it the page sends the user to create the repository on GitHub)
+- Pull requests: Read and write (a topic's branch is merged through a pull
+  request; without it main is moved forward to the branch instead)
+- Administration: not needed, and best left at No access. With Read and
+  write, "Make it" creates the repository from Sliqtly; without it the page
+  sends the user to create it on GitHub and pick it from the list.
 
 Account permissions:
 

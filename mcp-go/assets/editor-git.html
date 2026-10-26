@@ -77,6 +77,7 @@
     <div class="row">
       <button class="primary" id="sync" data-t="sync">Back up now</button>
       <button class="secondary" id="off" data-t="off">Disconnect</button>
+      <button class="secondary" id="allowPublic" data-t="allowPublic" hidden>Allow a public repository</button>
     </div>
     <section id="conf" hidden>
       <h2 data-t="conflicts">Changed in both places</h2>
@@ -99,7 +100,7 @@
     last: "Viimeisin commit", synced: "Synkattu", how: "Commit tehdään, kun tallennat version (Versiot → Tallenna versio), muutama minuutti muokkauksen jälkeen ja Varmuuskopioi nyt -napista. GitHubiin pushatut muutokset yhdistetään esityksiisi. Sliqtlyssä poistettu esitys jää repon historiaan.",
     sync: "Varmuuskopioi nyt", off: "Irrota", conflicts: "Muutettu molemmissa", conflictsText: "Näitä esityksiä on muutettu GitHubissa ja Sliqtlyssä samoilta riveiltä. Sliqtly piti oman tekstinsä; valitse kumpi jää.",
     back: "Takaisin editoriin", none: "Sovellus ei näe vielä yhtään repoa. Tee uusi tai valitse repot GitHubissa.", signed: "GitHub-tili: ",
-    publicRepo: " (julkinen: ei käy)", useGithub: "Käytä GitHubin versiota", keepSliqtly: "Pidä Sliqtlyn versio", done: "Valmis.",
+    publicRepo: " (julkinen)", confirmPublic: "Tämä repo on julkinen: kaikki sen esitykset, kuvat ja vanhat versiot näkyvät kaikille. Pidetäänkö ne siellä?", allowPublic: "Salli julkinen repo", useGithub: "Käytä GitHubin versiota", keepSliqtly: "Pidä Sliqtlyn versio", done: "Valmis.",
     committed: "Commit tehty: ", nothing: "Ei muutoksia: repo oli jo ajan tasalla.", imported: "GitHubista tuotu: ", confirmOff: "Irrotetaanko repo? Repo ja sen historia jäävät GitHubiin.",
     never: "ei vielä", notSetUp: "GitHub ei ole käytössä tällä palvelimella.",
   };
@@ -141,6 +142,8 @@
     }
     show("busy", false);
     if (state.error) say(state.error, true);
+    // the repository was made public on GitHub: syncs wait for a yes
+    show("allowPublic", !!state.error && /is public on GitHub/.test(state.error));
     $("install").href = state.install || "#";
     show("nogh", !state.github);
     show("pick", !!state.github && !state.enabled);
@@ -152,8 +155,8 @@
       const l = document.createElement("label");
       l.className = "choice";
       const r = document.createElement("input");
-      r.type = "radio"; r.name = "repo"; r.value = c.installation + ":" + c.repo; r.disabled = !c.private;
-      l.append(r, document.createTextNode(c.name + (c.private ? "" : t("publicRepo", " (public: not allowed)"))));
+      r.type = "radio"; r.name = "repo"; r.value = c.installation + ":" + c.repo + ":" + (c.private ? "" : "public");
+      l.append(r, document.createTextNode(c.name + (c.private ? "" : t("publicRepo", " (public)"))));
       box.append(l);
     }
     if (!(state.choices || []).length) {
@@ -161,7 +164,7 @@
       p.textContent = t("none", "The App does not see any repository yet. Make a new one, or choose repositories on GitHub.");
       box.append(p);
     }
-    show("useRow", (state.choices || []).some((c) => c.private));
+    show("useRow", (state.choices || []).length > 0);
     if (state.enabled) {
       $("repo").textContent = state.repo; $("repo").href = state.url;
       $("branch").textContent = state.branch;
@@ -214,8 +217,10 @@
   $("use").addEventListener("click", () => {
     const v = document.querySelector("input[name=repo]:checked")?.value;
     if (!v) return;
-    const [installation, repo] = v.split(":").map(Number);
-    act(() => call("/connect", { installation, repo }));
+    const [inst, rp, pub] = v.split(":");
+    const installation = Number(inst), repo = Number(rp), isPublic = pub === "public";
+    if (isPublic && !confirm(t("confirmPublic", "This repository is public: every presentation, picture and old version in it can be read by anyone. Keep them there?"))) return;
+    act(() => call("/connect", { installation, repo, public: isPublic }));
   });
   $("create").addEventListener("click", () => {
     const n = $("name").value.trim();
@@ -224,6 +229,9 @@
   $("sync").addEventListener("click", () => act(() => call("/sync", {})));
   $("off").addEventListener("click", () => {
     if (confirm(t("confirmOff", "Disconnect the repository? It stays on GitHub with its history."))) act(() => call("/disconnect", {}));
+  });
+  $("allowPublic").addEventListener("click", () => {
+    if (confirm(t("confirmPublic", "This repository is public: every presentation, picture and old version in it can be read by anyone. Keep them there?"))) act(() => call("/public", {}));
   });
   load();
 })();
