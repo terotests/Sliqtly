@@ -2056,8 +2056,16 @@ async function showTopic(room, rows, folders = []) {
     }),
   }));
   const here = presenceSummary(...rows.map((r) => presence.get(presenceId(r.id))));
+  // on sliqtly.com a topic of one's own can be kept on GitHub: its button
+  // says the repository's branches, or offers it
+  let git = "";
+  const topics = CLOUD_ONLY && !isBuiltIn(room) && !info?.archived && !isShared(roomsHere, room) ? await gitTopicsNow().catch(() => null) : null;
+  if (topics) {
+    const kept = topics.find((x) => x.room === room);
+    git = kept ? "⎇ " + (kept.branches.length ? kept.branches.length + " " + (kept.branches.length === 1 ? t("branch") : t("branches")) : "main") : t("GitHub…");
+  }
   app.roomStories(JSON.stringify({
-    room, title: info?.title || "", by: topicBy, sort: topicSort, groups,
+    room, title: info?.title || "", by: topicBy, sort: topicSort, groups, git,
     // where it is known who works where (a server of one's own, or
     // sliqtly.com signed in): always said
     who: presenceShown() ? headPresence(here, t) : null,
@@ -2204,6 +2212,9 @@ async function topicRequest(r) {
     }
   } else if (what === "who") {
     openWho(f[0] ? presenceId(f[0]) : null);
+  } else if (what === "git" && room) {
+    // the topic's GitHub repository and branches (mcp-go/assets/editor-topic.html)
+    window.open("/editor/git/topic?room=" + encodeURIComponent(room), "_blank", "noopener");
   } else if (what === "new" && room) {
     await roomsRequest("room:newin:" + room);
   } else if (what === "bulk" && room) {
@@ -8361,7 +8372,17 @@ async function openHistory() {
 const GIT_API = CLOUD_ONLY ? "/editor/api/git" : "/api/git";
 async function gitEnabled() {
   const on = await fetch(GIT_API, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  return !!on?.enabled;
+  gitTopics = { at: Date.now(), list: on?.topics || [], ok: !!on };
+  // the account's repository, or a topic kept on GitHub (mcp-go/cloudtopicgit.go)
+  return !!on?.enabled || !!on?.topics?.length;
+}
+// sliqtly.com's topics kept on GitHub, as the server last said them
+// (null: GitHub is not set up there, or the page is not signed in)
+let gitTopics = { at: 0, list: [], ok: false };
+async function gitTopicsNow() {
+  if (!CLOUD_ONLY) return null;
+  if (Date.now() - gitTopics.at > 60000) await gitEnabled();
+  return gitTopics.ok ? gitTopics.list : null;
 }
 async function gitSave(message) {
   if (!(ownServer() || CLOUD_ONLY) || !doc.cloud) return null;

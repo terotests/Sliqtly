@@ -50,11 +50,43 @@ type fakeHub struct {
 	calls []string
 	// tokens handed out: installation tokens and the user's
 	appTokens int
+	// pull requests: number → {head ref, base ref, merged}; noPR: the App
+	// may not open them (no Pull requests permission)
+	pulls map[int64]*fakePull
+	noPR  bool
+	// needsReview: a pull request is not merged by the API (branch protection)
+	needsReview bool
+}
+
+type fakePull struct {
+	head, base string
+	merged     bool
+}
+
+// ancestor: a is c or one of its parents' line
+func (g *fakeHub) ancestor(a, c string) bool {
+	todo := []string{c}
+	seen := map[string]bool{}
+	for len(todo) > 0 {
+		at := todo[0]
+		todo = todo[1:]
+		if at == a {
+			return true
+		}
+		if seen[at] {
+			continue
+		}
+		seen[at] = true
+		for _, p := range g.commits[at].Parents {
+			todo = append(todo, p.SHA)
+		}
+	}
+	return false
 }
 
 func newFakeHub(t *testing.T, key *rsa.PublicKey) *fakeHub {
 	g := &fakeHub{t: t, key: key, blobs: map[string][]byte{}, trees: map[string]map[string]ghEntry{}, commits: map[string]ghCommit{},
-		refs: map[string]string{}, private: true, repoID: 42, repo: "tero/sliqtly-decks", inst: []int64{42}}
+		refs: map[string]string{}, pulls: map[int64]*fakePull{}, private: true, repoID: 42, repo: "tero/sliqtly-decks", inst: []int64{42}}
 	return g
 }
 
@@ -133,9 +165,14 @@ func (g *fakeHub) makeCommit(msg, tree string, parents []string, who string) str
 
 // push: someone commits files on GitHub (path → text; "" removes)
 func (g *fakeHub) push(msg string, change map[string]string) string {
+	return g.pushTo("main", msg, change)
+}
+
+// pushTo: someone commits files on GitHub on that branch
+func (g *fakeHub) pushTo(branch, msg string, change map[string]string) string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	head := g.refs["heads/main"]
+	head := g.refs["heads/"+branch]
 	files := g.files(head)
 	for p, text := range change {
 		if text == "" {
@@ -145,7 +182,7 @@ func (g *fakeHub) push(msg string, change map[string]string) string {
 		}
 	}
 	c := g.makeCommit(msg, g.treeOf(files), []string{head}, "someone")
-	g.refs["heads/main"] = c
+	g.refs["heads/"+branch] = c
 	return c
 }
 
@@ -223,6 +260,10 @@ func (g *fakeHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "/app/installations/7/access_tokens":
 		if !g.checkJWT(r) {
 			reply(401, map[string]string{"message": "bad JWT"})
+			return
+		}
+		if perms, _ := in["permissions"].(map[string]any); perms["pull_requests"] != nil && g.noPR {
+			reply(422, map[string]string{"message": "The permissions requested are not granted to this installation."})
 			return
 		}
 		g.appTokens++
@@ -308,15 +349,72 @@ func (g *fakeHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			who, _ = a["name"].(string)
 		}
 		reply(201, map[string]string{"sha": g.makeCommit(in["message"].(string), in["tree"].(string), parents, who)})
-	case p == base+"/git/refs/heads/main" && r.Method == "PATCH":
+	case strings.HasPrefix(p, base+"/git/refs/heads/") && r.Method == "PATCH":
+		ref := "heads/" + strings.TrimPrefix(p, base+"/git/refs/heads/")
 		sha := in["sha"].(string)
-		c := g.commits[sha]
-		if len(c.Parents) == 0 || c.Parents[0].SHA != g.refs["heads/main"] {
+		if _, ok := g.refs[ref]; !ok {
+			reply(422, map[string]string{"message": "Reference does not exist"})
+			return
+		}
+		if g.refs[ref] == sha || !g.ancestor(g.refs[ref], sha) {
 			reply(422, map[string]string{"message": "Update is not a fast forward"})
 			return
 		}
-		g.refs["heads/main"] = sha
+		g.refs[ref] = sha
 		reply(200, map[string]any{"object": map[string]string{"sha": sha}})
+	case strings.HasPrefix(p, base+"/git/refs/heads/") && r.Method == "DELETE":
+		delete(g.refs, "heads/"+strings.TrimPrefix(p, base+"/git/refs/heads/"))
+		w.WriteHeader(204)
+	case p == base+"/git/refs" && r.Method == "POST":
+		ref := strings.TrimPrefix(in["ref"].(string), "refs/")
+		if _, ok := g.refs[ref]; ok {
+			reply(422, map[string]string{"message": "Reference already exists"})
+			return
+		}
+		g.refs[ref] = in["sha"].(string)
+		reply(201, map[string]any{"ref": "refs/" + ref})
+	case p == base+"/pulls" && r.Method == "GET":
+		owner, _, _ := strings.Cut(g.repo, "/")
+		var out []map[string]any
+		for n, pr := range g.pulls {
+			if !pr.merged && owner+":"+pr.head == r.URL.Query().Get("head") && pr.base == r.URL.Query().Get("base") {
+				out = append(out, map[string]any{"number": n, "html_url": fmt.Sprintf("https://github.com/%s/pull/%d", g.repo, n)})
+			}
+		}
+		reply(200, out)
+	case p == base+"/pulls" && r.Method == "POST":
+		n := int64(len(g.pulls) + 1)
+		g.pulls[n] = &fakePull{head: in["head"].(string), base: in["base"].(string)}
+		reply(201, map[string]any{"number": n, "html_url": fmt.Sprintf("https://github.com/%s/pull/%d", g.repo, n)})
+	case strings.HasPrefix(p, base+"/pulls/") && strings.HasSuffix(p, "/merge") && r.Method == "PUT":
+		n, _ := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(p, base+"/pulls/"), "/merge"), 10, 64)
+		pr := g.pulls[n]
+		head := g.refs["heads/"+pr.head]
+		if sha, _ := in["sha"].(string); sha != head {
+			reply(409, map[string]string{"message": "Head branch was modified"})
+			return
+		}
+		if g.needsReview {
+			reply(405, map[string]string{"message": "At least 1 approving review is required"})
+			return
+		}
+		baseHead := g.refs["heads/"+pr.base]
+		if !g.ancestor(baseHead, head) {
+			reply(405, map[string]string{"message": "Pull Request is not mergeable"})
+			return
+		}
+		c := g.makeCommit("Merge pull request", g.commits[head].Tree.SHA, []string{baseHead, head}, "GitHub")
+		g.refs["heads/"+pr.base] = c
+		pr.merged = true
+		reply(200, map[string]any{"merged": true, "sha": c})
+	case strings.HasPrefix(p, base+"/pulls/") && r.Method == "GET":
+		n, _ := strconv.ParseInt(strings.TrimPrefix(p, base+"/pulls/"), 10, 64)
+		pr := g.pulls[n]
+		if pr == nil {
+			reply(404, map[string]string{"message": "Not Found"})
+			return
+		}
+		reply(200, map[string]any{"number": n, "merged": pr.merged})
 	case p == base+"/commits" && r.Method == "GET":
 		dir := r.URL.Query().Get("path")
 		var out []map[string]any
@@ -712,9 +810,15 @@ func TestGitPublicRepoRefused(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "public") || g.gh.head() != head {
 		t.Fatalf("pushed to a public repository: %v", err)
 	}
-	// and a public one is not connected at all
-	if err := g.c.connect(g.ctx, "u-tero", 7, 42); err == nil {
+	// and a public one is not connected unless the person says it may be
+	if err := g.c.connect(g.ctx, "u-tero", 7, 42, false); err == nil {
 		t.Fatal("a public repository connected")
+	}
+	if _, body := g.do(t, "POST", "/editor/api/git/public", "tero", `{}`); !strings.Contains(body, "ok") {
+		t.Fatalf("public: %s", body)
+	}
+	if _, err := g.c.sync(g.ctx, "u-tero", "", ""); err != nil || g.gh.text(g.gh.head(), "decks/Deck000001/deck.md") != "# Secret 2\n" {
+		t.Fatalf("not written once allowed: %v", err)
 	}
 }
 

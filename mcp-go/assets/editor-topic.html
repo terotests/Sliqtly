@@ -1,0 +1,389 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Topic on GitHub · Sliqtly</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  /* A topic's GitHub repository and branches (mcp-go/cloudtopicgit.go). */
+  :root { --bg: #f6f7fb; --card: #fff; --fg: #1d2233; --muted: #5d6480; --line: #dfe3ef; --accent: #18181b; --on-accent: #fafafa; --bad: #b3261e; --ok: #1e7b3a; --main: #e8f0ff; --mine: #fff1e0; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #111113; --card: #1b1b1f; --fg: #f4f4f5; --muted: #a1a1aa; --line: #2e2e33; --accent: #c8ff3c; --on-accent: #111113; --bad: #ff8a80; --ok: #7ee2a0; --main: #1c2638; --mine: #33261a; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 16px; }
+  main { width: 100%; max-width: 760px; margin: 4vh auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px 24px; }
+  header { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; margin-bottom: 18px; }
+  header img { width: 30px; height: 30px; }
+  h1 { font-size: 22px; line-height: 1.25; margin: 0 0 10px; overflow-wrap: anywhere; }
+  h2 { font-size: 17px; margin: 22px 0 8px; }
+  h3 { font-size: 16px; margin: 0; overflow-wrap: anywhere; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+  button, .button { border-radius: 9px; padding: 8px 13px; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
+  .primary { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
+  .secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  .small-btn { padding: 4px 10px; font-size: 14px; }
+  button:disabled { opacity: 0.6; cursor: default; }
+  input[type=text] { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); min-width: 0; flex: 1; }
+  textarea { width: 100%; min-height: 220px; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  label.choice { display: flex; gap: 8px; align-items: center; padding: 4px 0; color: var(--fg); }
+  .error { color: var(--bad); }
+  .ok { color: var(--ok); }
+  .facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 8px 0 12px; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; overflow-wrap: anywhere; }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 12px 0; }
+  .card-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .pill { font-size: 13px; border: 1px solid var(--line); border-radius: 99px; padding: 1px 9px; color: var(--muted); }
+  .pill.bad { color: var(--bad); border-color: var(--bad); }
+  ul.decks { list-style: none; padding: 0; margin: 8px 0; }
+  ul.decks li { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 5px 0; border-top: 1px solid var(--line); }
+  ul.decks li:first-child { border-top: 0; }
+  .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .same { color: var(--muted); max-height: 7.5em; overflow: hidden; border-left: 3px solid var(--line); padding-left: 8px; margin: 8px 0; }
+  .clash { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  @media (max-width: 560px) { .clash { grid-template-columns: 1fr; } }
+  .side { border-radius: 8px; padding: 8px; }
+  .side.main { background: var(--main); }
+  .side.mine { background: var(--mine); }
+  .side-label { font-size: 13px; font-weight: 600; margin-bottom: 4px; display: flex; gap: 6px; align-items: center; }
+  a { color: inherit; }
+  .small { font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="/favicon.svg" alt="">Sliqtly</header>
+  <h1 id="title" data-t="title">Topic on GitHub</h1>
+  <p data-t="lead">Keep the topic's presentations as Markdown in a GitHub repository, or in one folder of it. Work on several of them in a branch and merge the branch back into main when it is ready.</p>
+  <p id="busy" data-t="loading">Loading…</p>
+  <p class="error" id="err" hidden></p>
+  <p class="ok" id="note" hidden></p>
+
+  <section id="notown" hidden><p data-t="notown">Only a topic of your own can be kept on GitHub (not General, Playground or a topic shared with you).</p></section>
+
+  <section id="nogh" hidden>
+    <h2 data-t="step1">1. Connect GitHub</h2>
+    <p data-t="step1text">Sign in to GitHub and let Sliqtly's GitHub App see your repositories. It writes only the repositories you allow, and only private ones.</p>
+    <div class="row"><a class="button primary" href="/editor/github/login?mode=link" data-t="connect">Connect GitHub</a></div>
+  </section>
+
+  <section id="pick" hidden>
+    <h2 data-t="step2">Repository and folder</h2>
+    <div id="choices"></div>
+    <div class="row"><input type="text" id="dir" placeholder="docs/plans" aria-label="Folder"></div>
+    <p class="small" data-t="dirText">The folder in the repository (empty: its top). Markdown files already there become presentations of the topic.</p>
+    <div class="row" id="linkRow" hidden><button class="primary" id="link" data-t="link">Keep the topic here</button></div>
+    <p class="small"><a id="install" href="#" target="_blank" rel="noopener" data-t="install">Choose which repositories the App may use on GitHub</a> · <a href="/editor/github/login?mode=link" data-t="refresh">List them again</a></p>
+  </section>
+
+  <section id="on" hidden>
+    <dl class="facts">
+      <dt data-t="repo">Repository</dt><dd><a id="repo" target="_blank" rel="noopener"></a></dd>
+      <dt data-t="dir">Folder</dt><dd id="dirShown"></dd>
+      <dt data-t="main">Main branch</dt><dd id="main"></dd>
+      <dt data-t="last">Last commit</dt><dd><a id="head" target="_blank" rel="noopener"></a></dd>
+      <dt data-t="synced">Synced</dt><dd id="synced"></dd>
+    </dl>
+    <div class="row">
+      <button class="primary" id="sync" data-t="sync">Sync main now</button>
+      <button class="secondary" id="unlink" data-t="unlink">Unlink</button>
+      <button class="secondary" id="allowPublic" data-t="allowPublic" hidden>Allow a public repository</button>
+    </div>
+    <section id="mainConf" hidden>
+      <h2 data-t="mainConflicts">Changed on GitHub and in Sliqtly</h2>
+      <p data-t="mainConflictsText">These presentations were changed on GitHub and in Sliqtly on the same lines. Sliqtly kept its own text; choose which one stays.</p>
+      <div id="mainConflicts"></div>
+    </section>
+
+    <h2 data-t="branches">Branches</h2>
+    <p class="small" data-t="branchesText">A branch starts from main. Open a presentation in the branch to work on a copy of it; main stays as it is. A presentation put in the branch's folder is new in the branch. When the work is ready, merge the branch: Sliqtly opens a pull request on GitHub and merges it.</p>
+    <div class="row"><input type="text" id="branchName" aria-label="Branch name" placeholder="hinnoittelu-2027" maxlength="60"><button class="primary" id="newBranch" data-t="newBranch">New branch</button></div>
+    <div id="branchList"></div>
+    <details id="closedBox" hidden><summary class="small" data-t="closed">Merged and dropped branches</summary><ul class="decks" id="closed"></ul></details>
+  </section>
+
+  <section id="resolver" hidden>
+    <h2 id="resolveTitle"></h2>
+    <p class="small" data-t="resolveText">Main and the branch changed the same lines. For each place, choose what stays; then check the result and save it.</p>
+    <div id="chunks"></div>
+    <h2 data-t="result">Result</h2>
+    <textarea id="resultText" aria-label="Result"></textarea>
+    <div class="row">
+      <button class="primary" id="saveResolve" data-t="saveResolve">Save the result</button>
+      <button class="secondary" id="takeMain" data-t="takeMain">Take main's whole text</button>
+      <button class="secondary" id="takeMine" data-t="takeMine">Keep the branch's whole text</button>
+      <button class="secondary" id="cancelResolve" data-t="cancel">Cancel</button>
+    </div>
+  </section>
+
+  <p class="small" style="margin-top:22px"><a href="/editor/" data-t="back">Back to the editor</a> · <a href="/editor/git" data-t="account">Git and GitHub</a></p>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const room = new URLSearchParams(location.search).get("room") || "";
+  const fi = /^fi\b/i.test(navigator.language || "");
+  const FI = {
+    title: "Aihe GitHubissa", lead: "Pidä aiheen esitykset Markdownina GitHub-repossa tai sen kansiossa. Työstä useaa niistä haarassa ja yhdistä haara mainiin, kun työ on valmis.",
+    loading: "Ladataan…", notown: "GitHubiin voi kytkeä vain oman aiheen (ei Generalia, Playgroundia eikä sinulle jaettua aihetta).",
+    step1: "1. Yhdistä GitHub", step1text: "Kirjaudu GitHubiin ja anna Sliqtlyn GitHub Appin nähdä repositoriosi. Se kirjoittaa vain sallimiisi yksityisiin repoihin.", connect: "Yhdistä GitHub",
+    step2: "Repo ja kansio", dirText: "Kansio repossa (tyhjä: repon juuri). Siellä jo olevat Markdown-tiedostot tulevat aiheen esityksiksi.", link: "Pidä aihe täällä",
+    install: "Valitse GitHubissa, mitä repoja App saa käyttää", refresh: "Listaa uudelleen", repo: "Repo", dir: "Kansio", main: "Päähaara", last: "Viimeisin commit", synced: "Synkattu",
+    sync: "Synkkaa main nyt", unlink: "Irrota", mainConflicts: "Muutettu GitHubissa ja Sliqtlyssä", mainConflictsText: "Näitä esityksiä on muutettu GitHubissa ja Sliqtlyssä samoilta riveiltä. Sliqtly piti oman tekstinsä; valitse kumpi jää.",
+    branches: "Haarat", branchesText: "Haara alkaa mainista. Avaa esitys haarassa, niin muokkaat sen kopiota; main pysyy ennallaan. Haaran kansioon laitettu esitys on haarassa uusi. Kun työ on valmis, yhdistä haara: Sliqtly avaa GitHubiin pull requestin ja yhdistää sen.",
+    newBranch: "Uusi haara", closed: "Yhdistetyt ja hylätyt haarat", resolveText: "Main ja haara muuttivat samoja rivejä. Valitse kustakin kohdasta mikä jää, tarkista tulos ja tallenna.",
+    result: "Tulos", saveResolve: "Tallenna tulos", takeMain: "Ota mainin koko teksti", takeMine: "Pidä haaran koko teksti", cancel: "Peruuta",
+    back: "Takaisin editoriin", account: "Git ja GitHub",
+    none: "Sovellus ei näe vielä yhtään repoa. Valitse repot GitHubissa.", publicRepo: " (julkinen)", confirmPublic: "Tämä repo on julkinen: kaikki sen esitykset, kuvat ja vanhat versiot näkyvät kaikille. Pidetäänkö ne siellä?", allowPublic: "Salli julkinen repo", never: "ei vielä", done: "Valmis.",
+    useGithub: "Käytä GitHubin versiota", keepSliqtly: "Pidä Sliqtlyn versio", openIn: "Muokkaa haarassa", open: "Avaa", newInBranch: "uusi", copy: "kopio",
+    conflict: "ristiriita", resolve: "Ratkaise", update: "Päivitä mainista", merge: "Yhdistä mainiin", drop: "Hylkää haara", behind: "main on muuttunut",
+    review: "odottaa GitHubissa", openState: "auki", merged: "yhdistetty", dropped: "hylätty", notOpened: "Mainin esitykset", inBranch: "Haarassa",
+    confirmDrop: "Hylätäänkö haara? Sen kopiot poistetaan; haarassa uudet esitykset jäävät aiheeseen. Haara jää GitHubiin historiaksi.",
+    confirmUnlink: "Irrotetaanko aihe reposta? Repo ja sen historia jäävät GitHubiin.", confirmMerge: "Yhdistetäänkö haara mainiin?",
+    committed: "Commit tehty: ", nothing: "Ei muutoksia.", conflictsLeft: "Ristiriitoja ratkaistavana: ", mergedNote: "Haara on yhdistetty mainiin.",
+    prWaits: "Pull request odottaa GitHubissa (katselmointi tai tarkistukset): ", mainSide: "Main", mineSide: "Haara", both: "Molemmat", noMain: "Ei esityksiä vielä.",
+    notSetUp: "GitHub ei ole käytössä tällä palvelimella.", branchCreated: "Haara tehty.",
+  };
+  const t = (k, en) => (fi && FI[k]) || en;
+  if (fi) {
+    document.documentElement.lang = "fi";
+    for (const el of document.querySelectorAll("[data-t]")) if (FI[el.dataset.t]) el.textContent = FI[el.dataset.t];
+  }
+  const show = (id, on) => { $(id).hidden = !on; };
+  const say = (text, bad) => { $(bad ? "err" : "note").textContent = text; show(bad ? "err" : "note", !!text); if (text) show(bad ? "note" : "err", false); };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+  const button = (label, cls, f) => { const b = el("button", cls, label); b.addEventListener("click", f); return b; };
+
+  async function call(path, body) {
+    const q = path.includes("?") ? "&" : "?";
+    const res = await fetch("/editor/api/git/topic" + path + (body === undefined ? q + "room=" + encodeURIComponent(room) : ""),
+      body === undefined ? { cache: "no-store" } : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ room, ...body }) });
+    const out = await res.json().catch(() => ({}));
+    if (res.status === 401) { location.href = "/editor/"; throw new Error("signed out"); }
+    if (!res.ok) throw new Error(out.error || res.statusText);
+    return out;
+  }
+  const when = (ms) => (ms ? new Date(ms).toLocaleString(fi ? "fi-FI" : undefined) : t("never", "not yet"));
+  const edit = (deck) => "/editor/d/" + encodeURIComponent(deck);
+  function result(r) {
+    if (r.merged) return t("mergedNote", "The branch is merged into main.");
+    if (r.conflicts?.length) return t("conflictsLeft", "Conflicts to resolve: ") + r.conflicts.length;
+    if (r.prUrl && !r.merged) return t("prWaits", "The pull request waits on GitHub (reviews or checks): ") + r.prUrl;
+    return r.commit ? t("committed", "Committed: ") + r.commit.slice(0, 7) : t("nothing", "Nothing changed.");
+  }
+
+  let state = null;
+  async function load() {
+    show("busy", true);
+    try {
+      state = await call("");
+    } catch (e) {
+      show("busy", false);
+      say(/not set up/.test(e.message) ? t("notSetUp", e.message) : e.message, true);
+      return;
+    }
+    show("busy", false);
+    $("title").textContent = (state.title || room) + " · GitHub";
+    if (state.error) say(state.error, true);
+    // the repository was made public on GitHub: syncs wait for a yes
+    show("allowPublic", !!state.error && /is public on GitHub/.test(state.error));
+    $("install").href = state.install || "#";
+    show("notown", !state.own && !state.linked);
+    show("nogh", state.own && !state.github && !state.linked);
+    show("pick", state.own && !!state.github && !state.linked);
+    show("on", !!state.linked);
+    const box = $("choices");
+    box.textContent = "";
+    for (const c of state.choices || []) {
+      const l = el("label", "choice");
+      const r = document.createElement("input");
+      r.type = "radio"; r.name = "repo"; r.value = c.installation + ":" + c.repo + ":" + (c.private ? "" : "public");
+      l.append(r, document.createTextNode(c.name + (c.private ? "" : t("publicRepo", " (public)"))));
+      box.append(l);
+    }
+    if (!(state.choices || []).length) box.append(el("p", "", t("none", "The App does not see any repository yet. Choose repositories on GitHub.")));
+    show("linkRow", (state.choices || []).length > 0);
+    if (!state.linked) return;
+    $("repo").textContent = state.repo; $("repo").href = state.url + (state.dir ? "/tree/" + state.main + "/" + state.dir : "");
+    $("dirShown").textContent = state.dir || "/";
+    $("main").textContent = state.main;
+    $("head").textContent = state.head ? state.head.slice(0, 7) : "–";
+    $("head").href = state.head ? state.url + "/commit/" + state.head : state.url;
+    $("synced").textContent = when(state.synced);
+    // main's conflicts with GitHub
+    const mc = $("mainConflicts");
+    mc.textContent = "";
+    for (const c of state.conflicts || []) {
+      const d = el("div", "card");
+      const a = el("a", "", c.name); a.href = edit(c.deck);
+      const row = el("div", "row");
+      row.append(
+        button(t("useGithub", "Use GitHub's version"), "secondary small-btn", () => act(() => call("/resolve", { deck: c.deck, take: "github" }))),
+        button(t("keepSliqtly", "Keep Sliqtly's version"), "primary small-btn", () => act(() => call("/resolve", { deck: c.deck, take: "sliqtly" }))));
+      d.append(a, row);
+      mc.append(d);
+    }
+    show("mainConf", (state.conflicts || []).length > 0);
+    // the branches
+    const list = $("branchList"), closed = $("closed");
+    list.textContent = ""; closed.textContent = "";
+    let nClosed = 0;
+    for (const b of state.branches || []) {
+      if (b.state !== "open" && b.state !== "review") {
+        const li = el("li");
+        const a = el("a", "grow", b.name); a.href = b.prUrl || b.url; a.target = "_blank"; a.rel = "noopener";
+        li.append(a, el("span", "pill", t(b.state, b.state)));
+        closed.append(li);
+        nClosed++;
+        continue;
+      }
+      list.append(branchCard(b));
+    }
+    show("closedBox", nClosed > 0);
+  }
+
+  function branchCard(b) {
+    const card = el("div", "card");
+    const head = el("div", "card-head");
+    const a = el("a", "", "⎇ " + b.name); a.href = b.url; a.target = "_blank"; a.rel = "noopener";
+    const h = el("h3"); h.append(a);
+    head.append(h, el("span", "pill", b.state === "review" ? t("review", "waits on GitHub") : t("openState", "open")));
+    if (b.behind) head.append(el("span", "pill", t("behind", "main has changed")));
+    if (b.conflicts) head.append(el("span", "pill bad", t("conflict", "conflict") + " ×" + b.conflicts));
+    if (b.prUrl) { const pr = el("a", "small", "PR #" + b.pr); pr.href = b.prUrl; pr.target = "_blank"; pr.rel = "noopener"; head.append(pr); }
+    card.append(head);
+    // the branch's own presentations
+    card.append(el("p", "small", t("inBranch", "In the branch")));
+    const mine = el("ul", "decks");
+    const copied = new Set();
+    for (const d of b.decks || []) {
+      if (d.of) copied.add(d.of);
+      const li = el("li");
+      const link = el("a", "grow", d.name); link.href = edit(d.deck);
+      li.append(link, el("span", "pill", d.new ? t("newInBranch", "new") : t("copy", "copy")));
+      if (d.conflict) li.append(button(t("resolve", "Resolve"), "primary small-btn", () => openResolver(b.name, d)));
+      mine.append(li);
+    }
+    if (!(b.decks || []).length) mine.append(el("li", "small", "–"));
+    card.append(mine);
+    // main's, not opened in the branch yet
+    card.append(el("p", "small", t("notOpened", "Main's presentations")));
+    const others = el("ul", "decks");
+    for (const d of state.decks || []) {
+      if (copied.has(d.deck)) continue;
+      const li = el("li");
+      li.append(el("span", "grow", d.name), button(t("openIn", "Edit in the branch"), "secondary small-btn", () => act(async () => {
+        const out = await call("/open", { branch: b.name, deck: d.deck });
+        if (out.deck) location.href = edit(out.deck);
+        return out;
+      })));
+      others.append(li);
+    }
+    if (!others.children.length) others.append(el("li", "small", t("noMain", "No presentations yet.")));
+    card.append(others);
+    const row = el("div", "row");
+    row.append(
+      button(t("update", "Update from main"), "secondary", () => act(() => call("/update", { branch: b.name }))),
+      button(t("merge", "Merge into main"), "primary", () => { if (confirm(t("confirmMerge", "Merge the branch into main?"))) act(() => call("/merge", { branch: b.name })); }),
+      button(t("drop", "Drop the branch"), "secondary", () => { if (confirm(t("confirmDrop", "Drop the branch? Its copies are deleted; presentations new in it stay in the topic. The branch stays on GitHub for its history."))) act(() => call("/drop", { branch: b.name })); }));
+    card.append(row);
+    return card;
+  }
+
+  // a copy's conflict with main: each clash picked, the result editable
+  let resolving = null;
+  async function openResolver(branch, d) {
+    say("", true);
+    let out;
+    try {
+      out = await call("/conflict?branch=" + encodeURIComponent(branch) + "&deck=" + encodeURIComponent(d.deck));
+    } catch (e) { say(e.message, true); return; }
+    resolving = { branch, deck: d.deck, chunks: out.chunks || [], picks: [] };
+    $("resolveTitle").textContent = d.name;
+    const box = $("chunks");
+    box.textContent = "";
+    resolving.chunks.forEach((c, i) => {
+      if (!c.clash) { const p = el("pre", "same", c.same || ""); box.append(p); return; }
+      resolving.picks[i] = "branch";
+      const grid = el("div", "clash");
+      for (const [side, cls, label, text] of [["main", "main", t("mainSide", "Main"), c.main], ["branch", "mine", t("mineSide", "Branch"), c.branch]]) {
+        const s = el("div", "side " + cls);
+        const l = el("label", "side-label");
+        const r = document.createElement("input");
+        r.type = "radio"; r.name = "pick" + i; r.checked = side === "branch";
+        r.addEventListener("change", () => { resolving.picks[i] = side; fill(); });
+        l.append(r, document.createTextNode(label));
+        s.append(l, el("pre", "", text || ""));
+        grid.append(s);
+      }
+      const bl = el("label", "choice small");
+      const br = document.createElement("input");
+      br.type = "radio"; br.name = "pick" + i;
+      br.addEventListener("change", () => { resolving.picks[i] = "both"; fill(); });
+      bl.append(br, document.createTextNode(t("both", "Both")));
+      box.append(grid, bl);
+    });
+    fill();
+    show("on", false);
+    show("resolver", true);
+    window.scrollTo(0, 0);
+  }
+  function fill() {
+    const parts = [];
+    resolving.chunks.forEach((c, i) => {
+      if (!c.clash) { parts.push(c.same); return; }
+      const p = resolving.picks[i];
+      if (p === "main" || p === "both") parts.push(c.main);
+      if (p === "branch" || p === "both") parts.push(c.branch);
+    });
+    $("resultText").value = parts.filter((x) => x !== "" && x !== undefined).join("\n");
+  }
+  function closeResolver() { resolving = null; show("resolver", false); show("on", true); }
+  $("saveResolve").addEventListener("click", () => { const r = resolving; closeResolver(); act(() => call("/resolve", { branch: r.branch, deck: r.deck, take: "text", md: $("resultText").value })); });
+  $("takeMain").addEventListener("click", () => { const r = resolving; closeResolver(); act(() => call("/resolve", { branch: r.branch, deck: r.deck, take: "main" })); });
+  $("takeMine").addEventListener("click", () => { const r = resolving; closeResolver(); act(() => call("/resolve", { branch: r.branch, deck: r.deck, take: "branch" })); });
+  $("cancelResolve").addEventListener("click", closeResolver);
+
+  async function act(f) {
+    for (const b of document.querySelectorAll("button")) b.disabled = true;
+    say("", false); say("", true);
+    try {
+      const r = await f();
+      say(r && ("commit" in r || "merged" in r || "conflicts" in r) ? result(r) : t("done", "Done."), false);
+    } catch (e) {
+      say(e.message, true);
+    } finally {
+      for (const b of document.querySelectorAll("button")) b.disabled = false;
+      await load().catch(() => {});
+    }
+  }
+  $("link").addEventListener("click", () => {
+    const v = document.querySelector("input[name=repo]:checked")?.value;
+    if (!v) return;
+    const [inst, rp, pub] = v.split(":");
+    const installation = Number(inst), repo = Number(rp), isPublic = pub === "public";
+    if (isPublic && !confirm(t("confirmPublic", "This repository is public: every presentation, picture and old version in it can be read by anyone. Keep them there?"))) return;
+    act(() => call("/link", { installation, repo, dir: $("dir").value, public: isPublic }));
+  });
+  $("sync").addEventListener("click", () => act(() => call("/sync", {})));
+  $("unlink").addEventListener("click", () => { if (confirm(t("confirmUnlink", "Unlink the topic? The repository and its history stay on GitHub."))) act(() => call("/unlink", {})); });
+  $("newBranch").addEventListener("click", () => {
+    const name = $("branchName").value.trim();
+    if (name) act(async () => { const r = await call("/branch", { name }); $("branchName").value = ""; return r; });
+  });
+  if (!room) { show("busy", false); say("?room=", true); return; }
+  $("allowPublic").addEventListener("click", () => {
+    if (confirm(t("confirmPublic", "This repository is public: every presentation, picture and old version in it can be read by anyone. Keep them there?"))) act(() => call("/public", {}));
+  });
+  load();
+})();
+</script>
+</body>
+</html>

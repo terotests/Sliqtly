@@ -13,10 +13,11 @@
 //	GET  /editor/git               the page: GitHub, the repository, conflicts
 //
 //	GET  /editor/api/git                    the account's state
-//	POST /editor/api/git/connect            {installation, repo}: the repository to keep the decks in
+//	POST /editor/api/git/connect            {installation, repo, public?}: the repository to keep the decks in (public: one public on GitHub may be)
 //	POST /editor/api/git/save               {deck?, message}: a commit now (Save version)
 //	POST /editor/api/git/sync               {}: the same without a message (quiet, Back up now)
 //	POST /editor/api/git/resolve            {deck, take: github|sliqtly}
+//	POST /editor/api/git/public             the repository may be public (it is on GitHub)
 //	POST /editor/api/git/disconnect         no repository any more (GitHub stays signed in)
 //	GET  /editor/api/history/{deck}[/…]     the deck's commits (cloudgithistory.go)
 //
@@ -116,7 +117,7 @@ func safeNext(p string) string {
 // serveGitHub answers /editor/github/… and /editor/git; false: not one of them
 func serveGitHub(env *Env, w http.ResponseWriter, r *http.Request) bool {
 	p := r.URL.Path
-	if p != gitPagePath && !strings.HasPrefix(p, githubPagePath) {
+	if p != gitPagePath && p != topicPagePath && !strings.HasPrefix(p, githubPagePath) {
 		return false
 	}
 	c, g := env.CloudGit, env.EditorGate
@@ -124,6 +125,10 @@ func serveGitHub(env *Env, w http.ResponseWriter, r *http.Request) bool {
 	w.Header().Set("X-Robots-Tag", "noindex")
 	if c == nil || g == nil {
 		http.Error(w, "GitHub is not set up on this server.", http.StatusNotFound)
+		return true
+	}
+	if p == topicPagePath {
+		serveTopicPage(env, w, r)
 		return true
 	}
 	switch strings.TrimPrefix(p, githubPagePath) {
@@ -337,7 +342,7 @@ func (c *cloudGit) noteGitHub(ctx context.Context, uid string, u ghUser, token s
 	for _, p := range places {
 		for _, rp := range p.Repos {
 			if strings.EqualFold(rp.FullName, l.Want) {
-				return c.connect(ctx, uid, p.Installation, rp.ID)
+				return c.connect(ctx, uid, p.Installation, rp.ID, false)
 			}
 		}
 	}
@@ -382,7 +387,7 @@ func (c *cloudGit) makeRepo(ctx context.Context, uid, token, name string) (strin
 				return c.app.installURL(""), nil
 			}
 		}
-		return "", c.connect(ctx, uid, p.Installation, repo.ID)
+		return "", c.connect(ctx, uid, p.Installation, repo.ID, false)
 	}
 	// the App is not installed on the account yet: GitHub asks which repositories
 	return c.app.installURL(""), nil
@@ -390,7 +395,7 @@ func (c *cloudGit) makeRepo(ctx context.Context, uid, token, name string) (strin
 
 // connect: the repository the account's decks go to, one it was offered;
 // the first sync follows
-func (c *cloudGit) connect(ctx context.Context, uid string, installation, repoID int64) error {
+func (c *cloudGit) connect(ctx context.Context, uid string, installation, repoID int64, public bool) error {
 	l, _, err := c.link(ctx, uid)
 	if err != nil {
 		return err
@@ -416,16 +421,16 @@ func (c *cloudGit) connect(ctx context.Context, uid string, installation, repoID
 	if err != nil {
 		return gitAccessErr(err, &gitLink{Repo: name})
 	}
-	if !info.Private {
-		return fmt.Errorf("%s is public. Sliqtly keeps decks only in a private repository: make it private on GitHub, or pick another.", info.FullName)
+	if !info.Private && !public {
+		return roomErr{fmt.Sprintf("%s is public: every presentation, picture and old version in it would be readable by anyone. Say that it may be, or pick a private one.", info.FullName)}
 	}
 	if l.connected() && l.RepoID == repoID {
-		return nil
+		return c.db.Update(ctx, gitLinkCol, uid, Doc{"public": public})
 	}
 	// another repository than before: compared from its own start
 	return c.db.Update(ctx, gitLinkCol, uid, Doc{"installation": installation, "repoId": repoID, "repo": info.FullName,
 		"branch": nonEmpty(info.DefaultBranch, "main"), "head": "", "fileKeys": Doc{}, "decks": []any{}, "conflicts": Doc{},
-		"enabled": true, "want": "", "error": "", "connected": c.db.ServerTime()})
+		"enabled": true, "want": "", "error": "", "public": public, "connected": c.db.ServerTime()})
 }
 
 // a small page that says what happened and links on
@@ -530,6 +535,8 @@ func (c *cloudGit) hook(w http.ResponseWriter, r *http.Request) {
 			c.logf("git: %s: push from GitHub: %v", uid, err)
 		}
 	}
+	// the topics kept in the repository (cloudtopicgit.go) follow it too
+	c.topicPushed(ctx, ev.Repository.ID, ev.Ref, ev.After)
 	w.WriteHeader(204)
 }
 
@@ -597,12 +604,17 @@ func serveGitAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request
 		editorJSON(w, 403, map[string]string{"error": "Not allowed."})
 		return
 	}
+	if op == "topic" || strings.HasPrefix(op, "topic/") {
+		c.serveTopicAPI(t, w, r, strings.TrimPrefix(strings.TrimPrefix(op, "topic"), "/"))
+		return
+	}
 	var in struct {
 		Installation int64  `json:"installation"`
 		Repo         int64  `json:"repo"`
 		Deck         string `json:"deck"`
 		Message      string `json:"message"`
 		Take         string `json:"take"`
+		Public       bool   `json:"public"`
 	}
 	if r.Method == http.MethodPost {
 		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
@@ -637,7 +649,7 @@ func serveGitAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request
 		}
 		editorJSON(w, 200, st)
 	case "connect":
-		if err := c.connect(ctx, t.UID, in.Installation, in.Repo); err != nil {
+		if err := c.connect(ctx, t.UID, in.Installation, in.Repo, in.Public); err != nil {
 			editorJSON(w, 400, map[string]string{"error": err.Error()})
 			return
 		}
@@ -677,15 +689,44 @@ func serveGitAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request
 				msg = msg[:2000]
 			}
 		}
-		res, err := c.sync(ctx, uid, msg, t.Name)
+		// the account's repository, and the linked topic the deck is in
+		l, _, err := c.link(ctx, uid)
 		if err != nil {
 			fail(err)
 			return
 		}
-		editorJSON(w, 200, res)
+		var res *gitSyncResult
+		if l.connected() {
+			if res, err = c.sync(ctx, uid, msg, t.Name); err != nil {
+				fail(err)
+				return
+			}
+		}
+		var tres *topicSyncResult
+		if in.Deck != "" {
+			if tres, err = c.syncDeckTopic(ctx, uid, in.Deck, msg, t.Name); err != nil && res == nil {
+				fail(err)
+				return
+			}
+		}
+		switch {
+		case res != nil:
+			editorJSON(w, 200, res)
+		case tres != nil:
+			editorJSON(w, 200, tres)
+		default:
+			fail(errGitNotConnected)
+		}
 	case "resolve":
 		if err := c.resolve(ctx, t.UID, in.Deck, in.Take); err != nil {
 			editorJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		editorJSON(w, 200, map[string]bool{"ok": true})
+	case "public":
+		// the repository, public on GitHub, may be: the syncs go on
+		if err := c.db.Update(ctx, gitLinkCol, t.UID, Doc{"public": true, "error": ""}); err != nil {
+			fail(err)
 			return
 		}
 		editorJSON(w, 200, map[string]bool{"ok": true})
@@ -718,6 +759,7 @@ func (c *cloudGit) status(ctx context.Context, uid string) (map[string]any, erro
 		if !l.Synced.IsZero() {
 			out["synced"] = l.Synced.UnixMilli()
 		}
+		out["public"] = l.Public
 	}
 	if l.Error != "" {
 		out["error"] = l.Error
@@ -742,6 +784,11 @@ func (c *cloudGit) status(ctx context.Context, uid string) (map[string]any, erro
 		conflicts = append(conflicts, map[string]any{"deck": id, "name": nonEmpty(name, id), "sha": cf["sha"], "at": millis(cf["at"])})
 	}
 	out["conflicts"] = conflicts
+	topics, err := c.topicsOf(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	out["topics"] = topics
 	return out, nil
 }
 

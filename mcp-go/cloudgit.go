@@ -35,8 +35,10 @@
 //
 // What goes in is what may be published with the decks; who owns them,
 // invitations, chat, form answers, links' keys stay in Firestore, since
-// Git keeps every version for good. Nothing is written to a public
-// repository: `private` is read before every commit.
+// Git keeps every version for good. A public repository is written only
+// when the person said so for it (Public): `private` is read before every
+// commit, and a repository made public on GitHub later stops the syncs
+// until the person says it may be.
 
 package main
 
@@ -121,6 +123,8 @@ type gitLink struct {
 	Choices []any
 	// a repository being made ("" none)
 	Want string
+	// the person said the repository may be public
+	Public bool
 }
 
 func (c *cloudGit) link(ctx context.Context, uid string) (*gitLink, Doc, error) {
@@ -144,6 +148,7 @@ func (c *cloudGit) link(ctx context.Context, uid string) (*gitLink, Doc, error) 
 	l.Error, _ = d["error"].(string)
 	l.Lease, _ = d["lease"].(string)
 	l.Want, _ = d["want"].(string)
+	l.Public, _ = d["public"].(bool)
 	if m, ok := d["fileKeys"].(map[string]any); ok {
 		for k, v := range m {
 			if s, ok := v.(string); ok {
@@ -278,8 +283,8 @@ func (c *cloudGit) syncOnce(ctx context.Context, l *gitLink, message, author str
 	if err != nil {
 		return nil, gitAccessErr(err, l)
 	}
-	if !info.Private {
-		return nil, errGitStop{fmt.Sprintf("%s is public: nothing is written to it, since every deck would be readable by anyone. Make it private on GitHub, then back up again.", info.FullName)}
+	if !info.Private && !l.Public {
+		return nil, errGitStop{publicStop(info.FullName)}
 	}
 	if info.FullName != "" && info.FullName != l.Repo {
 		// renamed or moved on GitHub: the id is the same repository
@@ -393,6 +398,11 @@ func (c *cloudGit) syncOnce(ctx context.Context, l *gitLink, message, author str
 	done["head"] = commit
 	res.Commit, res.Head = commit, commit
 	return res, c.db.Update(ctx, gitLinkCol, l.uid, done)
+}
+
+// what a repository public on GitHub, not said to be, stops with
+func publicStop(repo string) string {
+	return fmt.Sprintf("%s is public on GitHub: nothing is written to it until you say it may be public (every presentation, picture and old version in it is readable by anyone). Allow it on the page, or make the repository private.", repo)
 }
 
 // the GitHub address commits carry (no one's real address goes in the history)
@@ -545,6 +555,9 @@ func (c *cloudGit) snapshot(ctx context.Context, l *gitLink, r *ghRepoAt, remote
 		if !gitSafeID(id) || d == nil {
 			continue
 		}
+		if d["branch"] != nil {
+			continue // a topic branch's copy (cloudtopicgit.go): its own branch keeps it
+		}
 		if len(s.decks) >= cloudGitMaxDecks {
 			break
 		}
@@ -552,7 +565,12 @@ func (c *cloudGit) snapshot(ctx context.Context, l *gitLink, r *ghRepoAt, remote
 		for k, v := range d {
 			doc[k] = v
 		}
-		if p, ok := place[id]; ok {
+		// the page names a deck "cloud:<id>" in its facts (layout.go pageDeck)
+		p, ok := place[pageDeck(id)]
+		if !ok {
+			p, ok = place[id]
+		}
+		if ok {
 			if p[0] != "" {
 				doc["room"] = p[0]
 			}

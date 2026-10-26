@@ -133,6 +133,12 @@ class PresTopicView {
         head.addChild((UiKit.words("rm-ttitle" (j.stringOr("title" "")))))
         this.who(host head "rm-twho" (j.get("who")) (w - 260.0) eng)
         head.addChild((UiKit.div("rm-grow")))
+        ; sliqtly.com: the topic's GitHub repository and branches (the page
+        ; says "⎇ main", "⎇ 2 branches" or "GitHub…"; "" none)
+        def git:string (j.stringOr("git" ""))
+        if (git != "") {
+            UiKit.put(host (UiKit.button("rm-tgit" git "secondary")) head)
+        }
         if (j.boolOr("canNew" true)) {
             def nb:ButtonCtl (UiKit.button("rm-tnew" (PresI18n.t("+ New presentation")) "primary"))
             UiKit.labelClass(nb "pn-onprimary")
@@ -410,6 +416,10 @@ class PresTopicView {
         }
         if (tid == "rm-tnew") {
             push requests "topic:new"
+            return true
+        }
+        if (tid == "rm-tgit") {
+            push requests "topic:git"
             return true
         }
         if (tid == "rm-twho") {
