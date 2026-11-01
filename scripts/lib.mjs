@@ -278,12 +278,24 @@ export function ensureRangerGit({ update = false } = {}) {
  * clone that only refreshed on --update went on compiling against whatever
  * the branch held the day it was cloned (Sliqtly then imported controls
  * that clone did not have yet). Offline, the clone is used as it is.
+ * A full 40-hex commit id pins the clone to that commit.
  */
+function isCommit(ref) {
+  return /^[0-9a-f]{40}$/.test(ref || "");
+}
+
 function syncClone(name, url, ref, dir, marker, update) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(path.dirname(dir), { recursive: true });
     log(`clone  ${url} (${ref}) → ${path.relative(root, dir)}`);
-    git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), url, dir], path.dirname(dir));
+    if (isCommit(ref)) {
+      // `clone --branch` takes only branches and tags: fetch the commit itself
+      git(["clone", "--depth", "1", "--no-checkout", url, dir], path.dirname(dir));
+      git(["fetch", "--depth", "1", "origin", ref], dir);
+      git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], dir);
+    } else {
+      git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), url, dir], path.dirname(dir));
+    }
     fs.writeFileSync(marker, ref + "\n");
     return;
   }
