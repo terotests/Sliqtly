@@ -17,7 +17,7 @@
   },
   "rangerpptx": {
     "url": "https://github.com/terotests/RangerPPTX",
-    "ref": "main"
+    "ref": "5193d5570d980c8cb48957dd7d0bd63d1ec55ddf"
   },
   "evgui": {
     "url": "https://github.com/terotests/EVGUI",
