@@ -25,8 +25,8 @@ Import "pkg:evg/EVGDisplayList.rgr"
 class PptxGoDoc {
     def ok:boolean false
     def err:string ""
-    def deck:PptxDeck (new PptxDeck())
-    def conv:PptxToEvg (new PptxToEvg())
+    def deck:PptxDeck (PptxDeck.new_())
+    def conv:PptxToEvg (PptxToEvg.new_())
 
     Constructor () {
     }
@@ -651,7 +651,7 @@ class PptxGo {
         if sh.hasText {
             old = sh.text.paragraphs
         }
-        def body (new PptxTextBody())
+        def body (PptxTextBody.new_())
         if sh.hasText {
             body = sh.text
         }
@@ -659,8 +659,8 @@ class PptxGo {
         def lines:[string] (PptxApi.lines(text))
         def li:int 0
         while (li < (array_length lines)) {
-            def protoPara (new PptxParagraph())
-            def protoRun (new PptxTextRun())
+            def protoPara (PptxParagraph.new_())
+            def protoRun (PptxTextRun.new_())
             if ((array_length old) > 0) {
                 def at:int li
                 if (at >= (array_length old)) {
@@ -671,7 +671,7 @@ class PptxGo {
                     protoRun = (itemAt protoPara.runs 0)
                 }
             }
-            def para (new PptxParagraph())
+            def para (PptxParagraph.new_())
             protoPara.copyFormatTo(para)
             def run:PptxTextRun (PptxTextEdit.emptyLike(protoRun))
             run.text = (itemAt lines li)

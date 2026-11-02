@@ -156,7 +156,7 @@ class PresSmartArt {
     ; The diagram laid out for a box of w × h (layout units are points), its
     ; text measured with `m`.
     sfn layoutFor:SaResult (u:PresSmartArtUse xml:string w:double h:double m:SaMeasure) {
-        def o (new SaOptions())
+        def o (SaOptions.new_())
         o.layout = u.layout
         o.colors = u.colors
         o.style = u.style
@@ -184,7 +184,7 @@ class PresSmartArt {
     sfn measureOf:SaMeasure (md:MarkdownWeb st:MdFigureStyle) {
         def tm@(optional):TTFTextMeasurer md.measurer
         if (null? tm) {
-            return (new SaMeasure())
+            return (SaMeasure.new_())
         }
         return (SaMeasure.over((unwrap tm) (PresSmartArt.familyOf(md st))))
     }

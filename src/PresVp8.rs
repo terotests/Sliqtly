@@ -1895,18 +1895,18 @@ impl Vp8Video {
     pub fn ivf(&mut self) -> Vec<u8> {
         self.close_hold();
         let mut out: Vec<u8> = vec![68, 75, 73, 70, 0, 0, 32, 0, 86, 80, 56, 48];
-        put_le(&mut out, self.encoder.width, 2);
-        put_le(&mut out, self.encoder.height, 2);
-        put_le(&mut out, self.fps, 4);
-        put_le(&mut out, 1, 4);
-        put_le(&mut out, self.numbers.len() as i64, 4);
-        put_le(&mut out, 0, 4);
+        out = put_le(out, self.encoder.width, 2);
+        out = put_le(out, self.encoder.height, 2);
+        out = put_le(out, self.fps, 4);
+        out = put_le(out, 1, 4);
+        out = put_le(out, self.numbers.len() as i64, 4);
+        out = put_le(out, 0, 4);
         for i in 0..self.numbers.len() {
             let a = self.starts[i];
             let b = self.frame_end(i);
-            put_le(&mut out, b - a, 4);
-            put_le(&mut out, self.numbers[i], 4);
-            put_le(&mut out, 0, 4);
+            out = put_le(out, b - a, 4);
+            out = put_le(out, self.numbers[i], 4);
+            out = put_le(out, 0, 4);
             for k in a..b {
                 out.push(self.data[k as usize]);
             }
@@ -1925,38 +1925,38 @@ impl Vp8Video {
         let mut out: Vec<u8> = Vec::new();
         // EBML header: version 1, ids up to 4 bytes, sizes up to 8, "webm" 2
         let mut head: Vec<u8> = Vec::new();
-        el_uint(&mut head, 0x4286, 1);
-        el_uint(&mut head, 0x42F7, 1);
-        el_uint(&mut head, 0x42F2, 4);
-        el_uint(&mut head, 0x42F3, 8);
-        el_bytes(&mut head, 0x4282, &vec![119, 101, 98, 109]);
-        el_uint(&mut head, 0x4287, 2);
-        el_uint(&mut head, 0x4285, 2);
-        el_bytes(&mut out, 0x1A45DFA3, &head);
+        head = el_uint(head, 0x4286, 1);
+        head = el_uint(head, 0x42F7, 1);
+        head = el_uint(head, 0x42F2, 4);
+        head = el_uint(head, 0x42F3, 8);
+        head = el_bytes(head, 0x4282, &vec![119, 101, 98, 109]);
+        head = el_uint(head, 0x4287, 2);
+        head = el_uint(head, 0x4285, 2);
+        out = el_bytes(out, 0x1A45DFA3, &head);
 
         let mut info: Vec<u8> = Vec::new();
-        el_uint(&mut info, 0x2AD7B1, 1000000);
+        info = el_uint(info, 0x2AD7B1, 1000000);
         let name: Vec<u8> = vec![83, 108, 105, 113, 116, 108, 121];
-        el_bytes(&mut info, 0x4D80, &name);
-        el_bytes(&mut info, 0x5741, &name);
-        el_bytes(&mut info, 0x4489, &double_bytes(self.ms(self.total)));
+        info = el_bytes(info, 0x4D80, &name);
+        info = el_bytes(info, 0x5741, &name);
+        info = el_bytes(info, 0x4489, &double_bytes(self.ms(self.total)));
         let mut info_el: Vec<u8> = Vec::new();
-        el_bytes(&mut info_el, 0x1549A966, &info);
+        info_el = el_bytes(info_el, 0x1549A966, &info);
 
         let mut video: Vec<u8> = Vec::new();
-        el_uint(&mut video, 0xB0, self.encoder.width);
-        el_uint(&mut video, 0xBA, self.encoder.height);
+        video = el_uint(video, 0xB0, self.encoder.width);
+        video = el_uint(video, 0xBA, self.encoder.height);
         let mut track: Vec<u8> = Vec::new();
-        el_uint(&mut track, 0xD7, 1);
-        el_uint(&mut track, 0x73C5, 1);
-        el_uint(&mut track, 0x83, 1);
-        el_bytes(&mut track, 0x86, &vec![86, 95, 86, 80, 56]);
-        el_uint(&mut track, 0x9C, 0);
-        el_bytes(&mut track, 0xE0, &video);
+        track = el_uint(track, 0xD7, 1);
+        track = el_uint(track, 0x73C5, 1);
+        track = el_uint(track, 0x83, 1);
+        track = el_bytes(track, 0x86, &vec![86, 95, 86, 80, 56]);
+        track = el_uint(track, 0x9C, 0);
+        track = el_bytes(track, 0xE0, &video);
         let mut tracks: Vec<u8> = Vec::new();
-        el_bytes(&mut tracks, 0xAE, &track);
+        tracks = el_bytes(tracks, 0xAE, &track);
         let mut tracks_el: Vec<u8> = Vec::new();
-        el_bytes(&mut tracks_el, 0x1654AE6B, &tracks);
+        tracks_el = el_bytes(tracks_el, 0x1654AE6B, &tracks);
 
         // clusters, at positions counted from the first of them
         let mut clusters: Vec<u8> = Vec::new();
@@ -1967,7 +1967,7 @@ impl Vp8Video {
         while i < count {
             let t0 = self.ms(self.numbers[i]);
             let mut body: Vec<u8> = Vec::new();
-            el_uint(&mut body, 0xE7, t0);
+            body = el_uint(body, 0xE7, t0);
             let mut j = i;
             while j < count && (j == i || (self.keys[j] == 0 && self.ms(self.numbers[j]) - t0 < 30000)) {
                 let a = self.starts[j];
@@ -1978,14 +1978,14 @@ impl Vp8Video {
                 for k in a..b {
                     block.push(self.data[k as usize]);
                 }
-                el_bytes(&mut body, 0xA3, &block);
+                body = el_bytes(body, 0xA3, &block);
                 j += 1;
             }
             if self.keys[i] == 1 {
                 cue_times.push(t0);
                 cue_pos.push(clusters.len() as i64);
             }
-            el_bytes(&mut clusters, 0x1F43B675, &body);
+            clusters = el_bytes(clusters, 0x1F43B675, &body);
             i = j;
         }
 
@@ -1999,43 +1999,45 @@ impl Vp8Video {
         let mut cues: Vec<u8> = Vec::new();
         for c in 0..cue_times.len() {
             let mut tp: Vec<u8> = Vec::new();
-            el_uint(&mut tp, 0xF7, 1);
-            el_uint(&mut tp, 0xF1, clusters_at + cue_pos[c]);
+            tp = el_uint(tp, 0xF7, 1);
+            tp = el_uint(tp, 0xF1, clusters_at + cue_pos[c]);
             let mut point: Vec<u8> = Vec::new();
-            el_uint(&mut point, 0xB3, cue_times[c]);
-            el_bytes(&mut point, 0xB7, &tp);
-            el_bytes(&mut cues, 0xBB, &point);
+            point = el_uint(point, 0xB3, cue_times[c]);
+            point = el_bytes(point, 0xB7, &tp);
+            cues = el_bytes(cues, 0xBB, &point);
         }
         let mut seek: Vec<u8> = Vec::new();
-        seek_entry(&mut seek, 0x1549A966, info_at);
-        seek_entry(&mut seek, 0x1654AE6B, tracks_at);
-        seek_entry(&mut seek, 0x1C53BB6B, cues_at);
+        seek = seek_entry(seek, 0x1549A966, info_at);
+        seek = seek_entry(seek, 0x1654AE6B, tracks_at);
+        seek = seek_entry(seek, 0x1C53BB6B, cues_at);
         let mut segment: Vec<u8> = Vec::new();
-        el_bytes(&mut segment, 0x114D9B74, &seek);
-        append(&mut segment, &info_el);
-        append(&mut segment, &tracks_el);
-        append(&mut segment, &clusters);
-        el_bytes(&mut segment, 0x1C53BB6B, &cues);
-        el_bytes(&mut out, 0x18538067, &segment);
+        segment = el_bytes(segment, 0x114D9B74, &seek);
+        segment = append(segment, &info_el);
+        segment = append(segment, &tracks_el);
+        segment = append(segment, &clusters);
+        segment = el_bytes(segment, 0x1C53BB6B, &cues);
+        out = el_bytes(out, 0x18538067, &segment);
         out
     }
 }
 
-fn append(out: &mut Vec<u8>, data: &Vec<u8>) {
+fn append(mut out: Vec<u8>, data: &Vec<u8>) -> Vec<u8> {
     for b in data.iter() {
         out.push(*b);
     }
+    out
 }
 
-fn put_le(out: &mut Vec<u8>, v: i64, bytes: i64) {
+fn put_le(mut out: Vec<u8>, v: i64, bytes: i64) -> Vec<u8> {
     let mut x = v;
     for _i in 0..bytes {
         out.push((x % 256) as u8);
         x = x / 256;
     }
+    out
 }
 
-fn put_be(out: &mut Vec<u8>, v: i64, bytes: i64) {
+fn put_be(mut out: Vec<u8>, v: i64, bytes: i64) -> Vec<u8> {
     let mut d: i64 = 1;
     for _i in 1..bytes {
         d = d * 256;
@@ -2044,9 +2046,10 @@ fn put_be(out: &mut Vec<u8>, v: i64, bytes: i64) {
         out.push(((v / d) % 256) as u8);
         d = d / 256;
     }
+    out
 }
 
-fn el_id(out: &mut Vec<u8>, id: i64) {
+fn el_id(mut out: Vec<u8>, id: i64) -> Vec<u8> {
     let n = if id >= 16777216 {
         4
     } else if id >= 65536 {
@@ -2056,52 +2059,57 @@ fn el_id(out: &mut Vec<u8>, id: i64) {
     } else {
         1
     };
-    put_be(out, id, n);
+    out = put_be(out, id, n);
+    out
 }
 
 // An element size as an EBML variable-length integer.
-fn el_size(out: &mut Vec<u8>, size: i64) {
+fn el_size(mut out: Vec<u8>, size: i64) -> Vec<u8> {
     if size < 127 {
         out.push((128 + size) as u8);
     } else if size < 16383 {
-        put_be(out, 16384 + size, 2);
+        out = put_be(out, 16384 + size, 2);
     } else if size < 2097151 {
-        put_be(out, 2097152 + size, 3);
+        out = put_be(out, 2097152 + size, 3);
     } else if size < 268435455 {
-        put_be(out, 268435456 + size, 4);
+        out = put_be(out, 268435456 + size, 4);
     } else {
         out.push(1);
-        put_be(out, size, 7);
+        out = put_be(out, size, 7);
     }
+    out
 }
 
-fn el_bytes(out: &mut Vec<u8>, id: i64, data: &Vec<u8>) {
-    el_id(out, id);
-    el_size(out, data.len() as i64);
-    append(out, data);
+fn el_bytes(mut out: Vec<u8>, id: i64, data: &Vec<u8>) -> Vec<u8> {
+    out = el_id(out, id);
+    out = el_size(out, data.len() as i64);
+    out = append(out, data);
+    out
 }
 
-fn el_uint(out: &mut Vec<u8>, id: i64, v: i64) {
+fn el_uint(mut out: Vec<u8>, id: i64, v: i64) -> Vec<u8> {
     let mut n = 1;
     let mut x = v / 256;
     while x > 0 {
         n += 1;
         x = x / 256;
     }
-    el_id(out, id);
-    el_size(out, n);
-    put_be(out, v, n);
+    out = el_id(out, id);
+    out = el_size(out, n);
+    out = put_be(out, v, n);
+    out
 }
 
-fn seek_entry(out: &mut Vec<u8>, id: i64, pos: i64) {
+fn seek_entry(mut out: Vec<u8>, id: i64, pos: i64) -> Vec<u8> {
     let mut e: Vec<u8> = Vec::new();
     let mut idb: Vec<u8> = Vec::new();
-    el_id(&mut idb, id);
-    el_bytes(&mut e, 0x53AB, &idb);
-    el_id(&mut e, 0x53AC);
-    el_size(&mut e, 8);
-    put_be(&mut e, pos, 8);
-    el_bytes(out, 0x4DBB, &e);
+    idb = el_id(idb, id);
+    e = el_bytes(e, 0x53AB, &idb);
+    e = el_id(e, 0x53AC);
+    e = el_size(e, 8);
+    e = put_be(e, pos, 8);
+    out = el_bytes(out, 0x4DBB, &e);
+    out
 }
 
 // A whole number as the 8 bytes of an IEEE 754 double, big-endian.
@@ -2126,8 +2134,8 @@ fn double_bytes(v: i64) -> Vec<u8> {
     }
     let hi = (1023 + e) * 1048576 + m / 4294967296;
     let lo = m % 4294967296;
-    put_be(&mut out, hi, 4);
-    put_be(&mut out, lo, 4);
+    out = put_be(out, hi, 4);
+    out = put_be(out, lo, 4);
     out
 }
 
