@@ -914,7 +914,7 @@ class PresExport {
         }
         def dl (new EVGDisplayList())
         sc.emitInto(dl)
-        def conv (PptxFromEvg.new_())
+        def conv (new PptxFromEvg())
         conv.unit = unit
         def group:PptxShape (conv.build(dl 0.0 0.0))
         if ((array_length group.children) == 0) {
@@ -953,7 +953,7 @@ class PresExport {
             if (at >= 0) {
                 def dl (new EVGDisplayList())
                 u.diagram.paintStill(dl u.bx u.by u.bw u.bh l.style.textColor paper l)
-                def conv (PptxFromEvg.new_())
+                def conv (new PptxFromEvg())
                 conv.unit = unit
                 ; The stage reads small labels by zooming in; a still cannot,
                 ; so a small label is kept rather than left an empty pill.
@@ -1054,7 +1054,7 @@ class PresExport {
             }
             if (at >= 0) {
                 def dl:EVGDisplayList (deck.chartStill(bi))
-                def conv (PptxFromEvg.new_())
+                def conv (new PptxFromEvg())
                 conv.unit = unit
                 conv.minFontPt = 1.0
                 def group:PptxShape (conv.build(dl 0.0 0.0))
@@ -1084,7 +1084,7 @@ class PresExport {
         def g:[int]
         def dl:EVGDisplayList (deck.slideList(i g s.duration))
         deck.still = was
-        def conv (PptxFromEvg.new_())
+        def conv (new PptxFromEvg())
         conv.unit = unit
         conv.minFontPt = 1.0
         ; the deck's own store: a picture added after the layout (a 3-D
@@ -1203,7 +1203,7 @@ class PresExport {
                 if (sh.editId <= 0) {
                     sh.editId = editId
                 }
-                def b (PptxBuildStep.new_())
+                def b (new PptxBuildStep())
                 b.editId = sh.editId
                 b.kind = "fade"
                 if (gr.anim == "fly") {
