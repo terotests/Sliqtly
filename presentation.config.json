@@ -1,7 +1,7 @@
 {
   "ranger": {
     "url": "https://github.com/terotests/Ranger",
-    "ref": "claude/laughing-lamport-77aaec-nifty"
+    "ref": "27e0a803484db9315bed274424b68cfd0f4ba3fa"
   },
   "rangergit": {
     "url": "https://github.com/terotests/Ranger",
@@ -13,7 +13,7 @@
   },
   "rangermarkdown": {
     "url": "https://github.com/terotests/RangerMarkdown",
-    "ref": "main"
+    "ref": "9a59855c7ca5fb555cae23dcf2fdaac64cbfe400"
   },
   "rangerpptx": {
     "url": "https://github.com/terotests/RangerPPTX",
