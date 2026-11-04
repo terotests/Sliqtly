@@ -68,6 +68,8 @@ func newGithubApp(id, clientID, clientSecret, slug, keyPEM string) (*githubApp, 
 	if id == "" || clientID == "" || clientSecret == "" || slug == "" || keyPEM == "" {
 		return nil, errors.New("the GitHub App needs its id, client id, client secret, slug and private key")
 	}
+	// a .pem pasted on one line keeps its line breaks as \n
+	keyPEM = strings.ReplaceAll(strings.TrimSpace(keyPEM), `\n`, "\n")
 	blk, _ := pem.Decode([]byte(keyPEM))
 	if blk == nil {
 		// one line in an environment variable: the .pem file base64-encoded
@@ -76,7 +78,7 @@ func newGithubApp(id, clientID, clientSecret, slug, keyPEM string) (*githubApp, 
 		}
 	}
 	if blk == nil {
-		return nil, errors.New("the GitHub App's private key is not PEM")
+		return nil, errors.New("the GitHub App's private key is not PEM: SLIQTLY_GITHUB_APP_KEY is the App's .pem file whole, or base64-encoded on one line (base64 -i app.pem | tr -d '\\n')")
 	}
 	var key *rsa.PrivateKey
 	if k, err := x509.ParsePKCS1PrivateKey(blk.Bytes); err == nil {

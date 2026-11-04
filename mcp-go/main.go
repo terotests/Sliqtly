@@ -301,6 +301,7 @@ func main() {
 				// the accounts' own GitHub repositories (cloudgit.go)
 				if c, err := cloudGitFromEnv(e); err != nil {
 					log.Printf("GitHub App: %v", err)
+					e.CloudGitErr = err.Error()
 				} else if c != nil {
 					e.CloudGit = c
 					kind += ", GitHub " + c.app.Slug

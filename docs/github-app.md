@@ -120,7 +120,7 @@ Secrets:
 | Secret | Value |
 |---|---|
 | `SLIQTLY_GITHUB_APP_CLIENT_SECRET` | the client secret |
-| `SLIQTLY_GITHUB_APP_KEY` | the private key: `base64 -w0 app.private-key.pem` |
+| `SLIQTLY_GITHUB_APP_KEY` | the private key on one line: `base64 -w0 app.private-key.pem` (Linux) or `base64 -i app.private-key.pem \| tr -d '\n'` (macOS); the whole .pem works too |
 | `SLIQTLY_GITHUB_HOOK_SECRET` | the webhook secret |
 | `SLIQTLY_GIT_SWEEP_KEY` | optional, a random string for the sweep below |
 

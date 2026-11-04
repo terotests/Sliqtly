@@ -332,7 +332,8 @@ func TestWardenGetAndPay(t *testing.T) {
 	eq(t, listed, []any{"Talvikengät", "Mummon synttärit"}, "the party for its window, and the need (a record, listed always)")
 
 	// family or own budget per entry; a person's budget is their own and the family's
-	wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "stock", "title": "Yhteinen varasto", "fields": map[string]any{"actual_cost": 40, "payer": "Mia"}, "date": ""})
+	// (the stock dated: undated it is today's, and in November it was counted)
+	wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "stock", "title": "Yhteinen varasto", "fields": map[string]any{"actual_cost": 40, "payer": "Mia"}, "date": "2026-10-01"})
 	wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "title": "Sähkösopimus", "date": "2026-11-05",
 		"cost": map[string]any{"amount": 600, "payer": "Tero", "scope": "personal", "instalments": 12}})
 	wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "title": "Patja", "date": "2026-11-08",
