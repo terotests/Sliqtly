@@ -205,6 +205,8 @@ type Env struct {
 	// CloudGit: the accounts' GitHub repositories on sliqtly.com
 	// (cloudgit.go); nil without a GitHub App
 	CloudGit *cloudGit
+	// CloudGitErr: why the GitHub App the environment names did not start
+	CloudGitErr string
 	// githubMint: a Firebase custom token for an account signing in with
 	// GitHub (firebase.go); nil elsewhere
 	githubMint func(ctx context.Context, uid string, u ghUser) (string, error)

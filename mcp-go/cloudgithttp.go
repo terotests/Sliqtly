@@ -124,7 +124,7 @@ func serveGitHub(env *Env, w http.ResponseWriter, r *http.Request) bool {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Robots-Tag", "noindex")
 	if c == nil || g == nil {
-		http.Error(w, "GitHub is not set up on this server.", http.StatusNotFound)
+		http.Error(w, notSetUp(env), http.StatusNotFound)
 		return true
 	}
 	if p == topicPagePath {
@@ -589,10 +589,19 @@ func (c *cloudGit) serveSweep(w http.ResponseWriter, r *http.Request) {
 
 // --- the editor's calls
 
+// notSetUp: GitHub is off here, and why when the App the environment names
+// did not start (its private key, say), so the owner sees what to fix
+func notSetUp(env *Env) string {
+	if env.CloudGitErr != "" {
+		return "GitHub is not set up on this server: " + env.CloudGitErr
+	}
+	return "GitHub is not set up on this server."
+}
+
 func serveGitAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op string) {
 	c := env.CloudGit
 	if c == nil {
-		editorJSON(w, 404, map[string]any{"error": "GitHub is not set up on this server.", "enabled": false})
+		editorJSON(w, 404, map[string]any{"error": notSetUp(env), "enabled": false})
 		return
 	}
 	t := g.user(r)

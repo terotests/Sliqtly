@@ -588,6 +588,14 @@ func TestGitHubAppJWT(t *testing.T) {
 	if _, err := newGithubApp("123", "Iv1.client", "secret", "sliqtly-test", base64.StdEncoding.EncodeToString([]byte(g.key))); err != nil {
 		t.Fatalf("a base64 key: %v", err)
 	}
+	// the .pem on one line, its line breaks written \n
+	if _, err := newGithubApp("123", "Iv1.client", "secret", "sliqtly-test", strings.ReplaceAll(g.key, "\n", `\n`)); err != nil {
+		t.Fatalf("a key with \\n: %v", err)
+	}
+	// anything else says what the key should be
+	if _, err := newGithubApp("123", "Iv1.client", "secret", "sliqtly-test", "SHA256:abc"); err == nil || !strings.Contains(err.Error(), "base64") {
+		t.Fatalf("a fingerprint for a key: %v", err)
+	}
 }
 
 func TestGitStateSigned(t *testing.T) {
