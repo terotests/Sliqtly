@@ -716,12 +716,41 @@ class Tools {
         return keys
     }
 
+    ; The most decks a signed-in caller may keep, -1 for no limit: the
+    ; account's license (licenses/{uid}, editor.go) lifts the default, an
+    ; admin's (plan "admin", written only for SLIQTLY_ADMIN_EMAILS) or one
+    ; with maxDocs -1 has none. A smaller maxDocs (a Trial's 2 editor
+    ; presentations) leaves the default. A storage error is left on the
+    ; host.
+    sfn userDecks:int (host:McpHost caller:Caller) {
+        def most:int (Limits.USER_DECKS())
+        def lic:MfJ (J.parse((host_get_doc host "licenses" caller.uid)))
+        if ((lic.isObj()) == false) {
+            return most
+        }
+        if ((lic.str_("plan")) == "admin") {
+            return -1
+        }
+        def lmax:double (lic.num_("maxDocs" 0.0))
+        if (lmax < 0.0) {
+            return -1
+        }
+        if (lmax > (to_double most)) {
+            return (to_int lmax)
+        }
+        return most
+    }
+
     ; why this caller may not make another deck, or "" (a storage error is
     ; left on the host)
     sfn decksFull:string (host:McpHost caller:Caller) {
         if caller.signedIn {
+            def most:int (Tools.userDecks(host caller))
+            if ((most < 0) || ((strlen (host_error host)) > 0)) {
+                return ""
+            }
             def mine:MfJ (J.parse((host_query_eq host "shares" "owner" caller.uid)))
-            if ((mine.count()) >= (Limits.USER_DECKS())) {
+            if ((mine.count()) >= most) {
                 return ("Not created: this Sliqtly account already keeps " + (to_string (mine.count())) + " presentations, the most it may. Ask the user which ones they no longer need and delete those with delete_presentation, or change one of them with update_presentation.")
             }
             return ""
@@ -766,12 +795,18 @@ class Tools {
         def most:int (Limits.ANON_DECKS())
         def who:string "This conversation (without sign-in)"
         if caller.signedIn {
+            most = (Tools.userDecks(host caller))
+            if ((strlen (host_error host)) > 0) {
+                return ""
+            }
+            if (most < 0) {
+                return "This Sliqtly account has no limit on presentations."
+            }
             def mine:MfJ (J.parse((host_query_eq host "shares" "owner" caller.uid)))
             if ((strlen (host_error host)) > 0) {
                 return ""
             }
             have = (mine.count())
-            most = (Limits.USER_DECKS())
             who = "This Sliqtly account"
         } {
             have = (Store.sessionCount(host (Tools.anonKey(caller))))
