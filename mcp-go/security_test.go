@@ -385,6 +385,16 @@ func TestLimitsPerCaller(t *testing.T) {
 	}
 	match(t, textOf(call(t, me, "create_presentation", map[string]any{"title": "M", "markdown": "# M"})), `already keeps 20[0-9] presentations, the most it may`)
 	match(t, textOf(call(t, me, "sliqtly_guide", map[string]any{})), `This Sliqtly account already keeps 20[0-9] presentations, the most it may: create_presentation will refuse a new one`)
+	// a license above the default raises it; -1 (an admin's) has no limit
+	f.db.Set(context.Background(), "licenses", "u1", Doc{"plan": "pro", "maxDocs": int64(500)})
+	match(t, textOf(call(t, me, "sliqtly_guide", map[string]any{})), `keeps 20[0-9] of at most 500 presentations`)
+	f.db.Set(context.Background(), "licenses", "u1", Doc{"plan": "trial", "maxDocs": int64(2)})
+	match(t, textOf(call(t, me, "sliqtly_guide", map[string]any{})), `already keeps 20[0-9] presentations, the most it may`)
+	f.db.Set(context.Background(), "licenses", "u1", Doc{"plan": "admin", "maxDocs": int64(-1)})
+	match(t, textOf(call(t, me, "sliqtly_guide", map[string]any{})), `keeps 20[0-9] presentations; its license has no limit`)
+	if c := call(t, me, "create_presentation", map[string]any{"title": "M", "markdown": "# M"}); c.IsError {
+		t.Fatal("no-limit license refused: " + textOf(c))
+	}
 }
 
 // At most two drawings at once per caller; a daily count per caller and per
