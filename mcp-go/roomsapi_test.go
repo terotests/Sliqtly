@@ -269,6 +269,16 @@ func TestRoomFolders(t *testing.T) {
 	arch := ok("create_room", map[string]any{"title": "Done"})["room_id"].(string)
 	ok("archive_room", map[string]any{"room_id": arch})
 	bad("create_folder", map[string]any{"room_id": arch, "name": "X"}, `role does not allow`)
+
+	// made straight into a room's folder in one call
+	plans := ok("create_room", map[string]any{"title": "Plans"})["room_id"].(string)
+	pf := ok("create_folder", map[string]any{"room_id": plans, "name": "Architecture"})["folder_id"].(string)
+	got := ok("create_presentation", map[string]any{"title": "Plan", "markdown": DECK, "room_id": plans, "folder_id": pf})
+	eq(t, []any{got["room_id"], got["folder_id"]}, []any{plans, pf})
+	ps := list(ok("get_room", map[string]any{"room_id": plans})["presentations"])
+	eq(t, len(ps), 1)
+	eq(t, []any{mapOf(ps[0])["deck_id"], mapOf(ps[0])["folder_id"]}, []any{got["deck_id"], pf})
+	bad("create_presentation", map[string]any{"title": "X", "markdown": DECK, "room_id": plans, "folder_id": "f-nope"}, `no folder f-nope in room`)
 }
 
 // a presentation's story: a new one is a draft, one from before stories

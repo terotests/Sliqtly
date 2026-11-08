@@ -147,8 +147,8 @@ operators {
     }
     ; the assistant made deck id for uid into room ("" General): where the
     ; server keeps an account's topics apart from its decks (sliqtly.com),
-    ; it goes there, as a draft
-    host_deck_made _:void (h:McpHost uid:string id:string room:string) {
+    ; it goes there, as a draft; → why it did not, "" when it did
+    host_deck_made _:string (h:McpHost uid:string id:string room:string) {
         templates {
             go ( (e 1) ".DeckMade(" (e 2) ", " (e 3) ", " (e 4) ")" )
         }

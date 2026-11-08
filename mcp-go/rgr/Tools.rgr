@@ -255,7 +255,8 @@ class Tools {
         cp.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
         Tools.deckFields(host cp)
         if (host_has_tool host "list_rooms") {
-            cp.put("room_id" (Tools.prop("string" "The room (project) the presentation goes to, room_id from list_rooms or create_room; left out, it goes to General. Look for the room it belongs to first (list_rooms with query, e.g. the ticket code in its name) and suggest it to the user, or ask whether to make a new one. To file it in one of the room's folders, move_presentation with folder_id after it is made; folders are optional (topic rooms).")))
+            cp.put("room_id" (Tools.prop("string" "The room (the user's topic or project) the presentation goes to, room_id from list_rooms or create_room; left out, it goes to General. Look for the room it belongs to first (list_rooms with query, e.g. the ticket code or a word of the topic's name) and suggest it to the user, or ask whether to make a new one.")))
+            cp.put("folder_id" (Tools.prop("string" "A folder of room_id (get_room lists them, create_folder makes one) to file the presentation in; left out, it is at the room's top. Folders are optional (topic=rooms).")))
         }
         tools.add((Tools.tool("create_presentation" "Create a presentation" (Tools.withNameRule(host "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS, pictures and data files (.xlsx, .csv, .json) its charts and tables read. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor.")) (Tools.schema(cp ([] _:string ("title" "markdown")))) (Tools.annotations(false 0 false true)) (Tools.uiMeta(host)))))
 
@@ -764,8 +765,11 @@ class Tools {
     ; The room a new deck goes to: "" for the server's own choice (General),
     ; else the room's id; "!" and why when it cannot go there, said before
     ; anything is written.
-    sfn roomFor:string (host:McpHost caller:Caller id:string) {
+    sfn roomFor:string (host:McpHost caller:Caller id:string folder:string) {
         if ((strlen id) == 0) {
+            if ((strlen folder) > 0) {
+                return "!Not created: folder_id needs the room_id of the room it is in."
+            }
             return ""
         }
         if ((host_has_tool host "get_room") == false) {
@@ -784,7 +788,60 @@ class Tools {
         if ((role != "editor") && (role != "owner")) {
             return ("!Not created: room " + id + " is read only (archived, or your role is " + role + "). Choose another room, or leave room_id out.")
         }
+        if ((strlen folder) > 0) {
+            def found:boolean false
+            def fs:MfJ ((J.parse(answer)).field("folders"))
+            if (fs.isArr()) {
+                for fs.arr f:MfJ fi {
+                    if ((f.str_("folder_id")) == folder) {
+                        found = true
+                    }
+                }
+            }
+            if (found == false) {
+                return ("!Not created: no folder " + folder + " in room " + id + ". get_room lists its folders, create_folder makes one; or leave folder_id out.")
+            }
+        }
         return id
+    }
+
+    ; where create_presentation put deck id: into room (and folder) where the
+    ; server keeps topics apart from decks; what kept it from there is said
+    ; to the assistant (warnings), never left for the user to find (Tero
+    ; 2026-11-08: decks landed in General with no word of it)
+    sfn place:void (host:McpHost caller:Caller out:MfJ ws:[string] id:string room:string folder:string) {
+        def at:string room
+        def why:string (host_deck_made host caller.uid id room)
+        if ((strlen why) > 0) {
+            push ws ("Saved in General, not in room " + room + " (" + why + "): move it there with move_presentation deck_id " + id + " room_id " + room + ".")
+            at = ""
+        }
+        def inFolder:string ""
+        if (((strlen at) > 0) && ((strlen folder) > 0)) {
+            def args:MfJ (MfJ.newObj())
+            args.putStr("deck_id" id)
+            args.putStr("room_id" at)
+            args.putStr("folder_id" folder)
+            def moved:string (host_call_tool host caller.uid caller.who "move_presentation" (JOut.text(args)))
+            def herr:string (host_error host)
+            if ((strlen herr) > 0) {
+                host_clear_error host
+                push ws ("Saved at the top of room " + at + ", not in folder " + folder + " (" + herr + "): file it with move_presentation and folder_id.")
+            } {
+                inFolder = folder
+            }
+        }
+        if ((strlen at) > 0) {
+            out.putStr("room_id" at)
+            out.putStr("folder_id" inFolder)
+            return
+        }
+        if (caller.signedIn && (host_has_tool host "list_rooms")) {
+            out.putStr("room_id" "general")
+            if ((strlen room) == 0) {
+                out.putStr("room_note" "Saved in General, as no room_id was given. If it belongs to one of the user's topics, move it there now with move_presentation (list_rooms with query finds the topic, get_room its folders); next time give create_presentation room_id and folder_id.")
+            }
+        }
     }
 
     ; how many more decks this caller may make, said before an assistant
@@ -1934,7 +1991,8 @@ class Tools {
                 return (Tools.fail(full))
             }
         }
-        def room:string (Tools.roomFor(host caller (trim (a.str_("room_id")))))
+        def folder:string (trim (a.str_("folder_id")))
+        def room:string (Tools.roomFor(host caller (trim (a.str_("room_id"))) folder))
         if ((indexOf room "!") == 0) {
             return (Tools.fail((substring room 1 (strlen room))))
         }
@@ -2067,8 +2125,8 @@ class Tools {
         }
         Tools.links(host out base made.id)
         out.putStr("deck_id" made.id)
-        ; into its room (topic) where the server keeps those apart from decks
-        host_deck_made host caller.uid made.id room
+        Tools.place(host caller out ws made.id room folder)
+        out.put("warnings" (J.strs(ws)))
         if (owner == "mcp") {
             ; changed later only by this conversation: the session_key it
             ; carries (a new one when it carries none), and this connection
