@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -106,6 +107,74 @@ func TestLayoutTools(t *testing.T) {
 		}
 	}
 	eq(t, removed, true, "filed fact removed")
+}
+
+// create_presentation files the new deck in a topic and its folder in one
+// call, says where it went, and says it when it could not (Tero
+// 2026-11-08: assistants left decks in General with no word of it)
+func TestLayoutCreateInFolder(t *testing.T) {
+	f := fakeFirebase()
+	env := withSignIn(testEnv(&f, nil))
+	env.layouts = newLayoutService(env.DB)
+	s := start(t, env, signIn(f))
+	defer s.close()
+	ctx := context.Background()
+	md := "# Deck\n\n## One\n\nText"
+
+	lt, err := s.session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range lt.Tools {
+		if tl.Name == "create_presentation" {
+			props := mapOf(mapOf(tl.InputSchema)["properties"])
+			eq(t, props["room_id"] != nil && props["folder_id"] != nil, true, "room_id and folder_id offered")
+		}
+	}
+
+	b, _ := json.Marshal(layoutRoom{ID: "r-mf", Title: "M-Files", Created: 5})
+	if _, err := env.layouts.sync(ctx, "u1", 0, []any{map[string]any{"k": "room/r-mf", "v": string(b)}}, true); err != nil {
+		t.Fatal(err)
+	}
+	fid := sc(call(t, s, "create_folder", map[string]any{"room_id": "r-mf", "name": "Arkkitehtuuri"}))["folder_id"].(string)
+
+	r := call(t, s, "create_presentation", map[string]any{"title": "Plan", "markdown": md, "room_id": "r-mf", "folder_id": fid})
+	if r.IsError {
+		t.Fatal(textOf(r))
+	}
+	got := sc(r)
+	id := got["deck_id"].(string)
+	eq(t, []any{got["room_id"], got["folder_id"], got["room_note"]}, []any{"r-mf", fid, nil}, "where it went")
+	g := sc(call(t, s, "get_room", map[string]any{"room_id": "r-mf"}))
+	ps := g["presentations"].([]any)
+	eq(t, len(ps), 1)
+	eq(t, []any{ps[0].(map[string]any)["deck_id"], ps[0].(map[string]any)["folder_id"], ps[0].(map[string]any)["phase"]}, []any{id, fid, "draft"}, "in the folder, a draft")
+
+	// a folder the topic does not have: nothing is written
+	before := len(sc(call(t, s, "list_presentations", map[string]any{}))["presentations"].([]any))
+	r = call(t, s, "create_presentation", map[string]any{"title": "X", "markdown": md, "room_id": "r-mf", "folder_id": "f-none"})
+	eq(t, r.IsError, true, "unknown folder")
+	match(t, textOf(r), `no folder f-none in room r-mf`)
+	r = call(t, s, "create_presentation", map[string]any{"title": "X", "markdown": md, "folder_id": fid})
+	eq(t, r.IsError, true, "folder without its room")
+	after := len(sc(call(t, s, "list_presentations", map[string]any{}))["presentations"].([]any))
+	eq(t, after, before, "none made")
+
+	// no room given: General, and the assistant is told how to file it
+	r = call(t, s, "create_presentation", map[string]any{"title": "Loose", "markdown": md})
+	got = sc(r)
+	eq(t, got["room_id"], "general")
+	match(t, got["room_note"].(string), `move_presentation`)
+
+	// the topic gone between the check and the write: the deck is in
+	// General and the warning says so
+	if msg := env.layouts.made(ctx, "u1", "abcdefghij", "r-gone"); msg == nil || !strings.Contains(msg.Error(), "no room r-gone") {
+		t.Fatalf("made into a missing room: %v", msg)
+	}
+	l, _ := env.layouts.ls.read(ctx, "u1")
+	v := viewOf(l)
+	eq(t, v.roomOf(pageDeck("abcdefghij")), "general", "left in General")
+	eq(t, v.storyOf(pageDeck("abcdefghij")).Phase, "draft", "still a draft")
 }
 
 // the page's sync: a first one fills in only what the server lacks; later

@@ -461,9 +461,17 @@ func (s *layoutService) places(ctx context.Context, uid string) (map[string]any,
 // made: a presentation the assistant just made for uid goes into room
 // ("" General) as a draft, as one made in the editor does
 func (s *layoutService) made(ctx context.Context, uid, deck, room string) error {
+	var bad error
 	_, err := s.ls.change(ctx, uid, func(l *layoutDoc, now int64) error {
 		v := viewOf(*l)
-		if room != "" && room != store.GeneralRoom && v.hasRoom(room) {
+		bad = nil
+		switch {
+		case room == "" || room == store.GeneralRoom:
+		case !v.hasRoom(room):
+			bad = roomErr{"no room " + room + " of yours"}
+		case !v.role(room).AtLeast(store.Editor):
+			bad = roomErr{"your role does not allow that"}
+		default:
 			l.set("deck/"+pageDeck(deck), room, now)
 		}
 		st := store.StoryOf(nil)
@@ -472,7 +480,10 @@ func (s *layoutService) made(ctx context.Context, uid, deck, room string) error 
 		l.set("story/"+pageDeck(deck), string(b), now)
 		return nil
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return bad
 }
 
 // call runs op for uid, an assistant's tool
@@ -937,14 +948,21 @@ func (h *McpHost) Places(uid string) string {
 
 // DeckMade: the assistant made deck for uid into room ("" General). On
 // sliqtly.com it goes there in the account's layout, as a draft; a server
-// of one's own wrote both on the deck itself.
-func (h *McpHost) DeckMade(uid, deck, room string) {
+// of one's own wrote both on the deck itself. → why it is not in room, ""
+// when it is (create_presentation tells the assistant)
+func (h *McpHost) DeckMade(uid, deck, room string) string {
 	if h.env.rooms != nil || h.env.layouts == nil || uid == "" {
-		return
+		return ""
 	}
 	if err := h.env.layouts.made(h.ctx, uid, deck, room); err != nil {
 		log.Printf("deck made %s: %v", deck, err)
+		var re roomErr
+		if errors.As(err, &re) {
+			return re.msg
+		}
+		return "the topic could not be saved just now"
 	}
+	return ""
 }
 
 // places on a server of one's own: from the decks' own room, folder and

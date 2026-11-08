@@ -76,12 +76,14 @@ A warning that ends with `→ topic=x` names the topic that explains it.
 <!-- rooms -->
 
 On this server presentations are kept in rooms: read `topic=rooms` before
-the first `create_presentation`.
+the first `create_presentation`, and give it the room's `room_id` (and a
+`folder_id`) so the presentation lands there.
 <!-- /rooms -->
 <!-- myrooms -->
 
 The user keeps their presentations in topics (rooms) and folders of their
-own: read `topic=rooms` before the first `create_presentation`.
+own: read `topic=rooms` before the first `create_presentation`, and give it
+the topic's `room_id` (and a `folder_id`) so the presentation lands there.
 <!-- /myrooms -->
 
 ## Themes
@@ -2105,7 +2107,7 @@ piece of work: a task, a Jira ticket, a user story, or another whole such
 as a project. The editor calls rooms topics (or projects or rooms, a
 setting) and a room's presentations its stories; the tools say room and
 presentation. Every presentation has one home room; one made without `room_id`
-lands in General, and the user then has to move it by hand.
+lands in General until `move_presentation` moves it.
 
 - Before `create_presentation`, find the room it belongs to: `list_rooms`
   with `query` (a ticket code such as "N11-1234" in the title, or words of
@@ -2115,7 +2117,9 @@ lands in General, and the user then has to move it by hand.
   and ask the user; if none fits, ask what to call a new one and make it
   with `create_room`, named as the work is known ("PROJ-123 Checkout
   retry") and with the ticket's summary or link as its `description`. Then
-  give `room_id` to `create_presentation`.
+  give `room_id` (and `folder_id`) to `create_presentation`; its answer
+  says where the presentation went (`room_id`, `folder_id`), and a warning
+  says why when it is not where asked: move it with `move_presentation`.
 - `list_rooms` gives at most 1000 rooms a page; `next_offset` is where the
   next page starts (`offset`). `move_presentation` moves a deck later.
 - `search_presentations` finds presentations by the words in their
@@ -2133,8 +2137,8 @@ lands in General, and the user then has to move it by hand.
   go to the room's top, none is deleted).
 - Folders are optional; a room with a few presentations needs none. When
   you make a presentation in a room, look at its folders (`get_room`): if
-  one fits the new presentation, file it there (`move_presentation` with
-  `folder_id` after `create_presentation`). Make a new folder only when it
+  one fits the new presentation, file it there: give `create_presentation`
+  its `folder_id` with the `room_id`. Make a new folder only when it
   clearly helps, e.g. the work will make many presentations of one kind;
   otherwise leave it at the room's top. When it is unclear whether a
   folder is wanted, ask the user.
@@ -2188,8 +2192,14 @@ none.
   with `query` (words of the room's name or description, e.g. a ticket
   code) or `order: "active"` for the rooms worked in lately. Suggest the
   one that fits and ask the user; if none fits, ask what to call a new one
-  and make it with `create_room`. Then give `room_id` to
-  `create_presentation`.
+  and make it with `create_room`. Then give `room_id` (and `folder_id`)
+  to `create_presentation`.
+- `create_presentation`'s answer says where the presentation went
+  (`room_id`, `folder_id`). Made without `room_id` it is in General and
+  `room_note` says so: when it belongs to a topic, move it there with
+  `move_presentation` and tell the user. A warning that it is not in the
+  room or folder asked for says why; move it with `move_presentation`.
+  Never tell the user to move it by hand while these tools are offered.
 - `get_room` lists a room's folders and presentations; `update_room`
   renames or describes one of the user's own rooms.
 - `move_presentation` moves a presentation to a room, at its top or into a
@@ -2197,8 +2207,8 @@ none.
   (its presentations go to the room's top, none is deleted).
 - Folders are optional; a room with a few presentations needs none. When
   you make a presentation in a room, look at its folders (`get_room`): if
-  one fits the new presentation, file it there (`move_presentation` with
-  `folder_id` after `create_presentation`). Make a new folder only when it
+  one fits the new presentation, file it there: give `create_presentation`
+  its `folder_id` with the `room_id`. Make a new folder only when it
   clearly helps, e.g. the work will make many presentations of one kind;
   otherwise leave it at the room's top. When it is unclear whether a
   folder is wanted, ask the user.
