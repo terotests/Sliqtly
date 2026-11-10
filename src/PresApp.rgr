@@ -9251,6 +9251,22 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; Settings → Sliqtly work hours, on a server of one's own (avail: the
+    ; server offers it): on, Export ends with Sliqtly work hours…
+    fn setWorkHours:void (avail:boolean on:boolean) {
+        panels.workHoursAvail = avail
+        panels.workHours = on
+        def show:boolean (avail && on)
+        if (show == toolbar.workHours) {
+            return
+        }
+        toolbar.workHours = show
+        if ((strlen toolbar.css) > 0) {
+            toolbar.rebuild()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
     fn setToolbarCss:void (css:string) {
         toolbar.css = css
         toolbar.rebuild()

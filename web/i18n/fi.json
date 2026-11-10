@@ -2008,5 +2008,21 @@
   "Your changes that were not saved yet are back in the presentation.": "Tallentamatta jääneet muutoksesi on palautettu esitykseen.",
   "branch": "haara",
   "branches": "haaraa",
-  "GitHub…": "GitHub…"
+  "GitHub…": "GitHub…",
+  "Sliqtly work hours": "Sliqtly-työtunnit",
+  "Export ▸ Sliqtly work hours… estimates the hours worked each day of a month from when this server's presentations were saved, and lists the topics worked on. Needs Git on in the server's settings.": "Vie ▸ Sliqtly-työtunnit… arvioi kuukauden jokaisen päivän työtunnit sen perusteella, milloin tämän palvelimen esityksiä tallennettiin, ja listaa aiheet, joita muokattiin. Vaatii, että Git on päällä palvelimen asetuksissa.",
+  "Sliqtly work hours…": "Sliqtly-työtunnit…",
+  "Export ▸ Sliqtly work hours… is on.": "Vie ▸ Sliqtly-työtunnit… on päällä.",
+  "Sliqtly work hours is off.": "Sliqtly-työtunnit on pois päältä.",
+  "The work hours could not be read: ": "Työtunteja ei voitu lukea: ",
+  "No topic": "Ei aihetta",
+  "This server keeps no Git versions of its presentations, so there is nothing to count. Turn on Git in the server's settings (/settings), and from then on each pause in editing is kept with its time.": "Tämä palvelin ei pidä esityksistään Git-versioita, joten laskettavaa ei ole. Laita Git päälle palvelimen asetuksista (/settings), niin siitä lähtien jokainen tauko muokkauksessa tallentuu aikaleimoineen.",
+  "{n} days, {s} sittings, {e} saves.": "{n} päivää, {s} työjaksoa, {e} tallennusta.",
+  "Estimated from the server's Git versions: a pause over {gap} min starts a new sitting, and a sitting counts {lead} min before its first save. Every save on this server counts, whoever made it.": "Arvio palvelimen Git-versioista: yli {gap} min tauko aloittaa uuden työjakson, ja jaksoon lasketaan {lead} min ennen sen ensimmäistä tallennusta. Kaikki tämän palvelimen tallennukset lasketaan, teki ne kuka tahansa.",
+  "Git is off on this server: saves after it was turned off are not counted.": "Git on pois päältä tällä palvelimella: sen jälkeisiä tallennuksia ei lasketa.",
+  "Day": "Päivä",
+  "Hours": "Tunnit",
+  "Time": "Aika",
+  "No saves in this month.": "Ei tallennuksia tässä kuussa.",
+  "Download CSV": "Lataa CSV"
 }

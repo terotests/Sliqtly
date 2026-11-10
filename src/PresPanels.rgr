@@ -135,7 +135,13 @@ class PresPanels {
     ; colour), "canDelete" and "acts" ([{"id", "label"}]:
     ; buttons beside its ✕, `pd-a-<n>-<id>`, each asking "<list>:<id>:<row
     ; id>"; "deck" also closes the window). Without "rows" it is loading.
+    ; a list may page through months ("nav": {"label", "prev", "next"}, ‹ ›
+    ; asking "<list>:month:prev|next") and offer a download ("download":
+    ; its label, asking "<list>:download"); "nameLabel" names the first
+    ; column (Export ▸ Sliqtly work hours, web/workhours.js)
     def decksJson:string ""
+    def decksNavPrev:boolean false
+    def decksNavNext:boolean false
     ; which list the window shows: "decks" or "pub", from decksJson
     def decksList:string "decks"
     ; the list's pages (EVGUI's PaginationCtl does the arithmetic)
@@ -823,6 +829,10 @@ class PresPanels {
     ; File → Settings → Presentations open in: View (false) or Edit
     ; (src/PresEditMode.rgr)
     def openInEdit:boolean false
+    ; Settings → Sliqtly work hours: offered only by a server of one's own
+    ; (workHoursAvail), kept by the server, off until turned on
+    def workHoursAvail:boolean false
+    def workHours:boolean false
 
     fn openSettings:void (contrast:boolean) {
         autoContrast = contrast
@@ -2057,7 +2067,9 @@ class PresPanels {
         def h2:string "updated"
         def h2Label:string (PresI18n.t("Modified"))
         def empty:string (PresI18n.t("A presentation is saved here when you edit it."))
+        def nameLabel:string (PresI18n.t("Name"))
         if parsed {
+            nameLabel = (data.stringOr("nameLabel" nameLabel))
             decksList = (data.stringOr("list" "decks"))
             title = (data.stringOr("title" title))
             h1 = (data.stringOr("head1" h1))
@@ -2098,7 +2110,28 @@ class PresPanels {
         d.overlayY = ((h - estH) * 0.5)
         def top:EVGElement (UiKit.div("pd-top"))
         top.addChild((UiKit.words("pn-dtitle" title)))
+        decksNavPrev = false
+        decksNavNext = false
+        if (parsed && (data.has("nav"))) {
+            def nav:VlJson (data.get("nav"))
+            decksNavPrev = (nav.boolOr("prev" false))
+            decksNavNext = (nav.boolOr("next" false))
+            def nv:EVGElement (UiKit.div("pd-pager pd-nav"))
+            def pb:ButtonCtl (this.button("pd-nav-prev" "‹" "ghost" nv))
+            pb.disabled = (decksNavPrev == false)
+            pb.build()
+            UiTree.addClass((unwrap pb.rootEl) "pd-pg")
+            nv.addChild((UiKit.words("pd-time pd-navlabel" (nav.stringOr("label" "")))))
+            def nb:ButtonCtl (this.button("pd-nav-next" "›" "ghost" nv))
+            nb.disabled = (decksNavNext == false)
+            nb.build()
+            UiTree.addClass((unwrap nb.rootEl) "pd-pg")
+            top.addChild(nv)
+        }
         top.addChild((UiKit.div("pn-grow")))
+        if (parsed && ((strlen (data.stringOr("download" ""))) > 0)) {
+            this.button("pd-download" (data.stringOr("download" "")) "secondary" top)
+        }
         if (decksList == "decks") {
             this.button("pd-new" (PresI18n.t("New presentation")) "secondary" top)
         }
@@ -2114,7 +2147,7 @@ class PresPanels {
         def head:EVGElement (UiKit.div("pd-head"))
         def hn:EVGElement (UiKit.div("pd-hrow"))
         hn.width = (EVGUnit.px((rowW - 36.0)))
-        this.decksHead("name" (PresI18n.t("Name")) sort dir "pd-hname" hn)
+        this.decksHead("name" nameLabel sort dir "pd-hname" hn)
         if narrow {
             this.decksHead(h2 h2Label sort dir "pd-hnarrow" hn)
         } {
@@ -2287,6 +2320,18 @@ class PresPanels {
         if (c == "pd-new") {
             push requests "files:new"
             this.closeShare()
+            return
+        }
+        if ((c == "pd-nav-prev") || (c == "pd-nav-next")) {
+            def back:boolean (c == "pd-nav-prev")
+            if ((back && decksNavPrev) || ((back == false) && decksNavNext)) {
+                decksPager.page = 1
+                push requests ((decksList + ":month:") + (? back "prev" "next"))
+            }
+            return
+        }
+        if (c == "pd-download") {
+            push requests (decksList + ":download")
             return
         }
         if ((indexOf c "pd-sort-") == 0) {
@@ -2500,6 +2545,17 @@ class PresPanels {
         this.button("pn-set-flight-on" (PresI18n.t("On")) (? flight3d "primary" "secondary") xr)
         xw.addChild(xr)
         d.addChild(xw)
+        if workHoursAvail {
+            ; a month's work hours from the server's saves: Export ▸ Sliqtly work hours…
+            def whw:EVGElement (UiKit.div("pn-opt"))
+            whw.addChild((UiKit.words("pn-otitle" (PresI18n.t("Sliqtly work hours")))))
+            whw.addChild((UiKit.words("pn-odesc" (PresI18n.t("Export ▸ Sliqtly work hours… estimates the hours worked each day of a month from when this server's presentations were saved, and lists the topics worked on. Needs Git on in the server's settings.")))))
+            def whr:EVGElement (UiKit.div("pn-orow"))
+            this.button("pn-set-wh-off" (PresI18n.t("Off")) (? workHours "secondary" "primary") whr)
+            this.button("pn-set-wh-on" (PresI18n.t("On")) (? workHours "primary" "secondary") whr)
+            whw.addChild(whr)
+            d.addChild(whw)
+        }
         def foot:EVGElement (UiKit.div("pn-dfoot"))
         foot.addChild((UiKit.div("pn-grow")))
         this.button("pn-set-close" (PresI18n.t("Close")) "secondary" foot)
@@ -3327,6 +3383,12 @@ class PresPanels {
             if ((sc == "pn-set-diazoom-on") || (sc == "pn-set-diazoom-off")) {
                 diagramZoom = (sc == "pn-set-diazoom-on")
                 push requests ("setting:diazoom:" + (? diagramZoom "on" "off"))
+                this.rebuild()
+                return
+            }
+            if ((sc == "pn-set-wh-on") || (sc == "pn-set-wh-off")) {
+                workHours = (sc == "pn-set-wh-on")
+                push requests ("setting:workhours:" + (? workHours "on" "off"))
                 this.rebuild()
                 return
             }

@@ -98,6 +98,9 @@ class PresToolbar {
     ; a server of one's own that hands out the same two links itself, at
     ; its own address (/r/{link}/{hash}): Export offers them as links there
     def ownLinks:boolean false
+    ; a server of one's own with Settings → Sliqtly work hours on: Export
+    ; ends with "Sliqtly work hours…" (web/workhours.js)
+    def workHours:boolean false
     ; the strip menu's slide: its phase (`{phase=review}`), and whether it
     ; has a heading to keep one in
     def ctxSlidePhase:string ""
@@ -490,6 +493,10 @@ class PresToolbar {
         if ((indexOf id "cp-") == 0) {
             return ("clip:" + (substring id 3 (strlen id)))
         }
+        ; Export's work hours: the page asks the server for the month
+        if (id == "x-workhours") {
+            return "workhours"
+        }
         if ((indexOf id "x-") == 0) {
             return ("click:" + (substring id 2 (strlen id)))
         }
@@ -659,6 +666,10 @@ class PresToolbar {
         push out ("x-pngAll" + t + (PresI18n.t("Images of all slides (.zip)")))
         push out ("x-video" + t + (PresI18n.t("Video (.mp4, .webm)…")))
         push out ("x-zip" + t + (PresI18n.t("All files (.zip)")))
+        if workHours {
+            push out ""
+            push out ("x-workhours" + t + (PresI18n.t("Sliqtly work hours…")))
+        }
         if (picked > 0) {
             push out ""
             push out ("x-pptxPicked" + t + (this.pickedLabel("PowerPoint (.pptx)")))

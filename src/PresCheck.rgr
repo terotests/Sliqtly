@@ -4480,6 +4480,12 @@ class PresCheck {
         def own:string (join (tb.exportFormats()) "\n")
         def ownRows:boolean (((indexOf own "x-vidweb") >= 0) && ((indexOf own "x-recweb") >= 0))
         this.ok((ownRows && ((indexOf own "Cloud") < 0)) "export: a server's own links, not Cloud rows")
+        ; Settings → Sliqtly work hours on: Export ends with it, asking the page
+        this.ok(((indexOf own "x-workhours") < 0) "export: no work hours until turned on")
+        tb.workHours = true
+        def wh:string (join (tb.exportFormats()) "\n")
+        this.ok(((indexOf wh "x-workhours") > (indexOf wh "x-zip")) "export: work hours after All files")
+        this.ok(((PresToolbar.requestFor("x-workhours")) == "workhours") "export: work hours asks the page")
         ; File → Save (⌘/Ctrl+S) keeps the deck; Download .md hands out its text
         this.ok(((PresToolbar.requestFor("saveNow")) == "save:now") "file: Save asks the page to keep the deck")
         this.ok(((PresToolbar.requestFor("save")) == "click:save") "file: Download .md is the page's download")

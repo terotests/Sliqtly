@@ -210,6 +210,14 @@ async function removeShareFile(id, path) {
   await api("DELETE", "/api/files/shares/" + id + "/" + enc(path));
 }
 
+// Export ▸ Sliqtly work hours (web/workhours.js, mcp-go/workhoursapi.go):
+// whether it is on, turning it on or off, and a month's report
+const workHours = {
+  state: () => api("GET", "/api/settings/workhours"),
+  set: (enabled) => api("PUT", "/api/settings/workhours", { enabled: !!enabled }),
+  report: (month, tz) => api("GET", "/api/workhours?month=" + encodeURIComponent(month) + "&tz=" + encodeURIComponent(tz || "")),
+};
+
 async function pushHead(shareId, expect, head, entries) {
   return api("POST", "/api/shares/" + shareId + "/head", { expect: expect || null, head, entries });
 }
@@ -263,7 +271,7 @@ async function serverVersion() {
 // the same two as this server's own links (/r/{link}/{hash}, viewLink)
 window.sliqtly = {
   local: true, links: true, viewLink, removeFileLinks, listPublished, removeShareFile, auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, setAgents, listMine, readSheet,
-  putObject, getObject, pushHead, readHead, collab, serverVersion,
+  putObject, getObject, pushHead, readHead, collab, serverVersion, workHours,
   sheetsToken: () => null, askSheets: async () => null, sheetName: () => null,
 };
 window.dispatchEvent(new Event("sliqtly:ready"));

@@ -574,3 +574,27 @@ func (r *Repo) TreeAt(tree, dir string) (string, error) {
 	}
 	return at, nil
 }
+
+// List lists the names directly under a tree, a subtree's with Mode
+// ModeTree, without going into them ("" lists nothing).
+func (r *Repo) List(tree string) ([]Entry, error) {
+	if tree == "" {
+		return nil, nil
+	}
+	kind, payload, err := r.Get(tree)
+	if err != nil {
+		return nil, err
+	}
+	if kind != "tree" {
+		return nil, fmt.Errorf("rgit: %s is a %s, not a tree", tree, kind)
+	}
+	var out []Entry
+	for _, it := range GitObjects_static_parseTree(payload) {
+		mode := it.mode
+		if it.isTree() {
+			mode = ModeTree
+		}
+		out = append(out, Entry{Path: it.name, Mode: mode, ID: it.sha})
+	}
+	return out, nil
+}
