@@ -24,6 +24,7 @@ const res = {
         topics: [
           { id: "r1", title: "Launch", minutes: 130, edits: 4, decks: [{ id: "d1", name: "Plan" }, { id: "d2", name: "Roadmap, v2" }] },
           { id: "r2", title: "Sales", minutes: 80, edits: 1, decks: [] },
+          { id: "r3", title: "Made", minutes: 0, edits: 1, decks: [] },
         ],
       },
     ],

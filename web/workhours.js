@@ -62,6 +62,10 @@ export function topicText(tp, t) {
   return `${tp.title || t("No topic")} ${hoursText(tp.minutes)}` + (decks.length ? ` (${decks.join(", ")})` : "");
 }
 
+// a day's topics worth naming: a topic only touched in passing (made, or
+// its folders moved, with no time and no presentation) is left out
+const shownTopics = (d) => (d.topics || []).filter((tp) => tp.minutes > 0 || tp.decks?.length);
+
 export function nextWhSort(cur, by) {
   if (!WH_SORTS.includes(by)) return cur;
   if (cur && cur.by === by) return { by, dir: cur.dir === "asc" ? "desc" : "asc" };
@@ -128,7 +132,7 @@ export function workHoursListJson(res, { month, sort = { by: "name", dir: "asc" 
       return {
         id: d.date,
         name: dayText(d.date, lang),
-        where: (d.topics || []).map((tp) => topicText(tp, t)).join(" · "),
+        where: shownTopics(d).map((tp) => topicText(tp, t)).join(" · "),
         added: hoursText(d.minutes),
         modified: first ? clock(first.start, lang, zone) + "–" + clock(last.end, lang, zone) : "",
         canDelete: false,
@@ -142,7 +146,7 @@ export function workHoursListJson(res, { month, sort = { by: "name", dir: "asc" 
 export function dayDetail(res, date, { t, lang = "en", zone = "UTC" } = {}) {
   const d = (res?.report?.days || []).find((x) => x.date === date);
   if (!d) return "";
-  return `${dayText(d.date, lang)} ${hoursText(d.minutes)}: ${sittingsText(d, lang, zone)}. ` + (d.topics || []).map((tp) => topicText(tp, t)).join(" · ");
+  return `${dayText(d.date, lang)} ${hoursText(d.minutes)}: ${sittingsText(d, lang, zone)}. ` + shownTopics(d).map((tp) => topicText(tp, t)).join(" · ");
 }
 
 const csvCell = (v) => {
@@ -158,7 +162,7 @@ export function workHoursCsv(res, { lang = "en", zone = "UTC" } = {}) {
   const h = (m) => (Math.round((m / 60) * 100) / 100).toFixed(2);
   for (const d of res?.report?.days || []) {
     const sit = sittingsText(d, lang, zone);
-    const topics = d.topics?.length ? d.topics : [{ title: "", minutes: d.minutes, decks: [], edits: d.edits }];
+    const topics = shownTopics(d).length ? shownTopics(d) : [{ title: "", minutes: d.minutes, decks: [], edits: d.edits }];
     for (const tp of topics) {
       rows.push([d.date, h(d.minutes), sit, tp.title || "", h(tp.minutes), (tp.decks || []).map((x) => x.name || x.id).join("; "), tp.edits || 0]);
     }
