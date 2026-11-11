@@ -6353,6 +6353,9 @@ function handleRequests() {
       clipAnswered("clipimg", r.endsWith(":alt"));
     } else if (r.startsWith("clip:undo:") || r.startsWith("clip:redo:")) {
       clipFilesBack(Number(r.slice(10)), r.startsWith("clip:undo:")).catch(fail);
+    } else if (r === "slack:file") {
+      // Export ▸ Slack canvas (.md): the deck as Slack reads it (src/PresSlack.rgr)
+      window.__lastDownload = deliver(new TextEncoder().encode(app.copyText("slack")), docName + " (Slack).md", "text/markdown");
     } else if (r === "clip:full") {
       // Export to Clipboard → Full presentation: Markdown, theme and files
       copyWhole();

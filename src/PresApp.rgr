@@ -55,6 +55,7 @@ Import "../game_engine/ui/UITextRenderer.rgr"
 Import "../game_engine/ui/UIInput.rgr"
 Import "../markdown/src/R5MdLanguage.rgr"
 Import "../markdown/src/MdSearchText.rgr"
+Import "PresSlack.rgr"
 Import "../markdown/src/MdFromHtml.rgr"
 Import "PresCssLanguage.rgr"
 Import "PresFileLanguage.rgr"
@@ -11280,8 +11281,17 @@ class PresApp {
     ; What Copy puts on the clipboard: "md" the deck's Markdown, "mdc" with
     ; the open comments as footnotes, "comments" the open comments with
     ; their slides; "mdSlide"/"mdcSlide" the selected slide's, and
-    ; "mdPicked"/"mdcPicked" the picked slides'.
+    ; "mdPicked"/"mdcPicked" the picked slides'; "slack"/"slackMsg" the
+    ; deck for a Slack canvas or message (PresSlack), "slackPicked"/
+    ; "slackMsgPicked" the picked slides'.
     fn copyText:string (which:string) {
+        if (startsWith which "slack") {
+            def form:string (? (startsWith which "slackMsg") "message" "canvas")
+            if (endsWith which "Picked") {
+                return (PresSlack.of((this.slidesMarkdown(picks.pages false)) form))
+            }
+            return (PresSlack.of((this.source()) form))
+        }
         ; the slides' titles, for the comments' labels
         this.reviewReady()
         if (which == "mdc") {
