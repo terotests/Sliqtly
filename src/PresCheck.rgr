@@ -5,6 +5,7 @@ Import "PresFootPills.rgr"
 Import "PresTimeline.rgr"
 Import "PresDocView.rgr"
 Import "PresDocKeys.rgr"
+Import "PresSlack.rgr"
 Import "PresPasteTable.rgr"
 Import "PresDocPages.rgr"
 Import "PresToc.rgr"
@@ -7733,6 +7734,35 @@ class PresCheck {
         this.ok(((d.busy(31.5)) == false) "strip drag: reset rests")
     }
 
+    ; Markdown for Slack (PresSlack): what Slack reads, the deck's own
+    ; marks left out
+    fn slack:void () {
+        def md:string "---\ntitle: Vertailu\nlang: fi\n---\n# Työkalut {.big}\n\nTilanne 11/2026 [lähde](https://a.fi) ja [dia](#s2)\n{.lead}\n\n#### Pieni\n\n- **yksi**\n  - sisä\n- [x] tehty\n{.build}\n\n```cards\n- Paikalliset: oma kone\n- Pilvi: VM\n```\n\n| | |\n|---|---|\n| Ajo | `npx` a\\|b |\n\n::: notes\nPuhe\n:::\n\n::: story\nEnsin näin.\nMutta sitten. {pose=aim}\n:::\n\n![logo](media/a.png)\n\n```mermaid\nflowchart LR\n  A-->B\n```\n\n```vega-lite\n{}\n```\n"
+        def c:string (PresSlack.of(md "canvas"))
+        this.ok(((indexOf c "title:") < 0) ("slack: no front matter, got " + c))
+        this.ok(((indexOf c "{") < 0) ("slack: no {…} attributes, got " + c))
+        this.ok((startsWith c "# Työkalut\n\nTilanne 11/2026 [lähde](https://a.fi) ja dia\n") ("slack: heading, web link kept, slide link its words, got " + c))
+        this.ok(((indexOf c "\n### Pieni\n") > 0) "slack: a canvas has three heading levels")
+        this.ok(((indexOf c "\n- **yksi**\n  - sisä\n- [x] tehty\n") > 0) ("slack: lists nested and ticked, got " + c))
+        this.ok(((indexOf c "\n- **Paikalliset:** oma kone\n- **Pilvi:** VM\n") > 0) ("slack: ```cards is a list, labels bold, got " + c))
+        this.ok(((indexOf c "\n|  |  |\n| --- | --- |\n| Ajo | `npx` a\\|b |\n") > 0) ("slack: a table, its | kept in the cell, got " + c))
+        this.ok(((indexOf c "Puhe") < 0) "slack: speaker notes left out")
+        this.ok(((indexOf c "\n> Ensin näin.\n> Mutta sitten.\n") > 0) ("slack: the presenter's lines a quote, pose left out, got " + c))
+        this.ok((((indexOf c "logo") > 0) && ((indexOf c "media/a.png") < 0)) "slack: a picture in the deck is its alt text")
+        this.ok(((indexOf c "```mermaid\nflowchart LR\n  A-->B\n```") > 0) "slack: a diagram's source kept as code")
+        this.ok(((indexOf c "vega") < 0) "slack: a chart's spec left out")
+        def m:string (PresSlack.of(md "message"))
+        this.ok((startsWith m "*Työkalut*\n\nTilanne 11/2026 <https://a.fi|lähde> ja dia\n") ("slack message: bold title, <url|text>, got " + m))
+        this.ok(((indexOf m "\n• *yksi*\n  • sisä\n☑ tehty\n") > 0) ("slack message: • lists, *bold*, got " + m))
+        this.ok(((indexOf m "\n```\nAjo  npx a|b\n```") > 0) ("slack message: a table as columns in code, got " + m))
+        this.ok(((PresSlack.of("" "canvas")) == "") "slack: nothing for nothing")
+        ; the menu rows
+        def tb (new PresToolbar())
+        this.ok(((indexOf (join (tb.exportFormats()) "\n") "x-slack") >= 0) "slack: an Export row")
+        this.ok(((PresToolbar.requestFor("x-slack")) == "slack:file") "slack: the Export row saves a file")
+        this.ok(((PresToolbar.requestFor("cp-slackMsg")) == "clip:slackMsg") "slack: the clipboard row")
+    }
+
     fn clips:void () {
         ; the format: written and read back
         def d (new PresClipDoc())
@@ -10823,6 +10853,7 @@ class PresCheck {
         c.serverDecks()
         c.serverRooms()
         c.clips()
+        c.slack()
         c.plays()
         c.playLoading()
         c.playFiles()

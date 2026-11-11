@@ -487,6 +487,10 @@ class PresToolbar {
         if (id == "x-pngAll") {
             return "image:all"
         }
+        ; Markdown for Slack (PresSlack), saved by the page
+        if (id == "x-slack") {
+            return "slack:file"
+        }
         if ((indexOf id "cp-") == 0) {
             return ("clip:" + (substring id 3 (strlen id)))
         }
@@ -641,6 +645,7 @@ class PresToolbar {
         def t:string (strfromcode 9)
         def out:[string]
         push out ("x-save" + t + (PresI18n.t("Markdown (.md)")))
+        push out ("x-slack" + t + (PresI18n.t("Slack canvas (.md)")))
         push out ("x-pptx" + t + (PresI18n.t("PowerPoint (.pptx)")))
         push out ("x-docx" + t + (PresI18n.t("Word (.docx)")))
         push out ("x-html" + t + (PresI18n.t("Web page as View (.html)")))
@@ -718,12 +723,17 @@ class PresToolbar {
             MenuCtl.addKid(parent "cp-mdPicked" (this.pickedLabel("Markdown")) false)
             MenuCtl.addKid(parent "cp-mdcPicked" (this.pickedLabel("Markdown + comments")) false)
             MenuCtl.addKid(parent "cp-imgPicked" (this.pickedLabel("Image")) false)
+            MenuCtl.addKid(parent "cp-slackPicked" (this.pickedLabel("Slack canvas")) false)
+            MenuCtl.addKid(parent "cp-slackMsgPicked" (this.pickedLabel("Slack message")) false)
         }
         MenuCtl.addKidSeparator(parent)
         def whole:string (" – " + (PresI18n.t("whole presentation")))
         MenuCtl.addKid(parent "cp-md" ((PresI18n.t("Markdown")) + whole) false)
         MenuCtl.addKid(parent "cp-mdc" ((PresI18n.t("Markdown + comments")) + whole) false)
         MenuCtl.addKid(parent "cp-comments" (PresI18n.t("Open comments")) false)
+        ; for Slack: front matter, {…} attributes and notes left out (PresSlack)
+        MenuCtl.addKid(parent "cp-slack" ((PresI18n.t("Slack canvas")) + whole) false)
+        MenuCtl.addKid(parent "cp-slackMsg" ((PresI18n.t("Slack message")) + whole) false)
         ; the Markdown, the theme and the files, for a paste elsewhere
         MenuCtl.addKidSeparator(parent)
         MenuCtl.addKid(parent "cp-full" (PresI18n.t("Full presentation")) false)
@@ -3006,10 +3016,13 @@ class PresToolbar {
             this.button("dr-cp-md" (PresI18n.t("Markdown")) "ghost" body)
             this.button("dr-cp-mdc" (PresI18n.t("Markdown + comments")) "ghost" body)
             this.button("dr-cp-comments" (PresI18n.t("Open comments")) "ghost" body)
+            this.button("dr-cp-slack" (PresI18n.t("Slack canvas")) "ghost" body)
+            this.button("dr-cp-slackMsg" (PresI18n.t("Slack message")) "ghost" body)
             this.button("dr-cp-imgSlide" ((PresI18n.t("Image")) + " – " + (PresI18n.t("this slide"))) "ghost" body)
             this.button("dr-cp-full" (PresI18n.t("Full presentation")) "ghost" body)
             body.addChild((UiKit.words("tb-dr-label" (PresI18n.t("Export")))))
             this.button("dr-x-save" (PresI18n.t("Markdown (.md)")) "ghost" body)
+            this.button("dr-x-slack" (PresI18n.t("Slack canvas (.md)")) "ghost" body)
             this.button("dr-pptx" (PresI18n.t("PowerPoint (.pptx)")) "ghost" body)
             this.button("dr-docx" (PresI18n.t("Word (.docx)")) "ghost" body)
             this.button("dr-html" (PresI18n.t("Web page as View (.html)")) "ghost" body)

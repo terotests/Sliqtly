@@ -1,0 +1,699 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresSlack.rgr — a deck's Markdown as Slack takes it.
+; ============================================================================
+;
+; Slack reads a plainer Markdown than a deck is written in, so a deck pasted
+; there as it is shows its front matter as text, its `{.lead}` lines as
+; words and its ```cards lists as code. Here the deck is read by the parser
+; that draws it (MdBlock), and its blocks are written again in what Slack
+; reads, in one of two forms:
+;
+;   "canvas"   a canvas (paste, or canvases.create's markdown): # ## ###
+;              headings, **bold**, _italic_, ~~strike~~, lists, task lists,
+;              tables, quotes, code
+;   "message"  a message (mrkdwn): *bold* headings and words, _italic_,
+;              ~strike~, <url|text> links, • lists, a table as aligned
+;              columns in a code block
+;
+;   front matter, `{…}` attributes, speaker notes (::: notes),
+;   source links (::: code), sound (::: audio)          left out
+;   ```process / swot / timeline / stats / cards        the list inside
+;   ```mermaid, plantuml, dot, d2, xstate               kept as code
+;   ```vega (charts), ```app, ```css, ```gallery        left out
+;   ::: story (the presenter's lines), ::: tip/warning  a quote
+;   other ::: blocks (columns, col, box …)              their content
+;   headings below ###                                  ### (canvas has three)
+;   a link to a slide (#…), a picture in the deck       its words (alt text)
+;   math                                                as code
+;   HTML                                                its text
+; ============================================================================
+
+Import "../markdown/src/MdBlock.rgr"
+Import "../markdown/src/MdSearchText.rgr"
+Import "PresStory.rgr"
+
+; a table row's cells, as Slack writes them
+class PresSlackRow {
+    def cells:[string]
+}
+
+class PresSlack {
+    ; The Markdown `md` for Slack, `form` "canvas" or "message".
+    sfn of:string (md:string form:string) {
+        def doc:MdNode (MdBlock.parseText(md))
+        def blocks:[string]
+        def msg:boolean (form == "message")
+        for doc.children c:MdNode i {
+            PresSlack.block(c blocks msg)
+        }
+        def out:string (join blocks "\n\n")
+        if ((strlen out) == 0) {
+            return ""
+        }
+        return (out + "\n")
+    }
+
+    ; A block's text, pushed to `out` (nothing for a block left out).
+    sfn block:void (n:MdNode out:[string] msg:boolean) {
+        def k:string n.kind
+        if (k == "heading") {
+            PresSlack.add(out (PresSlack.heading(n msg)))
+            return
+        }
+        if (k == "paragraph") {
+            PresSlack.add(out (PresSlack.tidy((PresSlack.inlines(n msg)))))
+            return
+        }
+        if (k == "list") {
+            PresSlack.add(out (PresSlack.list(n 0 msg)))
+            return
+        }
+        if (k == "block_quote") {
+            PresSlack.add(out (PresSlack.quote(n msg)))
+            return
+        }
+        if ((k == "code_block") || (k == "embed")) {
+            PresSlack.code(n out msg)
+            return
+        }
+        if (k == "table") {
+            PresSlack.add(out (PresSlack.table(n msg)))
+            return
+        }
+        if (k == "thematic_break") {
+            if (msg == false) {
+                push out "---"
+            }
+            return
+        }
+        if (k == "math_block") {
+            PresSlack.add(out (PresSlack.fence("" n.literal)))
+            return
+        }
+        if (k == "html_block") {
+            PresSlack.add(out (PresSlack.tidy((MdSearchText.untag(n.literal)))))
+            return
+        }
+        if (k == "container") {
+            PresSlack.container(n out msg)
+            return
+        }
+        if (k == "footnote_def") {
+            def body:[string]
+            for n.children c:MdNode i {
+                PresSlack.block(c body msg)
+            }
+            PresSlack.add(out ("[" + (PresSlack.noteLabel(n)) + "] " + (join body " ")))
+            return
+        }
+        if (k == "dl") {
+            PresSlack.defList(n out msg)
+            return
+        }
+        ; front matter, attribute lines, and what Slack has nothing for
+        if ((k == "front_matter") || (k == "attrs")) {
+            return
+        }
+        for n.children c:MdNode i {
+            PresSlack.block(c out msg)
+        }
+    }
+
+    ; a part of the text, when there is one
+    sfn add:void (out:[string] text:string) {
+        if ((strlen (trim text)) > 0) {
+            push out text
+        }
+    }
+
+    ; "## Title" on a canvas (### at most), "*Title*" in a message
+    sfn heading:string (n:MdNode msg:boolean) {
+        def text:string (trim (PresSlack.inlines(n msg)))
+        if ((strlen text) == 0) {
+            return ""
+        }
+        if msg {
+            ; the words already bold in the title stay as they are
+            return ("*" + (PresSlack.plain(n)) + "*")
+        }
+        def lv:int n.level
+        if (lv < 1) {
+            lv = 1
+        }
+        if (lv > 3) {
+            lv = 3
+        }
+        def marks:string ""
+        def i:int 0
+        while (i < lv) {
+            marks = (marks + "#")
+            i = (i + 1)
+        }
+        return (marks + " " + text)
+    }
+
+    ; a list, `depth` levels in; its items one to a line, a sub-list under
+    ; its item
+    sfn list:string (n:MdNode depth:int msg:boolean) {
+        def lines:[string]
+        def pad:string ""
+        def d:int 0
+        while (d < depth) {
+            pad = (pad + "  ")
+            d = (d + 1)
+        }
+        def num:int n.listStart
+        for n.children item:MdNode i {
+            def mark:string "- "
+            if msg {
+                mark = "• "
+            }
+            if n.listOrdered {
+                mark = ((to_string num) + ". ")
+                num = (num + 1)
+            }
+            if (item.taskState >= 0) {
+                if msg {
+                    mark = (? (item.taskState > 0) "☑ " "☐ ")
+                } {
+                    mark = (mark + (? (item.taskState > 0) "[x] " "[ ] "))
+                }
+            }
+            def text:[string]
+            def subs:[string]
+            for item.children c:MdNode j {
+                if (c.kind == "list") {
+                    push subs (PresSlack.list(c (depth + 1) msg))
+                } {
+                    ; an item's code or quote as one line: a canvas takes
+                    ; no blocks inside a list item
+                    def part:[string]
+                    PresSlack.block(c part msg)
+                    push text (PresSlack.oneLine((join part " ")))
+                }
+            }
+            push lines (pad + mark + (trim (join text " ")))
+            for subs s:string k {
+                push lines s
+            }
+        }
+        return (join lines "\n")
+    }
+
+    ; a quote's blocks, each line led by "> "; a list in it as • lines, as a
+    ; canvas takes no list inside a quote
+    sfn quote:string (n:MdNode msg:boolean) {
+        def parts:[string]
+        for n.children c:MdNode i {
+            if (c.kind == "list") {
+                PresSlack.add(parts (PresSlack.list(c 0 true)))
+            } {
+                PresSlack.block(c parts msg)
+            }
+        }
+        return (PresSlack.quoted((join parts "\n\n")))
+    }
+
+    sfn quoted:string (text:string) {
+        if ((strlen (trim text)) == 0) {
+            return ""
+        }
+        def lines:[string] (strsplit text "\n")
+        def out:[string]
+        for lines l:string i {
+            if ((strlen l) == 0) {
+                push out ">"
+            } {
+                push out ("> " + l)
+            }
+        }
+        return (join out "\n")
+    }
+
+    ; a fenced block: a figure's list as a list, a diagram's source as code,
+    ; a chart, a program or a style left out, other code as written
+    sfn code:void (n:MdNode out:[string] msg:boolean) {
+        def word:string (to_lowercase (MdBlock.firstWord((trim n.info))))
+        def notation:string (MdEmbedKinds.notationOf(word))
+        if (notation == "figure") {
+            def inner:MdNode (MdBlock.parseText(n.literal))
+            def parts:[string]
+            for inner.children c:MdNode i {
+                PresSlack.block(c parts msg)
+            }
+            for parts p:string j {
+                push out (PresSlack.boldLabels(p msg))
+            }
+            return
+        }
+        if ((notation == "vega") || (notation == "app")) {
+            return
+        }
+        if ((word == "css") || (word == "style") || (word == "scss") || (word == "less") || (word == "gallery")) {
+            return
+        }
+        def lang:string word
+        if msg {
+            ; a message's code block has no language
+            lang = ""
+        }
+        PresSlack.add(out (PresSlack.fence(lang n.literal)))
+    }
+
+    ; a figure's items lead with their label, "Label: text", as a card or a
+    ; step shows it: the label bold when it has no marks of its own
+    sfn boldLabels:string (text:string msg:boolean) {
+        def bold:string (? msg "*" "**")
+        def out:[string]
+        for (strsplit text "\n") line:string i {
+            def at:int (indexOf line ": ")
+            def lead:int (PresSlack.markEnd(line))
+            if ((lead > 0) && (at > lead)) {
+                def label:string (substring line lead at)
+                def plainLabel:boolean (((indexOf label "*") < 0) && (((indexOf label "`") < 0) && (((indexOf label "[") < 0) && ((indexOf label "_") < 0))))
+                if (plainLabel && ((strlen (trim label)) > 0)) {
+                    push out ((substring line 0 lead) + bold + label + ":" + bold + (substring line (at + 1) (strlen line)))
+                    continue
+                }
+            }
+            push out line
+        }
+        return (join out "\n")
+    }
+
+    ; where an item's text starts after its "- ", "• " or "1. " (0 for none)
+    sfn markEnd:int (line:string) {
+        def t:string (trim line)
+        def pad:int ((strlen line) - (strlen t))
+        if ((startsWith t "- [ ] ") || (startsWith t "- [x] ")) {
+            return (pad + 6)
+        }
+        if ((startsWith t "- ") || (startsWith t "• ") || (startsWith t "☐ ") || (startsWith t "☑ ")) {
+            return (pad + 2)
+        }
+        def dot:int (indexOf t ". ")
+        if ((dot > 0) && (dot < 4)) {
+            def num:string (substring t 0 dot)
+            if ((strlen (trim num)) == dot) {
+                if ((?? (str2int num) -1) >= 0) {
+                    return (pad + dot + 2)
+                }
+            }
+        }
+        return 0
+    }
+
+    sfn fence:string (lang:string text:string) {
+        def body:string text
+        while (endsWith body "\n") {
+            body = (substring body 0 ((strlen body) - 1))
+        }
+        if ((strlen (trim body)) == 0) {
+            return ""
+        }
+        return ("```" + lang + "\n" + body + "\n```")
+    }
+
+    ; `::: name` blocks: notes, source links and sound left out, the
+    ; presenter's lines and a tip or warning as a quote, others their content
+    sfn container:void (n:MdNode out:[string] msg:boolean) {
+        def name:string (to_lowercase (MdBlock.firstWord((trim n.info))))
+        if ((name == "notes") || (name == "code") || (name == "audio")) {
+            return
+        }
+        if (name == "story") {
+            PresSlack.add(out (PresSlack.quoted((join (PresSlack.storyLines(n msg)) "\n"))))
+            return
+        }
+        if ((name == "tip") || (name == "warning") || (name == "info") || (name == "note")) {
+            PresSlack.add(out (PresSlack.quote(n msg)))
+            return
+        }
+        for n.children c:MdNode i {
+            PresSlack.block(c out msg)
+        }
+    }
+
+    ; the presenter's lines (PresStory): one a line, their `{pose=…}` left out
+    sfn storyLines:[string] (n:MdNode msg:boolean) {
+        def lines:[string]
+        for n.children c:MdNode i {
+            if (c.kind == "paragraph") {
+                def cur:string ""
+                for c.children x:MdNode j {
+                    if ((x.kind == "softbreak") || (x.kind == "linebreak")) {
+                        PresSlack.storyLine(lines cur)
+                        cur = ""
+                    } {
+                        cur = (cur + (PresSlack.inline(x msg)))
+                    }
+                }
+                PresSlack.storyLine(lines cur)
+            }
+            if (c.kind == "list") {
+                for c.children item:MdNode k {
+                    PresSlack.storyLine(lines (PresSlack.oneLine((PresSlack.inlines((PresSlack.firstPara(item)) msg)))))
+                }
+            }
+        }
+        return lines
+    }
+
+    sfn storyLine:void (lines:[string] line:string) {
+        def cut:PresStoryCut (PresStory.cutAttrs((trim line)))
+        def t:string (trim cut.text)
+        if ((strlen t) > 0) {
+            push lines t
+        }
+    }
+
+    ; an item's first paragraph (an empty one when it has none)
+    sfn firstPara:MdNode (item:MdNode) {
+        for item.children c:MdNode i {
+            if (c.kind == "paragraph") {
+                return c
+            }
+        }
+        return (MdNode.create("paragraph"))
+    }
+
+    ; a definition list: the term bold, its definitions under it
+    sfn defList:void (n:MdNode out:[string] msg:boolean) {
+        def bold:string (? msg "*" "**")
+        for n.children c:MdNode i {
+            if (c.kind == "dt") {
+                def t:string (trim (PresSlack.plain(c)))
+                if ((strlen t) > 0) {
+                    push out (bold + t + bold)
+                }
+            } {
+                for c.children d:MdNode j {
+                    PresSlack.block(d out msg)
+                }
+            }
+        }
+    }
+
+    ; --- tables -------------------------------------------------------------
+
+    sfn table:string (n:MdNode msg:boolean) {
+        def rows:[PresSlackRow]
+        for n.children r:MdNode i {
+            def row:PresSlackRow (new PresSlackRow())
+            for r.children c:MdNode j {
+                ; a message's table is code, where no marks show
+                if msg {
+                    push row.cells (PresSlack.plain(c))
+                } {
+                    push row.cells (PresSlack.oneLine((PresSlack.inlines(c msg))))
+                }
+            }
+            push rows row
+        }
+        if ((array_length rows) == 0) {
+            return ""
+        }
+        if msg {
+            return (PresSlack.columns(rows))
+        }
+        def cols:int (PresSlack.colCount(rows))
+        def lines:[string]
+        def ri:int 0
+        for rows rr:PresSlackRow i {
+            def row:[string] rr.cells
+            def cells:[string]
+            def ci:int 0
+            while (ci < cols) {
+                def v:string ""
+                if (ci < (array_length row)) {
+                    v = (PresSlack.cellText((itemAt row ci)))
+                }
+                push cells v
+                ci = (ci + 1)
+            }
+            push lines ("| " + (join cells " | ") + " |")
+            if (ri == 0) {
+                def rule:[string]
+                def k:int 0
+                while (k < cols) {
+                    push rule "---"
+                    k = (k + 1)
+                }
+                push lines ("| " + (join rule " | ") + " |")
+            }
+            ri = (ri + 1)
+        }
+        return (join lines "\n")
+    }
+
+    ; a cell's text, its "|" kept from closing the cell
+    sfn cellText:string (v:string) {
+        return (join (strsplit v "|") "\\|")
+    }
+
+    ; a message has no tables: the rows as columns lined up in a code block,
+    ; an empty header row left out
+    sfn colCount:int (rows:[PresSlackRow]) {
+        def cols:int 0
+        for rows r:PresSlackRow i {
+            if ((array_length r.cells) > cols) {
+                cols = (array_length r.cells)
+            }
+        }
+        return cols
+    }
+
+    sfn columns:string (rows:[PresSlackRow]) {
+        def cols:int (PresSlack.colCount(rows))
+        def widths:[int]
+        def c:int 0
+        while (c < cols) {
+            def w:int 0
+            for rows rw:PresSlackRow i {
+                def r:[string] rw.cells
+                if (c < (array_length r)) {
+                    def l:int (PresSlack.width((itemAt r c)))
+                    if (l > w) {
+                        w = l
+                    }
+                }
+            }
+            push widths w
+            c = (c + 1)
+        }
+        def lines:[string]
+        def ri:int 0
+        for rows rr:PresSlackRow i {
+            def row:[string] rr.cells
+            def blank:boolean ((strlen (trim (join row ""))) == 0)
+            if ((ri == 0) && blank) {
+                ri = (ri + 1)
+                continue
+            }
+            def parts:[string]
+            def ci:int 0
+            while (ci < cols) {
+                def v:string ""
+                if (ci < (array_length row)) {
+                    v = (itemAt row ci)
+                }
+                if (ci < (cols - 1)) {
+                    def gap:int ((itemAt widths ci) - (PresSlack.width(v)))
+                    def g:int 0
+                    while (g < gap) {
+                        v = (v + " ")
+                        g = (g + 1)
+                    }
+                }
+                push parts v
+                ci = (ci + 1)
+            }
+            push lines (PresSlack.trimEnd((join parts "  ")))
+            ri = (ri + 1)
+        }
+        return ("```\n" + (join lines "\n") + "\n```")
+    }
+
+    ; the text's length in characters (not UTF-16 units), for lining up
+    sfn width:int (s:string) {
+        def n:int 0
+        def i:int 0
+        def len:int (strlen s)
+        while (i < len) {
+            def u:int (charAt s i)
+            ; the second half of a surrogate pair is no character of its own
+            if ((u < 56320) || (u > 57343)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn trimEnd:string (s:string) {
+        def out:string s
+        while (endsWith out " ") {
+            out = (substring out 0 ((strlen out) - 1))
+        }
+        return out
+    }
+
+    ; --- inline text --------------------------------------------------------
+
+    ; a block's inline content as Slack writes it
+    sfn inlines:string (n:MdNode msg:boolean) {
+        def out:string ""
+        for n.children c:MdNode i {
+            out = (out + (PresSlack.inline(c msg)))
+        }
+        return out
+    }
+
+    sfn inline:string (n:MdNode msg:boolean) {
+        def k:string n.kind
+        if (k == "text") {
+            return n.literal
+        }
+        if (k == "softbreak") {
+            return " "
+        }
+        if (k == "linebreak") {
+            return "\n"
+        }
+        if ((k == "code") || (k == "math")) {
+            return (PresSlack.codeSpan(n.literal))
+        }
+        if (k == "html_inline") {
+            if (MdNode.isBrTag(n.literal)) {
+                return "\n"
+            }
+            return ""
+        }
+        if (k == "emph") {
+            return (PresSlack.wrap("_" (PresSlack.inlines(n msg))))
+        }
+        if (k == "strong") {
+            return (PresSlack.wrap((? msg "*" "**") (PresSlack.inlines(n msg))))
+        }
+        if (k == "strike") {
+            return (PresSlack.wrap((? msg "~" "~~") (PresSlack.inlines(n msg))))
+        }
+        if (k == "link") {
+            return (PresSlack.link(n msg))
+        }
+        if (k == "image") {
+            return (PresSlack.image(n msg))
+        }
+        if (k == "footnote_ref") {
+            return ("[" + (PresSlack.noteLabel(n)) + "]")
+        }
+        ; mark, ins, sub, sup, abbr …: their words
+        return (PresSlack.inlines(n msg))
+    }
+
+    ; a mark around text, its spaces outside the mark ("** a **" is no bold)
+    sfn wrap:string (mark:string text:string) {
+        def t:string (trim text)
+        if ((strlen t) == 0) {
+            return text
+        }
+        def lead:string ""
+        def tail:string ""
+        if (startsWith text " ") {
+            lead = " "
+        }
+        if (endsWith text " ") {
+            tail = " "
+        }
+        return (lead + mark + t + mark + tail)
+    }
+
+    sfn codeSpan:string (text:string) {
+        if ((strlen text) == 0) {
+            return ""
+        }
+        if ((indexOf text "`") >= 0) {
+            return ("`` " + text + " ``")
+        }
+        return ("`" + text + "`")
+    }
+
+    ; a link to an address outside the deck; a slide's (#…) or a file's in
+    ; the deck its words only
+    sfn link:string (n:MdNode msg:boolean) {
+        def text:string (PresSlack.inlines(n msg))
+        def url:string (trim n.destination)
+        if ((PresSlack.isWeb(url)) == false) {
+            return text
+        }
+        if ((strlen (trim text)) == 0) {
+            text = url
+        }
+        if msg {
+            return ("<" + url + "|" + (PresSlack.plain(n)) + ">")
+        }
+        return ("[" + text + "](" + url + ")")
+    }
+
+    ; a picture on the web as a link to it, a picture in the deck its alt text
+    sfn image:string (n:MdNode msg:boolean) {
+        def alt:string (trim (PresSlack.plain(n)))
+        def url:string (trim n.destination)
+        if ((PresSlack.isWeb(url)) == false) {
+            return alt
+        }
+        if ((strlen alt) == 0) {
+            alt = url
+        }
+        if msg {
+            return ("<" + url + "|" + alt + ">")
+        }
+        return ("[" + alt + "](" + url + ")")
+    }
+
+    sfn isWeb:boolean (url:string) {
+        def u:string (to_lowercase url)
+        return ((startsWith u "https://") || (startsWith u "http://") || (startsWith u "mailto:"))
+    }
+
+    sfn noteLabel:string (n:MdNode) {
+        if (n.noteNumber > 0) {
+            return (to_string n.noteNumber)
+        }
+        return n.info
+    }
+
+    ; the words of a node, no marks
+    sfn plain:string (n:MdNode) {
+        return (PresSlack.oneLine((n.plainText())))
+    }
+
+    sfn oneLine:string (s:string) {
+        def parts:[string] (strsplit s "\n")
+        def out:[string]
+        for parts p:string i {
+            def t:string (trim p)
+            if ((strlen t) > 0) {
+                push out t
+            }
+        }
+        return (join out " ")
+    }
+
+    ; each line's runs of spaces as one, no spaces at its ends
+    sfn tidy:string (s:string) {
+        def out:[string]
+        for (strsplit s "\n") line:string i {
+            def words:[string]
+            for (strsplit line " ") w:string j {
+                if ((strlen w) > 0) {
+                    push words w
+                }
+            }
+            push out (join words " ")
+        }
+        return (join out "\n")
+    }
+}
