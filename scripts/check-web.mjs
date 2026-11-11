@@ -3670,7 +3670,7 @@ try {
     check("…File → Vault lists every presentation (ticked, none on) and the Demo Vault; its row turns it on",
       /✓/.test(vlt.names[0]) && /Demo Vault/.test(vlt.names[1]) && !/✓/.test(vlt.names[1]) && vlt.reqs.join() === "vault:use:demo", JSON.stringify(vlt));
     // the link rows (x-recweb, x-vidweb) only where the page hands out links
-    check("…File → Export lists .md, .pptx, .docx, .html, the player, .pdf, the images, the video and .zip, a line and Export to Clipboard ▸, and the zip row is the page's ZIP button", fx.kids.filter((k) => !k.startsWith("sep") && k !== "x-recweb" && k !== "x-vidweb").join() === "x-save,x-pptx,x-docx,x-html,x-player,x-pdf,x-png,x-pngAll,x-video,x-zip,x-clip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
+    check("…File → Export lists .md, Slack canvas .md, .pptx, .docx, .html, the player, .pdf, the images, the video and .zip, a line and Export to Clipboard ▸, and the zip row is the page's ZIP button", fx.kids.filter((k) => !k.startsWith("sep") && k !== "x-recweb" && k !== "x-vidweb").join() === "x-save,x-slack,x-pptx,x-docx,x-html,x-player,x-pdf,x-png,x-pngAll,x-video,x-zip,x-clip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
     check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));
 
     // File → Recent: Browse all… first (the Files tab), a line, then the decks
@@ -7861,7 +7861,7 @@ try {
       window.__handleRequests();
       return { kids };
     });
-    check("Export to Clipboard ends with Full presentation", menu.kids.filter((k) => !k.startsWith("sep")).join() === "cp-imgSlide,cp-md,cp-mdc,cp-comments,cp-full", JSON.stringify(menu));
+    check("Export to Clipboard ends with Full presentation", menu.kids.filter((k) => !k.startsWith("sep")).join() === "cp-imgSlide,cp-md,cp-mdc,cp-comments,cp-slack,cp-slackMsg,cp-full", JSON.stringify(menu));
     let text = "";
     for (let i = 0; i < 20 && !text.includes("presentation,"); i++) {
       await A.page.waitForTimeout(300);
