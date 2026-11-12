@@ -226,3 +226,24 @@ func TestTreeAt(t *testing.T) {
 		t.Fatal("a file is not a tree")
 	}
 }
+
+// List lists one level: files and subtrees by name, a subtree marked
+func TestList(t *testing.T) {
+	r, err := Init(filepath.Join(t.TempDir(), "repo.git"), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := commitFiles(t, r, map[string]string{"decks/a/deck.md": "A", "decks/a/media/x.png": "X", "decks/b.json": "B"}, "", "m\n", time.Now())
+	cm, _ := r.ReadCommit(c)
+	decks, _ := r.TreeAt(cm.Tree, "decks")
+	es, err := r.List(decks)
+	if err != nil || len(es) != 2 {
+		t.Fatalf("dir %v %v", es, err)
+	}
+	if es[0].Path != "a" || es[0].Mode != ModeTree || es[1].Path != "b.json" || es[1].Mode == ModeTree {
+		t.Fatalf("entries %v", es)
+	}
+	if none, err := r.List(""); none != nil || err != nil {
+		t.Fatalf("empty: %v %v", none, err)
+	}
+}

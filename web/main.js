@@ -45,6 +45,7 @@ import { VAULT_KEY, findVault, setInVault, forgetInVaults, vaultHas, vaultRows, 
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { listenPresence, presenceAnswer } from "./cloudpresence.js";
+import { workHoursListJson, workHoursCsv, dayDetail, monthNow, monthShift, nextWhSort } from "./workhours.js";
 import { layoutSync, LAYOUT_EVERY } from "./layoutsync.js";
 import { aiCall, aiOnPage } from "./aiassist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf, deckPeople } from "./collab.js";
@@ -6270,6 +6271,8 @@ function handleRequests() {
       try { localStorage.setItem("sliqtly.diagramZoom", diagramZoomOn ? "on" : "off"); } catch (_) { /* this session only */ }
       app.setDiagramZoom(diagramZoomOn);
       needsPaint = true;
+    } else if (r.startsWith("setting:workhours:")) {
+      setWorkHours(r.endsWith(":on")).catch(fail);
     } else if (r.startsWith("setting:flight:")) {
       flightOn = r.endsWith(":on");
       try { localStorage.setItem("sliqtly.flight3d", flightOn ? "on" : "off"); } catch (_) { /* this session only */ }
@@ -6334,6 +6337,10 @@ function handleRequests() {
       publishedRequest(r).catch(fail);
     } else if (r.startsWith("who:")) {
       whoRequest(r).catch(fail);
+    } else if (r === "workhours") {
+      openWorkHours().catch(fail);
+    } else if (r.startsWith("wh:")) {
+      workHoursRequest(r);
     } else if (r === "openbox") {
       // Open: a file from the computer, or a sample deck
       app.openOpen(openRows());
@@ -7207,6 +7214,76 @@ async function exportPlayer() {
   window.__lastDownload = deliver(enc.encode(html), exportName() + "-player.html", "text/html;charset=utf-8");
 }
 window.__exportPlayer = exportPlayer;
+
+// Export ▸ Sliqtly work hours (web/workhours.js): a server of one's own
+// estimates a month's work hours from when its presentations were saved
+// (mcp-go/workhoursapi.go). Settings turns it on (kept by the server); the
+// month's days are shown in the presentations window, ‹ › change the month.
+const whZone = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch (_) { return "UTC"; } })();
+let whMonth = "";
+let whRes = null;
+let whSort = { by: "name", dir: "asc" };
+let whAsked = false;
+const whApi = () => window.sliqtly?.local && window.sliqtly.workHours;
+function askWorkHours() {
+  const api = whApi();
+  if (!api || whAsked) return;
+  whAsked = true;
+  api.state().then((st) => {
+    app.setWorkHours(!!st, !!st?.enabled);
+    needsPaint = true;
+  }).catch(() => { whAsked = false; });
+}
+async function setWorkHours(on) {
+  const st = await whApi().set(on);
+  app.setWorkHours(true, !!st?.enabled);
+  toast(st?.enabled ? t("Export ▸ Sliqtly work hours… is on.") : t("Sliqtly work hours is off."));
+  needsPaint = true;
+}
+const whJson = () => workHoursListJson(whRes, { month: whMonth, sort: whSort, t, lang, zone: whZone });
+function showWorkHours() {
+  if (listShown === "wh" && app.decksShowing()) app.setDecks(whJson());
+  needsPaint = true;
+}
+async function loadWorkHours() {
+  whRes = null;
+  showWorkHours();
+  const month = whMonth;
+  let res;
+  try {
+    res = await whApi().report(month, whZone);
+  } catch (e) {
+    res = { error: t("The work hours could not be read: ") + (e?.message || e), git: true, gitOn: true, report: null };
+  }
+  if (month !== whMonth) return;
+  whRes = res || { git: false, report: null };
+  showWorkHours();
+}
+async function openWorkHours() {
+  if (!whApi()) return;
+  listShown = "wh";
+  if (!whMonth) whMonth = monthNow(Date.now(), whZone);
+  whRes = null;
+  app.openDecks(whJson());
+  needsPaint = true;
+  await loadWorkHours();
+}
+function workHoursRequest(r) {
+  const [, action, ...rest] = r.split(":");
+  const id = rest.join(":");
+  if (action === "month") {
+    whMonth = monthShift(whMonth, id === "prev" ? -1 : 1);
+    loadWorkHours().catch(fail);
+  } else if (action === "sort") {
+    whSort = nextWhSort(whSort, id);
+    showWorkHours();
+  } else if (action === "open") {
+    const text = dayDetail(whRes, id, { t, lang, zone: whZone });
+    if (text) toast(text);
+  } else if (action === "download") {
+    deliver(new TextEncoder().encode(workHoursCsv(whRes, { lang, zone: whZone })), `sliqtly-work-hours-${whMonth}.csv`, "text/csv");
+  }
+}
 
 // File → Published…: what the signed-in user has out on sliqtly.com (viewing
 // links, presentations open at their own address, Cloud HTML, Cloud video),
@@ -11888,6 +11965,7 @@ async function start() {
     if (window.sliqtly) {
       app.setCloud(!window.sliqtly.local);
       app.setOwnLinks(ownLinks());
+      askWorkHours();
     }
     needsPaint = true;
   };

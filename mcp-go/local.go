@@ -289,6 +289,10 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.gitAPI(w, r)
 		return
 	}
+	if p == "/api/workhours" || p == "/api/settings/workhours" {
+		s.workHoursAPI(w, r)
+		return
+	}
 	if p == "/api/settings" || p == "/api/settings/check" || p == "/api/settings/network" || p == "/api/settings/listing" {
 		s.settingsAPI(w, r)
 		return
