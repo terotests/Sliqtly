@@ -1,8 +1,10 @@
 # Builds the server package (mcp-go/packaging/build-deb.sh: the binary with
-# the editor and player built in) for amd64 and arm64, and puts the two .deb
-# files in the project's Storage bucket under downloads/, each with a new
-# random download token. The links, which work only with the token, are in
-# the run's summary: Actions → Server package → the run.
+# the editor and player built in) for amd64 and arm64, and for Windows the
+# .msi (amd64) and the .zip (amd64, arm64) (mcp-go/packaging/windows/), and
+# puts them in the project's Storage bucket under downloads/, each with a
+# new random download token. The .msi is installed, used and removed on
+# Windows before anything is put there. The links, which work only with the
+# token, are in the run's summary: Actions → Server package → the run.
 #
 #   curl -fLo sliqtly-server.deb '<link>' && sudo apt install ./sliqtly-server.deb
 #
@@ -44,6 +46,8 @@ env:
 jobs:
   package:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     env:
       NODE_OPTIONS: --max-old-space-size=5120
     steps:
@@ -105,6 +109,59 @@ jobs:
         run: |
           packaging/build-deb.sh "$VERSION" amd64
           packaging/build-deb.sh "$VERSION" arm64
+          packaging/windows/build-windows.sh "$VERSION" amd64
+          packaging/windows/build-windows.sh "$VERSION" arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: |
+            mcp-go/dist/*.deb
+            mcp-go/dist/*.zip
+            mcp-go/dist/windows_amd64/sliqtly-server.exe
+          retention-days: 3
+  # the .msi, made and tried on Windows: installed, used, upgraded, removed
+  msi:
+    needs: package
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: mcp-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: mcp-go/dist
+      - name: Build the .msi
+        env:
+          VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          ./packaging/windows/build-msi.ps1 -Version $env:VERSION -Exe dist/windows_amd64/sliqtly-server.exe
+          # the same program as a newer version, for the upgrade test only
+          ./packaging/windows/build-msi.ps1 -Version 255.0.0 -Exe dist/windows_amd64/sliqtly-server.exe -Out upgrade-test
+      - name: Install, use, upgrade and remove
+        env:
+          VERSION: ${{ needs.package.outputs.version }}
+        run: ./packaging/windows/smoke-test.ps1 -Msi "dist/sliqtly-server_${env:VERSION}_windows_amd64.msi" -Upgrade upgrade-test/sliqtly-server_255.0.0_windows_amd64.msi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: msi
+          path: mcp-go/dist/*.msi
+          retention-days: 3
+  publish:
+    needs: [package, msi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: mcp-go/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: msi
+          path: mcp-go/dist
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
@@ -112,26 +169,42 @@ jobs:
       - name: Upload with download tokens
         working-directory: mcp-go
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.package.outputs.version }}
         run: |
           links=$(mktemp)
-          for f in dist/*.deb; do
+          for f in dist/*.deb dist/*.msi dist/*.zip; do
             name=$(basename "$f")
-            arch=${name##*_}; arch=${arch%.deb}
+            ext=${name##*.}
+            # sliqtly-server_<version>_<arch>.deb, …_windows_<arch>.msi|.zip
+            arch=${name%.*}; arch=${arch##*_}
+            case "$name" in
+              *_windows_*) latest="sliqtly-server_latest_windows_${arch}.$ext"; key="windows_${arch}_$ext" ;;
+              *) latest="sliqtly-server_latest_${arch}.$ext"; key=$arch ;;
+            esac
+            case "$ext" in
+              deb) type=application/vnd.debian.binary-package ;;
+              msi) type=application/x-msi ;;
+              *) type=application/zip ;;
+            esac
             token=$(cat /proc/sys/kernel/random/uuid)
-            for obj in "downloads/$name" "downloads/sliqtly-server_latest_${arch}.deb"; do
+            for obj in "downloads/$name" "downloads/$latest"; do
               gcloud storage cp "$f" "gs://$BUCKET/$obj" \
-                --content-type=application/vnd.debian.binary-package \
+                --content-type="$type" \
                 --custom-metadata="firebaseStorageDownloadTokens=$token" --quiet
               url="https://firebasestorage.googleapis.com/v0/b/$BUCKET/o/$(printf %s "$obj" | sed 's#/#%2F#g')?alt=media&token=$token"
               echo "- \`$obj\` ($(sha256sum "$f" | cut -c1-16)…): $url" >> "$links"
-              case "$obj" in *_latest_*) printf '%s' "$url" > "latest_$arch.url" ;; esac
+              case "$obj" in *_latest_*) printf '%s' "$url" > "latest_$key.url" ;; esac
             done
           done
           # one line to install or update on Ubuntu: download, install (the
           # package restarts a running service itself), restart, show it
           install() {
             printf "curl -fLo /tmp/sliqtly-server.deb '%s' && sudo apt install -y /tmp/sliqtly-server.deb && sudo systemctl restart sliqtly && systemctl --no-pager status sliqtly | head -n 3" "$(cat "latest_$1.url")"
+          }
+          # Windows: download the .msi, install or upgrade it (the service
+          # starts itself), show the service
+          windows() {
+            printf 'Invoke-WebRequest '"'"'%s'"'"' -OutFile "$env:TEMP\\sliqtly-server.msi"; Start-Process msiexec -Verb RunAs -Wait -ArgumentList "/i `"$env:TEMP\\sliqtly-server.msi`" /passive"; Get-Service Sliqtly' "$(cat latest_windows_amd64_msi.url)"
           }
           {
             echo "## sliqtly-server $VERSION"
@@ -152,6 +225,13 @@ jobs:
             echo
             echo '```'
             echo
+            echo "### Install or update on Windows (PowerShell; asks for administrator rights)"
+            echo
+            echo '```powershell'
+            windows
+            echo
+            echo '```'
+            echo
             echo "### Files"
             echo
             cat "$links"
@@ -161,7 +241,7 @@ jobs:
           echo
       - name: Tag the commit
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.package.outputs.version }}
         run: |
           git tag "server-v$VERSION" "$GITHUB_SHA"
           git push origin "server-v$VERSION"

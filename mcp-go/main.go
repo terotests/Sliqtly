@@ -72,6 +72,19 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "figma-index" {
 		os.Exit(figmaIndexCmd(os.Args[2:]))
 	}
+	// the Windows service (service_windows.go): install, start, stop, and
+	// run, which the service manager starts
+	if len(os.Args) > 1 && os.Args[1] == "service" {
+		os.Exit(serviceCmd(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	stop, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
+	runServer(start, stop)
+}
+
+// runServer serves until stop is done: its settings are the flags and the
+// environment
+func runServer(start time.Time, stop context.Context) {
 	data := flag.String("data", env("SLIQTLY_DATA", ""), "keep decks in this folder (SLIQTLY_DATA)")
 	port := flag.String("port", env("PORT", "8080"), "port to listen on (PORT)")
 	base := flag.String("url", env("SLIQTLY_URL", ""), "the address people and links use, e.g. https://sliqtly.example.com (SLIQTLY_URL)")
@@ -125,8 +138,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	stop, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
 	sw := &switchHandler{}
 	srv := &http.Server{Handler: sw, ReadHeaderTimeout: 10 * time.Second}
 	expo := newExposure(srv, *port, policy)
