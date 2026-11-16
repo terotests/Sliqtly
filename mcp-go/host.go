@@ -213,6 +213,9 @@ type Env struct {
 	// warden: shared spaces at /apps/warden (warden.go), with DB; nil
 	// elsewhere
 	warden *wardenService
+	// games: RangerGames games made through MCP at /games (games.go), on
+	// sliqtly.com only; nil elsewhere
+	games *gamesService
 }
 
 // The whole server as one handler.
@@ -243,6 +246,18 @@ func NewApp(env *Env) http.Handler {
 			env.warden.removeFiles = func(ctx context.Context, prefix string) {
 				if err := r.RemovePrefix(ctx, prefix); err != nil {
 					log.Printf("warden: removing %s: %v", prefix, err)
+				}
+			}
+		}
+	}
+	if env.games != nil && env.games.base == "" {
+		env.games.base = wardenOrigin(env)
+	}
+	if env.games != nil && env.games.removePrefix == nil {
+		if r, ok := env.Bucket.(prefixRemover); ok {
+			env.games.removePrefix = func(ctx context.Context, prefix string) {
+				if err := r.RemovePrefix(ctx, prefix); err != nil {
+					log.Printf("games: removing %s: %v", prefix, err)
 				}
 			}
 		}
@@ -281,6 +296,9 @@ func NewApp(env *Env) http.Handler {
 			return
 		}
 		if serveWarden(env, w, r) {
+			return
+		}
+		if serveGames(env, w, r) {
 			return
 		}
 		if env.EditorGate != nil {

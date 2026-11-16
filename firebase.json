@@ -203,6 +203,34 @@
         }
       },
       {
+        "source": "/games/mcp",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/games/p/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/games/main/admin",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/games/main/admin/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/editor",
         "run": {
           "serviceId": "sliqtly-mcp",

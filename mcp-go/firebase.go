@@ -351,6 +351,22 @@ func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) er
 	env.layouts = newLayoutService(env.DB)
 	// the owner's dashboard (admin.go), for the accounts listed
 	env.Admin = newAdminConfig(splitList(os.Getenv("SLIQTLY_ADMIN_EMAILS")), &cloudAdmin{fs: fs, auth: auth, project: projectID, table: os.Getenv("SLIQTLY_BILLING_TABLE")})
+	// Games at /games (games.go): the same admins; speech only when
+	// SLIQTLY_GAMES_TTS asks for it (gamestts.go)
+	gamesAdmins := []string{}
+	if env.Admin != nil {
+		gamesAdmins = env.Admin.Emails
+	}
+	if env.games = newGamesService(env.DB, env.Bucket, gamesAdmins); env.games != nil {
+		if v := os.Getenv("SLIQTLY_GAMES_ENGINE"); v != "" {
+			env.games.engine = v
+		}
+		tts, err := gamesSpeakerFromEnv(ctx, os.Getenv("SLIQTLY_GAMES_TTS"))
+		if err != nil {
+			return err
+		}
+		env.games.tts = tts
+	}
 	return nil
 }
 
