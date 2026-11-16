@@ -183,8 +183,8 @@ func TestGamesFolderAndPlay(t *testing.T) {
 	// the preview plays at once: a redirect to the engine with the pack
 	w := gamesServe(env, httptest.NewRequest("GET", "/games/p/"+preview, nil))
 	loc, _ := url.Parse(w.Header().Get("Location"))
-	if w.Code != 302 || !strings.HasPrefix(loc.String(), "https://terotests.github.io/RangerGames/?") ||
-		loc.Query().Get("game") != id || loc.Query().Get("pack") != gamesBase+"/games/p/"+preview+"/game.rgpk" {
+	if w.Code != 302 || !strings.HasPrefix(loc.String(), "/games/engine/?") ||
+		loc.Query().Get("game") != id || loc.Query().Get("pack") != "/games/p/"+preview+"/game.rgpk" {
 		t.Fatalf("play: %d %s", w.Code, loc)
 	}
 	code, pack := gamesPack(env, preview)
@@ -357,5 +357,55 @@ func TestGamesTTSRequest(t *testing.T) {
 	b, err := gamesGoogleSpeaker(srv.Client(), srv.URL)(context.Background(), "Hei", "fi", "")
 	if err != nil || string(b) != "RIFFwav" {
 		t.Fatalf("%q %v", b, err)
+	}
+}
+
+func TestGamesEngineFromSite(t *testing.T) {
+	env, _, _ := gamesEnv(t)
+	asked := 0
+	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked++
+		switch r.URL.Path {
+		case "/RangerGames/index.html":
+			w.Write([]byte("<html>engine</html>"))
+		case "/RangerGames/rg_web.wasm":
+			w.Write([]byte("\x00asm"))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer src.Close()
+	env.games.engineSrc = src.URL + "/RangerGames/"
+	get := func(p string) *httptest.ResponseRecorder {
+		return gamesServe(env, httptest.NewRequest("GET", p, nil))
+	}
+	if w := get("/games/engine/"); w.Code != 200 || !strings.Contains(w.Body.String(), "gamePack") || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("page: %d %q", w.Code, w.Body.String())
+	}
+	if w := get("/games/engine/rg_web.wasm"); w.Code != 200 || w.Header().Get("Content-Type") != "application/wasm" {
+		t.Fatalf("wasm: %d", w.Code)
+	}
+	// kept: asked from the source once
+	get("/games/engine/rg_web.wasm")
+	if asked != 1 {
+		t.Fatalf("source asked %d times", asked)
+	}
+	// only the engine's own files
+	for _, p := range []string{"/games/engine/games.rgpk", "/games/engine/../mcp", "/games/engine/games/_voice/fi/x.wav", "/games/engine/js/../../x"} {
+		if w := get(p); w.Code != 404 {
+			t.Fatalf("%s: %d", p, w.Code)
+		}
+	}
+	if w := get("/games/engine"); w.Code != 301 {
+		t.Fatalf("no slash: %d", w.Code)
+	}
+	// the source down: the copy kept is served
+	src.Close()
+	env.games.engine.now = func() time.Time { return time.Now().Add(time.Hour) }
+	if w := get("/games/engine/rg_web.wasm"); w.Code != 200 {
+		t.Fatalf("stale copy: %d", w.Code)
+	}
+	if w := get("/games/engine/js/host.js"); w.Code != 503 {
+		t.Fatalf("never read: %d", w.Code)
 	}
 }

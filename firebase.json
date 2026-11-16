@@ -210,6 +210,20 @@
         }
       },
       {
+        "source": "/games/engine",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/games/engine/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/games/p/**",
         "run": {
           "serviceId": "sliqtly-mcp",

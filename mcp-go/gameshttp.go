@@ -8,8 +8,10 @@
 //	                                    (Google), for this resource
 //	GET  /.well-known/oauth-protected-resource/games/mcp   RFC 9728
 //	GET  /games/p/<token>               a game's play link: sends the
-//	                                    browser to the RangerGames web build
-//	                                    with ?pack= (anyone with the link)
+//	                                    browser to /games/engine/?pack=
+//	                                    (anyone with the link)
+//	GET  /games/engine/…                the RangerGames web build, served
+//	                                    from this site (gamesengine.go)
 //	GET  /games/p/<token>/game.rgpk     the game as one pack, for the engine
 //	GET  /games/main/admin              the admin's page: who is invited
 //	                                    and their speech allowance (the
@@ -145,6 +147,8 @@ func serveGames(env *Env, w http.ResponseWriter, r *http.Request) bool {
 	case p == gamesMcpPath:
 		w.Header().Set("Cache-Control", "no-store")
 		serveGamesMcp(env, w, r)
+	case p == gamesPath+"/engine" || strings.HasPrefix(p, gamesEnginePath):
+		serveGamesEngine(env, w, r)
 	case strings.HasPrefix(p, gamesPath+"/p/"):
 		serveGamesPlay(env, w, r, strings.TrimPrefix(p, gamesPath+"/p/"))
 	case p == gamesAdmin || strings.HasPrefix(p, gamesAdmin+"/"):
@@ -186,12 +190,12 @@ func serveGamesPlay(env *Env, w http.ResponseWriter, r *http.Request, rest strin
 	}
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	if file == "" {
-		// the engine's own page plays it, on its own origin
+		// the engine's page on this site plays it (gamesengine.go)
 		q := url.Values{}
-		q.Set("pack", env.games.playURL(token)+"/game.rgpk")
+		q.Set("pack", gamesPath+"/p/"+token+"/game.rgpk")
 		q.Set("game", g.id)
 		w.Header().Set("Cache-Control", "no-store")
-		http.Redirect(w, r, env.games.engine+"?"+q.Encode(), http.StatusFound)
+		http.Redirect(w, r, gamesEnginePath+"?"+q.Encode(), http.StatusFound)
 		return
 	}
 	etag := `"` + docStr(g.doc, "rev") + `"`
