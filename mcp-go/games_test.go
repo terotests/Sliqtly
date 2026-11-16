@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -362,6 +363,17 @@ func TestGamesTTSRequest(t *testing.T) {
 	b, err := gamesGoogleSpeaker(srv.Client(), srv.URL)(context.Background(), "Hei", "fi", "")
 	if err != nil || string(b) != "RIFFwav" {
 		t.Fatalf("%q %v", b, err)
+	}
+	// the API not turned on: said to the caller as Google says it
+	off := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(403)
+		w.Write([]byte(`{"error":{"code":403,"message":"Cloud Text-to-Speech API has not been used in project 1 before or it is disabled."}}`))
+	}))
+	defer off.Close()
+	_, err = gamesGoogleSpeaker(off.Client(), off.URL)(context.Background(), "Hei", "fi", "")
+	var re roomErr
+	if !errors.As(err, &re) || !strings.Contains(re.msg, "has not been used") {
+		t.Fatalf("403: %v", err)
 	}
 }
 

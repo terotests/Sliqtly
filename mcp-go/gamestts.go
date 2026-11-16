@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -87,13 +88,19 @@ func gamesGoogleSpeaker(client *http.Client, endpoint string) gamesSpeaker {
 		}
 		defer res.Body.Close()
 		b, _ := io.ReadAll(io.LimitReader(res.Body, 32<<20))
+		var e struct {
+			Error struct{ Message string } `json:"error"`
+		}
+		json.Unmarshal(b, &e)
 		if res.StatusCode == 400 {
 			// a voice or language Google does not have: the caller's to fix
-			var e struct {
-				Error struct{ Message string } `json:"error"`
-			}
-			json.Unmarshal(b, &e)
 			return nil, roomErr{"Speech: " + e.Error.Message}
+		}
+		if res.StatusCode == 403 || res.StatusCode == 429 {
+			// the API not turned on in the project, no permission, or its
+			// quota: said as Google says it, so that the admin knows what to do
+			log.Printf("text-to-speech: %d %s", res.StatusCode, strings.TrimSpace(string(b[:min(len(b), 300)])))
+			return nil, roomErr{fmt.Sprintf("Speech is not available on the server right now (Google Text-to-Speech %d: %s)", res.StatusCode, e.Error.Message)}
 		}
 		if res.StatusCode != 200 {
 			return nil, fmt.Errorf("text-to-speech: %d %s", res.StatusCode, strings.TrimSpace(string(b[:min(len(b), 300)])))
