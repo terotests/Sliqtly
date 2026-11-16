@@ -66,7 +66,7 @@ func serveGamesHome(env *Env, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a := map[string]any{}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&a); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&a); err != nil && !errors.Is(err, io.EOF) {
 		editorJSON(w, 400, map[string]string{"error": "A JSON object is expected."})
 		return
 	}
@@ -107,6 +107,13 @@ func (s *gamesService) homeCall(ctx context.Context, who gamesWho, op string, a 
 		out["admin"] = u.admin
 		out["max_games"] = u.maxGames
 		out["tts_month"] = u.ttsMonth
+		out["agent"] = u.admin && s.agent != nil
+		if s.agent != nil && u.admin {
+			out["agent_model"] = s.agent.model
+			if c, err := s.agentConfig(ctx); err == nil && c.Model != "" {
+				out["agent_model"] = c.Model
+			}
+		}
 		out["games"] = list.(map[string]any)["games"]
 		if d, err := s.db.Get(ctx, gamesTTSCol, who.uid); err == nil && d != nil {
 			out["tts_used"] = docInt(d[gamesMonth(s.now())])
@@ -115,6 +122,9 @@ func (s *gamesService) homeCall(ctx context.Context, who gamesWho, op string, a 
 	}
 	if _, err := s.user(ctx, who); err != nil {
 		return nil, err
+	}
+	if op == "agent_start" {
+		return s.agentStart(ctx, who, a)
 	}
 	id, _ := a["game_id"].(string)
 	g, err := s.game(ctx, who, id)

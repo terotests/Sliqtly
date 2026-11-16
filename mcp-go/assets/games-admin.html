@@ -43,6 +43,16 @@
     </form>
     <div class="err" id="err"></div>
   </section>
+  <section id="agent">
+    <h2>Tekoälyavustaja (/games-sivun kehote)</h2>
+    <p class="sub" id="agentInfo"></p>
+    <form id="agentForm">
+      <label>Kuukausibudjetti, $<input type="number" name="cap" min="0" max="1000" step="1"></label>
+      <label>Gemini-malli<input name="model" placeholder="gemini-4-argon"></label>
+      <button>Tallenna</button>
+    </form>
+    <div class="err" id="agentErr"></div>
+  </section>
   <section>
     <h2>Käyttäjät <small id="month" style="color:var(--muted);font-weight:400"></small></h2>
     <p class="sub" id="speech"></p>
@@ -98,6 +108,19 @@
     call("invite", { email: f.email.value, tts_month: Number(f.tts.value || 0), max_games: Number(f.games.value || 0), note: f.note.value })
       .then(function (d) { f.reset(); show(d); }).catch(function (x) { err.textContent = x.message; });
   });
+  function agentShow(d) {
+    var f = document.getElementById("agentForm");
+    f.cap.value = d.cap_usd; f.model.value = d.model_set || "";
+    f.model.placeholder = d.model || "gemini-4-argon";
+    document.getElementById("agentInfo").textContent = (d.on ? "Päällä, malli " + d.model + ". " : "Pois päältä palvelimella (ei Google-tunnuksia). ") +
+      "Käytetty " + d.month + ": " + d.spent_usd.toFixed(2) + " $ / " + Number(d.cap_usd).toFixed(2) + " $. Hinta " + d.price_in + " $ / " + d.price_out + " $ miljoonalta syöte- / vastausmerkiltä (tokenilta; ajattelu lasketaan vastaukseen). Kun budjetti täyttyy, uusia kierroksia ei aloiteta.";
+  }
+  document.getElementById("agentForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var f = e.target, ae = document.getElementById("agentErr"); ae.textContent = "";
+    call("agent_set", { cap_usd: Number(f.cap.value || 0), model: f.model.value }).then(agentShow).catch(function (x) { ae.textContent = x.message; });
+  });
+  call("agent").then(agentShow).catch(function (e) { document.getElementById("agentErr").textContent = e.message; });
   call("users").then(show).catch(function (e) { err.textContent = e.message; });
 })();
 </script>

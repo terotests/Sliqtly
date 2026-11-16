@@ -96,6 +96,8 @@ jobs:
           # SLIQTLY_AI_MODEL picks the model (empty = the provider's default)
           AI: ${{ vars.SLIQTLY_AI || 'gemini' }}
           AI_MODEL: ${{ vars.SLIQTLY_AI_MODEL }}
+          # Games' assistant on /games/ (mcp-go/gamesagent.go)
+          GAMES_AI_MODEL: ${{ vars.SLIQTLY_GAMES_AI_MODEL || 'gemini-4-argon' }}
           # Games' speech tool (mcp-go/gamestts.go): Google Cloud
           # Text-to-Speech, used only by the admins and the accounts the
           # Games admin page gives an allowance; "off" turns it off
@@ -123,7 +125,7 @@ jobs:
           # an @, and a list of them commas.
           # SLIQTLY_FIGMA_JOB: the job above reads the Figma files added;
           # SLIQTLY_SHARED_MAX the same 200 MB as storage.rules' figma-upload
-          ENV_VARS="GOMEMLIMIT=400MiB|SLIQTLY_ADMIN_EMAILS=$ADMIN_EMAILS|SLIQTLY_BILLING_TABLE=$BILLING_TABLE|SLIQTLY_PLUGINS=$PLUGINS|SLIQTLY_AI=$AI|SLIQTLY_AI_MODEL=$AI_MODEL|SLIQTLY_FIGMA_JOB=projects/$PROJECT/locations/$REGION/jobs/sliqtly-figma|SLIQTLY_SHARED_MAX=200|SLIQTLY_GAMES_TTS=$GAMES_TTS"
+          ENV_VARS="GOMEMLIMIT=800MiB|SLIQTLY_ADMIN_EMAILS=$ADMIN_EMAILS|SLIQTLY_BILLING_TABLE=$BILLING_TABLE|SLIQTLY_PLUGINS=$PLUGINS|SLIQTLY_AI=$AI|SLIQTLY_AI_MODEL=$AI_MODEL|SLIQTLY_FIGMA_JOB=projects/$PROJECT/locations/$REGION/jobs/sliqtly-figma|SLIQTLY_SHARED_MAX=200|SLIQTLY_GAMES_TTS=$GAMES_TTS|SLIQTLY_GAMES_AI_MODEL=$GAMES_AI_MODEL"
           if [ "$GAMES_TTS" = "google" ]; then
             gcloud services enable texttospeech.googleapis.com --project "$PROJECT" \
               || echo "::warning::The Text-to-Speech API could not be turned on (the deploying account needs Service Usage Admin): Games' speak tool fails until it is"
@@ -152,7 +154,7 @@ jobs:
           # engine (rg_web.wasm, about 400 MB at its peak, once an instance)
           gcloud run deploy sliqtly-mcp --image "$IMAGE:$GITHUB_SHA" \
             --region "$REGION" --project "$PROJECT" --allow-unauthenticated \
-            --cpu 1 --memory 1Gi --concurrency 8 --max-instances 10 --cpu-boost "${ENV_ARGS[@]}"
+            --cpu 1 --memory 1Gi --concurrency 8 --max-instances 10 --cpu-boost --timeout 900 "${ENV_ARGS[@]}"
           URL=$(gcloud run services describe sliqtly-mcp --region "$REGION" --project "$PROJECT" --format 'value(status.url)')
           echo "Service: $URL/mcp" | tee -a "$GITHUB_STEP_SUMMARY"
           # Warden's morning info screens (mcp-go/wardeninfo.go): the same

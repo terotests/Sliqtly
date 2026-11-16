@@ -252,6 +252,13 @@
         }
       },
       {
+        "source": "/games/agent/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/games/main/admin",
         "run": {
           "serviceId": "sliqtly-mcp",

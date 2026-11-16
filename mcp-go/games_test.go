@@ -519,3 +519,140 @@ func TestGamesHome(t *testing.T) {
 		t.Fatal("admin limited")
 	}
 }
+
+// The assistant on /games/: a run makes a game with the tools, round by
+// round, its cost is counted, and the month's budget stops it.
+func TestGamesAgent(t *testing.T) {
+	env, _, _ := gamesEnv(t)
+	ctx := context.Background()
+	s := env.games
+	s.now = func() time.Time { return time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC) }
+	admin := gamesWho{uid: "u-admin", name: "Admin", email: "admin@example.com"}
+	// the model: create_game, then write_files and a screenshot, then words
+	var asked []map[string]any
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var ask map[string]any
+		json.NewDecoder(r.Body).Decode(&ask)
+		asked = append(asked, ask)
+		contents := ask["contents"].([]any)
+		var parts []any
+		switch len(contents) {
+		case 1:
+			parts = []any{map[string]any{"functionCall": map[string]any{"name": "create_game", "args": map[string]any{"name": "Pallot"}}, "thoughtSignature": "c2ln"}}
+		case 3:
+			last := contents[2].(map[string]any)["parts"].([]any)[0].(map[string]any)["functionResponse"].(map[string]any)
+			var made map[string]any
+			json.Unmarshal([]byte(last["response"].(map[string]any)["content"].(string)), &made)
+			id := made["game_id"].(string)
+			parts = []any{
+				map[string]any{"text": "Kirjoitan pelin."},
+				map[string]any{"functionCall": map[string]any{"name": "write_files", "args": map[string]any{"game_id": id, "files": []any{map[string]any{"path": "notes.txt", "text": "hei"}}}}},
+				map[string]any{"functionCall": map[string]any{"name": "publish_game", "args": map[string]any{"game_id": id}}},
+			}
+		default:
+			parts = []any{map[string]any{"text": "Valmis: pallopeli."}}
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"candidates":    []any{map[string]any{"content": map[string]any{"role": "model", "parts": parts}, "finishReason": "STOP"}},
+			"usageMetadata": map[string]any{"promptTokenCount": 100000, "candidatesTokenCount": 1000, "thoughtsTokenCount": 9000},
+		})
+	}))
+	defer gem.Close()
+	s.agent = &geminiModel{http: gem.Client(), model: "gemini-4-argon", key: "k", base: gem.URL, maxOut: gamesAgentMaxOut}
+
+	kid := gamesWho{uid: "u-kid", email: "kid@example.com"}
+	s.adminCall(ctx, "invite", map[string]any{"email": "kid@example.com"})
+	if _, err := s.homeCall(ctx, kid, "agent_start", map[string]any{"prompt": "peli"}); err == nil {
+		t.Fatal("the assistant for an account not the admin's")
+	}
+	me, _ := s.homeCall(ctx, admin, "me", nil)
+	if me.(map[string]any)["agent"] != true {
+		t.Fatalf("me %v", me)
+	}
+	out, err := s.homeCall(ctx, admin, "agent_start", map[string]any{"prompt": "Tee pallopeli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := out.(map[string]any)
+	id, key := st["run_id"].(string), st["key"].(string)
+	if st["step_url"] != gamesAgentStepPath {
+		t.Fatalf("step_url %v", st["step_url"])
+	}
+	if _, err := s.agentStep(ctx, id, "wrong"); err == nil {
+		t.Fatal("a step with the wrong key")
+	}
+	// over HTTP, without a cookie: the key is enough
+	step := func() map[string]any {
+		r := httptest.NewRequest("POST", gamesAgentStepPath, strings.NewReader(`{"run_id":"`+id+`","key":"`+key+`"}`))
+		r.Header.Set("Content-Type", "text/plain")
+		w := gamesServe(env, r)
+		var m map[string]any
+		json.Unmarshal(w.Body.Bytes(), &m)
+		if w.Code != 200 {
+			t.Fatalf("step: %d %v", w.Code, m)
+		}
+		if w.Header().Get("Access-Control-Allow-Origin") != gamesBase {
+			t.Fatal("no CORS for the page")
+		}
+		return m
+	}
+	s1 := step()
+	gid, _ := s1["game_id"].(string)
+	if s1["done"] != false || gid == "" || s1["preview_url"] == nil {
+		t.Fatalf("round 1: %v", s1)
+	}
+	// $2 / $10 a million in November: 100k in, 10k out (thinking too)
+	if s1["step_usd"] != 0.3 {
+		t.Fatalf("cost %v", s1["step_usd"])
+	}
+	s2 := step()
+	logs := s2["log"].([]any)
+	if len(logs) != 2 || logs[0].(map[string]any)["about"] != "notes.txt" || logs[1].(map[string]any)["error"] == nil {
+		t.Fatalf("round 2 log: %v", logs)
+	}
+	if s2["text"] != "Kirjoitan pelin." {
+		t.Fatalf("round 2 text %v", s2["text"])
+	}
+	g, _ := s.game(ctx, admin, gid)
+	if g.doc["published"] == true {
+		t.Fatal("the assistant published")
+	}
+	if _, err := s.readFile(ctx, g, map[string]any{"path": "notes.txt"}); err != nil {
+		t.Fatalf("written: %v", err)
+	}
+	s3 := step()
+	if s3["done"] != true || s3["text"] != "Valmis: pallopeli." || s3["cost_usd"] != 0.9 {
+		t.Fatalf("round 3: %v", s3)
+	}
+	// the thought's signature went back as it came
+	if b, _ := json.Marshal(asked[1]["contents"]); !strings.Contains(string(b), `"thoughtSignature":"c2ln"`) {
+		t.Fatal("the signature was lost")
+	}
+	if tools := asked[0]["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any); len(tools) != len(gamesAgentTools) {
+		t.Fatalf("%d tools", len(tools))
+	}
+	// the budget: $0.90 spent; a cap of $0.50 stops the next message
+	a, _ := s.adminCall(ctx, "agent_set", map[string]any{"cap_usd": 0.5})
+	if a.(map[string]any)["spent_usd"] != 0.9 {
+		t.Fatalf("admin %v", a)
+	}
+	if _, err := s.homeCall(ctx, admin, "agent_start", map[string]any{"prompt": "lisää", "run_id": id, "key": key}); err == nil || !strings.Contains(err.Error(), "budget") {
+		t.Fatalf("over the budget: %v", err)
+	}
+	// December's price
+	if in, out := (gamesAgentConfig{}).prices(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)); in != 4 || out != 20 {
+		t.Fatalf("december %v %v", in, out)
+	}
+}
+
+// only the latest screenshots keep their pictures
+func TestGamesAgentForget(t *testing.T) {
+	shot := func() geminiContent {
+		return geminiContent{Role: "user", Parts: []geminiPart{{FunctionResponse: &geminiResponse{Name: "screenshot_game", Response: map[string]any{"content": "ok"}, Parts: []geminiInline{{InlineData: &geminiData{MimeType: "image/png", Data: "AA=="}}}}}}}
+	}
+	c := []geminiContent{shot(), shot(), shot()}
+	gamesAgentForget(c, 2)
+	if len(c[0].Parts[0].FunctionResponse.Parts) != 0 || len(c[1].Parts[0].FunctionResponse.Parts) != 1 || len(c[2].Parts[0].FunctionResponse.Parts) != 1 {
+		t.Fatal("pictures kept")
+	}
+}

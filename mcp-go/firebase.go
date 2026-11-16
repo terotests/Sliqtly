@@ -366,6 +366,7 @@ func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) er
 			return err
 		}
 		env.games.tts = tts
+		env.games.agent = newGamesAgentModel(ctx)
 	}
 	return nil
 }

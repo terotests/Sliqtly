@@ -29,6 +29,8 @@ type geminiModel struct {
 	base string
 	// the functions it may call (aiEditTools)
 	tools []aiTool
+	// the most tokens an answer may have, thinking included (0: 8192)
+	maxOut int
 }
 
 func (m *geminiModel) usesTools() bool { return len(m.tools) > 0 }
@@ -275,10 +277,14 @@ type geminiResult struct {
 }
 
 func (m *geminiModel) generate(ctx context.Context, system string, contents []geminiContent, decls []map[string]any) (geminiResult, error) {
+	maxOut := m.maxOut
+	if maxOut <= 0 {
+		maxOut = 8192
+	}
 	ask := map[string]any{
 		"systemInstruction": geminiContent{Parts: []geminiPart{{Text: system}}},
 		"contents":          contents,
-		"generationConfig":  map[string]any{"maxOutputTokens": 8192},
+		"generationConfig":  map[string]any{"maxOutputTokens": maxOut},
 	}
 	if len(decls) > 0 {
 		ask["tools"] = []map[string]any{{"functionDeclarations": decls}}
