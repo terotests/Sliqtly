@@ -10,5 +10,8 @@
 .sinfo{font-size:13px;color:#e6e8ff;width:260px;}
 .step{width:100%;flex-direction:row;gap:8px;align-items:center;}
 .n{width:24px;height:24px;border-radius:12px;background-color:#3a86ff;color:#ffffff;font-size:13px;font-weight:700;align-items:center;justify-content:center;}
-.url{margin-left:32px;padding:6px 10px;border-radius:8px;background-color:#0d0f1f;color:#8ecae6;font-size:14px;font-weight:700;}
+.urlrow{width:100%;flex-direction:row;gap:8px;align-items:center;padding-left:32px;}
+.url{flex-grow:1;padding:6px 10px;border-radius:8px;background-color:#0d0f1f;color:#8ecae6;font-size:14px;font-weight:700;}
+.copy{height:30px;padding:0px 12px;border-radius:8px;background-color:#3a86ff;color:#ffffff;font-size:13px;font-weight:700;align-items:center;justify-content:center;}
+.copy.done{background-color:#2a9d58;}
 .note{width:100%;font-size:11px;color:#a9acd0;}
