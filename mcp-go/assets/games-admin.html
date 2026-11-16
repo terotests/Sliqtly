@@ -37,6 +37,7 @@
     <form id="invite">
       <label>Google-osoite<input type="email" name="email" required placeholder="nimi@gmail.com"></label>
       <label>Puhe, merkkiä / kk (0 = ei)<input type="number" name="tts" min="0" step="1000" value="0"></label>
+      <label>Pelejä enintään<input type="number" name="games" min="0" max="1000" step="1" value="30"></label>
       <label>Muistiinpano<input class="note" name="note" maxlength="200"></label>
       <button>Tallenna</button>
     </form>
@@ -46,7 +47,7 @@
     <h2>Käyttäjät <small id="month" style="color:var(--muted);font-weight:400"></small></h2>
     <p class="sub" id="speech"></p>
     <div class="wrap"><table>
-      <thead><tr><th>Osoite</th><th>Nimi</th><th>Pelejä</th><th>Puhe käytetty / kk</th><th>Muistiinpano</th><th></th></tr></thead>
+      <thead><tr><th>Osoite</th><th>Nimi</th><th>Pelejä / enintään</th><th>Puhe käytetty / kk</th><th>Muistiinpano</th><th></th></tr></thead>
       <tbody id="rows"></tbody>
     </table></div>
   </section>
@@ -65,21 +66,21 @@
   function show(d) {
     document.getElementById("month").textContent = d.month;
     document.getElementById("speech").textContent = (d.speech_on ? "Google Cloud TTS on päällä. " : "Puhe on pois päältä palvelimella (SLIQTLY_GAMES_TTS). ") +
-      "Ylläpitäjillä (" + (d.admins || []).join(", ") + ") ei ole rajaa.";
+      "Ylläpitäjillä (" + (d.admins || []).join(", ") + ") ei ole rajaa puheessa eikä pelien määrässä.";
     var rows = document.getElementById("rows");
     rows.textContent = "";
     (d.users || []).forEach(function (u) {
       var tr = el("tr");
       tr.appendChild(el("td", u.email));
       tr.appendChild(el("td", u.name || ""));
-      var g = el("td", u.games === undefined ? "–" : String(u.games)); g.className = "num"; tr.appendChild(g);
+      var g = el("td", (u.games === undefined ? "–" : String(u.games)) + " / " + (u.max_games === undefined ? 30 : u.max_games)); g.className = "num"; tr.appendChild(g);
       var t = el("td", fmt(u.tts_used) + " / " + (u.tts_month ? fmt(u.tts_month) : "ei puhetta")); t.className = "num"; tr.appendChild(t);
       tr.appendChild(el("td", u.note || ""));
       var td = el("td"), edit = el("button", "Muokkaa"), rm = el("button", "Poista");
       edit.className = "link"; edit.style.color = "var(--accent)"; rm.className = "link";
       edit.onclick = function () {
         var f = document.getElementById("invite");
-        f.email.value = u.email; f.tts.value = u.tts_month || 0; f.note.value = u.note || ""; f.tts.focus();
+        f.email.value = u.email; f.tts.value = u.tts_month || 0; f.games.value = u.max_games === undefined ? 30 : u.max_games; f.note.value = u.note || ""; f.tts.focus();
       };
       rm.onclick = function () {
         if (!window.confirm("Poistetaanko " + u.email + "? Pelit jäävät, mutta hän ei voi enää muokata niitä.")) return;
@@ -94,7 +95,7 @@
     e.preventDefault();
     err.textContent = "";
     var f = e.target;
-    call("invite", { email: f.email.value, tts_month: Number(f.tts.value || 0), note: f.note.value })
+    call("invite", { email: f.email.value, tts_month: Number(f.tts.value || 0), max_games: Number(f.games.value || 0), note: f.note.value })
       .then(function (d) { f.reset(); show(d); }).catch(function (x) { err.textContent = x.message; });
   });
   call("users").then(show).catch(function (e) { err.textContent = e.message; });
