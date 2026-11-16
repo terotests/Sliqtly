@@ -19,6 +19,10 @@ phone held upright, about 360 × 640 to 720 points.
 Write files with `write_files`; open the `preview_url` to play the newest version (it reloads the
 files every time it opens).
 
+`screenshot_game` runs the game here and returns a picture of its screen after the frames asked
+(60 a second), with what it logged and any error; taps and key presses can play it on the way.
+Use it to check a change before giving the user the link.
+
 ## The frame loop
 
 Define any of these top-level functions; the engine calls them.

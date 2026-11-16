@@ -58,6 +58,9 @@ var gamesLimit = rateLimiter(400, 10*time.Minute)
 // pack downloads per address in ten minutes
 var gamesPlayLimit = rateLimiter(300, 10*time.Minute)
 
+// screenshot_game runs the engine here: a few a minute for each account
+var gamesShotLimit = rateLimiter(60, 10*time.Minute)
+
 var gamesGameID = strProp("The game's id (list_games)")
 
 var gamesTools = []roomTool{
@@ -106,6 +109,19 @@ var gamesTools = []roomTool{
 		desc:     "Speech made from text (Google Cloud Text-to-Speech) saved as a .wav file in the game, played with rg.sound(path). Only for accounts whose plan includes speech; counts characters against the monthly allowance.",
 		props:    map[string]any{"game_id": gamesGameID, "text": strProp("What is said, up to 1500 characters"), "path": strProp("Where the sound goes, e.g. sounds/hello.wav"), "lang": strProp("fi (default), en, es, sv, de, fr… or a full code such as en-GB"), "voice": strProp("A Google voice name, e.g. fi-FI-Wavenet-A; the language's default when left out")},
 		required: []string{"game_id", "text", "path"}},
+	{name: "screenshot_game", title: "Screenshot a game", readOnly: true,
+		desc: "Runs the game here in the RangerGames engine for a number of frames (60 a second) and returns a picture of the last frame (PNG) with what the game logged and any error. taps and keys play the game on the way: a tap is pressed on its frame and let go on the next, at x, y in the game's own coordinates (game.json's width; height as the screen gives). Emoji are drawn as outlines in the text's colour, and 3D without WebGL lighting.",
+		props: map[string]any{"game_id": gamesGameID,
+			"frames": map[string]any{"type": "integer", "description": "Frames to run before the picture, 1 to 1200 (default 30, half a second)"},
+			"width":  map[string]any{"type": "integer", "description": "Screen width in CSS pixels, 160 to 1280 (default 360)"},
+			"height": map[string]any{"type": "integer", "description": "Screen height in CSS pixels, 160 to 1280 (default 640)"},
+			"taps": map[string]any{"type": "array", "description": "Taps on the way", "items": map[string]any{"type": "object", "properties": map[string]any{
+				"x": map[string]any{"type": "number"}, "y": map[string]any{"type": "number"},
+				"frame": map[string]any{"type": "integer", "description": "The frame it is pressed on (1 = the first)"}}, "required": []string{"x", "y", "frame"}}},
+			"keys": map[string]any{"type": "array", "description": "Key presses on the way (ArrowLeft, Enter, a, Space…)", "items": map[string]any{"type": "object", "properties": map[string]any{
+				"key": strProp("The key, as a browser names it"), "frame": map[string]any{"type": "integer"}}, "required": []string{"key", "frame"}}},
+		},
+		required: []string{"game_id"}},
 }
 
 func findGamesTool(name string) *roomTool {
@@ -349,6 +365,11 @@ func gamesRPC(ctx context.Context, env *Env, who gamesWho, msg any) any {
 				return ok200(wardenToolText("Too many changes in a short time; try again in a few minutes.", true))
 			}
 		}
+		if name == "screenshot_game" {
+			if why := gamesShotLimit(who.uid); why != "" {
+				return ok200(wardenToolText("Too many screenshots in a short time; try again in a few minutes.", true))
+			}
+		}
 		out, err := env.games.call(ctx, who, name, args)
 		var re roomErr
 		switch {
@@ -357,6 +378,12 @@ func gamesRPC(ctx context.Context, env *Env, who gamesWho, msg any) any {
 		case err != nil:
 			log.Printf("games mcp %s: %v", name, err)
 			return ok200(wardenToolText("Games could not be reached; try again in a moment.", true))
+		}
+		if shot, ok := out.(*gamesShotResult); ok {
+			return ok200(map[string]any{"content": []any{
+				map[string]any{"type": "image", "data": gamesPNGBase64(shot.png), "mimeType": "image/png"},
+				map[string]any{"type": "text", "text": shot.text()},
+			}, "isError": false})
 		}
 		if o, ok := out.(map[string]any); ok && name == "games_guide" {
 			return ok200(wardenToolText(o["guide"].(string), false))

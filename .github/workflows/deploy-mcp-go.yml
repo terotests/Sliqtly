@@ -148,9 +148,11 @@ jobs:
               || echo "::warning::$SA could not be let sign its own tokens: signing in with GitHub fails until it has Service Account Token Creator on itself"
           fi
           ENV_ARGS=(--update-env-vars "^|^$ENV_VARS")
+          # --memory 1Gi: Games' screenshot_game compiles the RangerGames
+          # engine (rg_web.wasm, about 400 MB at its peak, once an instance)
           gcloud run deploy sliqtly-mcp --image "$IMAGE:$GITHUB_SHA" \
             --region "$REGION" --project "$PROJECT" --allow-unauthenticated \
-            --cpu 1 --memory 512Mi --concurrency 8 --max-instances 10 --cpu-boost "${ENV_ARGS[@]}"
+            --cpu 1 --memory 1Gi --concurrency 8 --max-instances 10 --cpu-boost "${ENV_ARGS[@]}"
           URL=$(gcloud run services describe sliqtly-mcp --region "$REGION" --project "$PROJECT" --format 'value(status.url)')
           echo "Service: $URL/mcp" | tee -a "$GITHUB_STEP_SUMMARY"
           # Warden's morning info screens (mcp-go/wardeninfo.go): the same

@@ -712,6 +712,8 @@ func (s *gamesService) call(ctx context.Context, who gamesWho, op string, a map[
 		return s.deleteGame(ctx, g, a)
 	case "speak":
 		return s.speak(ctx, who, u, g, a)
+	case "screenshot_game":
+		return s.screenshot(ctx, g, a)
 	}
 	return nil, roomErr{"No such tool: " + op}
 }

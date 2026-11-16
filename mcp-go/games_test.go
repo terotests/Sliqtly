@@ -409,3 +409,47 @@ func TestGamesEngineFromSite(t *testing.T) {
 		t.Fatalf("never read: %d", w.Code)
 	}
 }
+
+// screenshot_game's painting: the engine's draw stream read as render.go's
+// list (a rect and a clip), painted inside the game's area
+func TestGamesShotPaint(t *testing.T) {
+	rec := func(k, x, y, w, h, r, g, b, a float64) []float32 {
+		n := make([]float32, 23)
+		for i, v := range []float64{k, x, y, w, h, r, g, b, a} {
+			n[i] = float32(v)
+		}
+		return n
+	}
+	var nums []float32
+	nums = append(nums, rec(0, 0, 0, 100, 100, 255, 0, 0, 1)...)
+	nums = append(nums, rec(4, 0, 0, 50, 50, 0, 0, 0, 0)...)
+	nums = append(nums, rec(0, 0, 0, 100, 100, 0, 0, 255, 1)...)
+	nums = append(nums, rec(5, 0, 0, 0, 0, 0, 0, 0, 0)...)
+	cmds, pics := gamesDisplayList(nums, nil)
+	if len(cmds) != 4 || len(pics) != 0 {
+		t.Fatalf("cmds %d pics %d", len(cmds), len(pics))
+	}
+	// a 100×100 game at scale 2, 10 px from the left of a 220×200 screen
+	img := gamesPaint(cmds, nil, 220, 200, [5]float64{2, 10, 0, 100, 100})
+	at := func(x, y int) [3]uint8 {
+		c := img.RGBAAt(x, y)
+		return [3]uint8{c.R, c.G, c.B}
+	}
+	if at(5, 100) != [3]uint8{0, 0, 0} || at(215, 100) != [3]uint8{0, 0, 0} {
+		t.Fatal("outside the game's area is not black")
+	}
+	if at(50, 50) != [3]uint8{0, 0, 255} || at(150, 150) != [3]uint8{255, 0, 0} {
+		t.Fatalf("inside: %v %v", at(50, 50), at(150, 150))
+	}
+	// the arguments
+	if _, err := gamesShotArgs(map[string]any{"frames": float64(5000)}); err == nil {
+		t.Fatal("too many frames")
+	}
+	if _, err := gamesShotArgs(map[string]any{"frames": float64(10), "taps": []any{map[string]any{"x": 1.0, "y": 2.0, "frame": 11.0}}}); err == nil {
+		t.Fatal("a tap after the last frame")
+	}
+	in, err := gamesShotArgs(map[string]any{"taps": []any{map[string]any{"x": 1.0, "y": 2.0, "frame": 3.0}}, "keys": []any{map[string]any{"key": "Enter", "frame": 4.0}}})
+	if err != nil || in.frames != 30 || in.w != 360 || in.h != 640 || len(in.taps[3]) != 1 || in.keys[4][0] != "Enter" {
+		t.Fatalf("args %+v %v", in, err)
+	}
+}
