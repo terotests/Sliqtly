@@ -181,6 +181,8 @@ func serveGames(env *Env, w http.ResponseWriter, r *http.Request) bool {
 	case p == gamesAdmin || strings.HasPrefix(p, gamesAdmin+"/"):
 		w.Header().Set("Cache-Control", "no-store")
 		serveGamesAdmin(env, w, r)
+	case p == gamesAgentStepPath:
+		serveGamesAgentStep(env, w, r)
 	case p == gamesPath || p == gamesPath+"/" || strings.HasPrefix(p, gamesPath+"/api/"):
 		w.Header().Set("Cache-Control", "no-store")
 		serveGamesHome(env, w, r)
@@ -488,6 +490,10 @@ func (s *gamesService) adminCall(ctx context.Context, op string, a map[string]an
 	switch op {
 	case "users":
 		return s.adminUsers(ctx)
+	case "agent":
+		return s.agentAdmin(ctx)
+	case "agent_set":
+		return s.agentAdminSet(ctx, a)
 	case "invite":
 		email, _ := a["email"].(string)
 		email = strings.ToLower(strings.TrimSpace(email))

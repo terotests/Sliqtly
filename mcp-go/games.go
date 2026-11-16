@@ -98,6 +98,8 @@ type gamesService struct {
 	// removes Storage objects under a prefix; nil: blobs stay
 	removePrefix func(ctx context.Context, prefix string)
 	tts          gamesSpeaker
+	// Games' own assistant (gamesagent.go); nil: none
+	agent *geminiModel
 }
 
 func newGamesService(db DB, bucket Bucket, admins []string) *gamesService {

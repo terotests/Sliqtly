@@ -10,6 +10,7 @@ const T = fi ? {
   s2: "Kirjaudu Google-tilillä, kun avustaja pyytää.",
   s3: "Pyydä avustajaa tekemään peli. Se antaa linkin, jolla pelin voi kokeilla heti.",
   invite: "Pelien tekeminen on toistaiseksi kutsupohjaista; pelaaminen linkillä on kaikille avointa.",
+  copy: "Kopioi", copied: "Kopioitu ✓",
 } : {
   play: "Play", again: "Play again",
   make: "Make your own game",
@@ -18,16 +19,30 @@ const T = fi ? {
   s2: "Sign in with your Google account when the assistant asks.",
   s3: "Ask the assistant to make a game. It gives you a link to try it at once.",
   invite: "Making games is by invitation for now; anyone with a link can play.",
+  copy: "Copy", copied: "Copied ✓",
 };
 let games: any[] = [];
 let played = false;
+const MCP = "https://sliqtly.com/games/mcp";
+// seconds the copy button still says it copied
+let copiedFor = 0;
 
 function init() {
   games = rg.games();
   played = rg.load("played", false);
 }
 
-function tick(dt: number) {}
+function tick(dt: number) {
+  if (copiedFor > 0) copiedFor = Math.max(0, copiedFor - dt);
+}
+
+function copyMcp() {
+  if (!rg.copy) return;
+  rg.copy(MCP);
+  rg.sound("click");
+  rg.vibrate(15);
+  copiedFor = 2;
+}
 
 function play(id: string) {
   rg.save("played", true);
@@ -51,7 +66,10 @@ function view() {
         <div className="title">{T.make}</div>
         <div className="info">{T.how}</div>
         <div className="step"><div className="n">1</div><div className="sinfo">{T.s1}</div></div>
-        <div className="url">sliqtly.com/games/mcp</div>
+        <div className="urlrow">
+          <div className="url">sliqtly.com/games/mcp</div>
+          {rg.copy ? <div className={copiedFor > 0 ? "copy done" : "copy"} onClick={copyMcp}>{copiedFor > 0 ? T.copied : T.copy}</div> : null}
+        </div>
         <div className="step"><div className="n">2</div><div className="sinfo">{T.s2}</div></div>
         <div className="step"><div className="n">3</div><div className="sinfo">{T.s3}</div></div>
         <div className="note">{T.invite}</div>

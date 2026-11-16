@@ -73,6 +73,7 @@ Emoji draw in colour and make good game pieces (🐰 ⭐ 🍎 🚀).
 | `rg.sound(name, opts?)` | built-in effect: `jump coin click win lose pop hit tick whoosh star wrong`, or `note` with `{ note: 60..96, len, wave: "square"\|"sine"\|"triangle" }`; or a file `"sounds/x.wav"`. opts `{ volume, pitch }` |
 | `rg.music(file, opts?)`, `rg.stopMusic()` | a looping sound file |
 | `rg.vibrate(ms \| [on, off, on…])` | phone vibration |
+| `rg.copy(text)` | puts text on the clipboard (call it from a tap) |
 | `rg.celebrate(x, y, { big })` | stars and confetti with a sound: use it for every success |
 | `rg.save(key, value)`, `rg.load(key, fallback)` | kept on the device between plays (JSON values) |
 | `rg.random()`, `rg.range(lo, hi)`, `rg.pick(arr)`, `rg.shuffle(arr)`, `rg.seed(n)` | seeded random |
