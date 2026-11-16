@@ -75,6 +75,8 @@ var gamesTypes = map[string]struct {
 	".png": {"image/png", false}, ".jpg": {"image/jpeg", false}, ".jpeg": {"image/jpeg", false},
 	".webp": {"image/webp", false}, ".gif": {"image/gif", false},
 	".wav": {"audio/wav", false}, ".mp3": {"audio/mpeg", false}, ".ogg": {"audio/ogg", false},
+	// 3D models (GLTFLoader): a .glb, or a .gltf with its .bin
+	".glb": {"model/gltf-binary", false}, ".gltf": {"model/gltf+json", true}, ".bin": {"application/octet-stream", false},
 }
 
 // the account calling: id, name and the address its sign-in vouched for
@@ -355,7 +357,7 @@ func gamesCheckPath(p string) (string, error) {
 		return "", roomErr{fmt.Sprintf("%q: a path inside the game's folder, e.g. game.tsx, img/cat.png or sounds/hop.wav (letters, digits, . _ -)", p)}
 	}
 	if _, ok := gamesTypes[gamesExt(p)]; !ok {
-		return "", roomErr{fmt.Sprintf("%q: the folder takes .json .tsx .ts .js .css .txt .md, pictures .png .jpg .webp .gif and sounds .wav .mp3 .ogg", p)}
+		return "", roomErr{fmt.Sprintf("%q: the folder takes .json .tsx .ts .js .css .txt .md, pictures .png .jpg .webp .gif, sounds .wav .mp3 .ogg and 3D models .glb .gltf .bin", p)}
 	}
 	return p, nil
 }
