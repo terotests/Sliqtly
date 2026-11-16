@@ -91,8 +91,10 @@ type gamesService struct {
 	now    func() time.Time
 	// the site's address, for the links
 	base string
-	// the RangerGames web build the links open (?pack=)
-	engine string
+	// where the RangerGames web build is read from (its GitHub Pages);
+	// /games/engine/ serves it from sliqtly.com (gamesengine.go)
+	engineSrc string
+	engine    *gamesEngine
 	// removes Storage objects under a prefix; nil: blobs stay
 	removePrefix func(ctx context.Context, prefix string)
 	tts          gamesSpeaker
@@ -103,7 +105,7 @@ func newGamesService(db DB, bucket Bucket, admins []string) *gamesService {
 		return nil
 	}
 	return &gamesService{db: db, bucket: bucket, admins: admins, now: time.Now,
-		engine: "https://terotests.github.io/RangerGames/"}
+		engineSrc: "https://terotests.github.io/RangerGames/", engine: newGamesEngine(nil)}
 }
 
 func gamesRandom(n int) string {
@@ -710,6 +712,8 @@ func (s *gamesService) call(ctx context.Context, who gamesWho, op string, a map[
 		return s.deleteGame(ctx, g, a)
 	case "speak":
 		return s.speak(ctx, who, u, g, a)
+	case "screenshot_game":
+		return s.screenshot(ctx, g, a)
 	}
 	return nil, roomErr{"No such tool: " + op}
 }

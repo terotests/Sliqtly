@@ -359,7 +359,7 @@ func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) er
 	}
 	if env.games = newGamesService(env.DB, env.Bucket, gamesAdmins); env.games != nil {
 		if v := os.Getenv("SLIQTLY_GAMES_ENGINE"); v != "" {
-			env.games.engine = v
+			env.games.engineSrc = strings.TrimRight(v, "/") + "/"
 		}
 		tts, err := gamesSpeakerFromEnv(ctx, os.Getenv("SLIQTLY_GAMES_TTS"))
 		if err != nil {

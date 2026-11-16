@@ -1,0 +1,159 @@
+<!doctype html>
+<!-- The RangerGames web page (terotests/RangerGames web/index.html), served
+     by Sliqtly at /games/engine/ for Games links (mcp-go/gamesengine.go);
+     its scripts and engine come from the RangerGames build. -->
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1b1f3b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>RangerGames</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  @font-face { font-family: "Fredoka"; src: url("fonts/Fredoka.ttf") format("truetype"); font-weight: 300 700; font-display: swap; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; touch-action: none;
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  /* #device is the phone's screen: the whole window on a phone (and in the
+     playground, which draws its own phone), a phone-sized frame on a desktop */
+  #device { position: fixed; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; }
+  #game { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  canvas { position: absolute; left: 0; top: 0; display: block; touch-action: none; }
+  /* phone browser: the game keeps out of the notch, rounded corners and the
+     home bar (iPhone), as the installed app does */
+  body.phone #device { left: env(safe-area-inset-left, 0px); top: env(safe-area-inset-top, 0px);
+    width: auto; height: auto; right: env(safe-area-inset-right, 0px); bottom: env(safe-area-inset-bottom, 0px); }
+  body.framed { background: radial-gradient(circle at 50% 35%, #2d3366 0%, #12142a 70%); }
+  body.framed #device { left: 50%; top: 50%; border-radius: 22px; background: #1b1f3b;
+    box-shadow: 0 0 0 10px #0b0c16, 0 0 0 11px #3a3f63, 0 24px 60px rgba(0,0,0,.6); }
+  #tools { position: fixed; right: 12px; bottom: 10px; display: none; gap: 8px; font: 500 13px "Fredoka", sans-serif; }
+  body.framed #tools { display: flex; }
+  #tools a { color: #c9cdf5; opacity: .6; text-decoration: none; padding: 4px 8px; border-radius: 8px; background: rgba(255,255,255,.06); }
+  #tools a:hover { opacity: 1; }
+  #three { display: none; }
+  #status { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;
+    color: #fff; font: 600 20px "Fredoka", sans-serif; background: #1b1f3b; }
+  #status small { margin-top: 12px; font-weight: 400; font-size: 14px; opacity: .7; max-width: 80%; text-align: center; }
+  #debug { position: fixed; right: 4px; top: 4px; display: none; color: #0f0; font: 12px monospace; background: rgba(0,0,0,.5); padding: 2px 4px; }
+</style>
+</head>
+<body>
+<div id="device"><div id="game">
+<canvas id="gl3d" style="visibility: hidden"></canvas>
+<canvas id="three"></canvas>
+<canvas id="screen"></canvas>
+</div></div>
+<div id="tools"><a href="?mode=mobile" id="tofull">Koko ikkuna</a></div>
+<div id="status">RangerGames<small>Ladataan…</small></div>
+<div id="debug"></div>
+<script src="js/wasi.js"></script>
+<script src="js/painter.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/three-bridge.js"></script>
+<script src="js/gl3d.js"></script>
+<script src="js/net.js"></script>
+<script src="js/host.js"></script>
+<script>
+  (function () {
+    var status = document.getElementById("status");
+    if (!window.WebAssembly) {
+      status.innerHTML = "RangerGames<small>Tämä selain ei tue WebAssemblyä.</small>";
+      return;
+    }
+    // Phone or desktop. A phone (touch screen, or a narrow window) gets the
+    // whole screen like the installed app, and goes full screen at the first
+    // touch. A desktop gets the game in a phone-sized frame at the phone's own
+    // size in dp (Huawei P20: 360 × 720), zoomed to fit the window, so the
+    // menus look as they do on the phone instead of stretching across the
+    // screen. ?mode=mobile or ?mode=frame chooses by hand.
+    // a game's own page (peli/<id>/, made by build-web.sh) sets RG_PAGE: that
+    // game, full window, whatever the device
+    var page = window.RG_PAGE || {};
+    var params = new URLSearchParams(location.search), mode = params.get("mode") || page.mode;
+    var embedded = window.top !== window;
+    var coarse = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+    var framed = mode === "frame" || (mode !== "mobile" && !embedded && !coarse && innerWidth > 600);
+    var PW = 360, PH = 720;
+    var device = document.getElementById("device"), game = document.getElementById("game");
+    if (framed) document.body.classList.add("framed");
+    else if (!embedded) document.body.classList.add("phone");
+    var tofull = document.getElementById("tofull");
+    // "Koko ikkuna": the address as it is now (it follows the running game)
+    tofull.addEventListener("click", function () {
+      var q = new URLSearchParams(location.search); q.set("mode", "mobile");
+      tofull.href = "?" + q.toString();
+    });
+    params.set("mode", "mobile"); tofull.href = "?" + params.toString();
+    function fit() {
+      var W = innerWidth, H = innerHeight;
+      if (!framed) {
+        device.style.width = device.style.height = "";
+        device.style.marginLeft = device.style.marginTop = "";
+        if (!embedded) { W = device.clientWidth || W; H = device.clientHeight || H; }
+        game.style.transform = "";
+        game.style.width = W + "px"; game.style.height = H + "px";
+        return { w: W, h: H, zoom: 1 };
+      }
+      // room for the bezel (11 px) and the links under the frame
+      var z = Math.min((H - 60) / PH, (W - 40) / PW, 1.3);
+      z = Math.max(z, 0.5);
+      var cw = Math.round(PW * z), ch = Math.round(PH * z);
+      device.style.width = cw + "px"; device.style.height = ch + "px";
+      device.style.marginLeft = (-cw / 2) + "px"; device.style.marginTop = (-ch / 2 - 8) + "px";
+      game.style.width = PW + "px"; game.style.height = PH + "px";
+      game.style.transform = "scale(" + (cw / PW) + ")";
+      return { w: PW, h: PH, zoom: cw / PW };
+    }
+    // the installed app runs full screen and upright; on a phone's browser
+    // the same needs a touch first (browsers allow it only after one)
+    if (!framed && !embedded) {
+      var standalone = window.matchMedia && matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches;
+      var goFull = function () {
+        var d = document.documentElement, req = d.requestFullscreen || d.webkitRequestFullscreen;
+        if (standalone || !req || document.fullscreenElement || document.webkitFullscreenElement) return;
+        try {
+          var p = req.call(d, { navigationUI: "hide" });
+          var lock = function () { try { screen.orientation.lock("portrait").catch(function () { }); } catch (e) { } };
+          if (p && p.then) p.then(lock).catch(function () { }); else lock();
+        } catch (e) { }
+      };
+      if (coarse || mode === "mobile") document.addEventListener("pointerup", goFull, true);
+    }
+    // ?pack=<url>: one game made with the Games MCP on sliqtly.com, played
+    // from its secret link (sliqtly.com/games/p/<token> sends the browser
+    // here). Only those addresses are taken, so this page cannot be made to
+    // show just anyone's pack; ?game= names the game to start.
+    function gamePack() {
+      var v = params.get("pack");
+      if (!v) return "";
+      try {
+        var u = new URL(v, location.href);
+        var ok = /^\/games\/p\/[A-Za-z0-9_-]{20,64}\/game\.rgpk$/.test(u.pathname) &&
+          (u.origin === "https://sliqtly.com" || u.origin === location.origin || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(u.origin));
+        return ok ? u.href : "";
+      } catch (e) { return ""; }
+    }
+    var host = new RgHost({
+      fit: fit,
+      canvas: document.getElementById("screen"),
+      canvas3d: document.getElementById("three"),
+      canvasGl: document.getElementById("gl3d"),
+      status: status,
+      debug: document.getElementById("debug")
+    });
+    window.rgHost = host;
+    host.boot("rg_web.wasm", gamePack() || "games.rgpk").catch(function (e) {
+      console.error(e);
+      status.innerHTML = "RangerGames<small>" + String(e.message || e) + "</small>";
+    });
+    if ("serviceWorker" in navigator && location.protocol === "https:") {
+      navigator.serviceWorker.register("sw.js").catch(function () { });
+    }
+  })();
+</script>
+</body>
+</html>

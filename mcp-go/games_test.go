@@ -183,8 +183,8 @@ func TestGamesFolderAndPlay(t *testing.T) {
 	// the preview plays at once: a redirect to the engine with the pack
 	w := gamesServe(env, httptest.NewRequest("GET", "/games/p/"+preview, nil))
 	loc, _ := url.Parse(w.Header().Get("Location"))
-	if w.Code != 302 || !strings.HasPrefix(loc.String(), "https://terotests.github.io/RangerGames/?") ||
-		loc.Query().Get("game") != id || loc.Query().Get("pack") != gamesBase+"/games/p/"+preview+"/game.rgpk" {
+	if w.Code != 302 || !strings.HasPrefix(loc.String(), "/games/engine/?") ||
+		loc.Query().Get("game") != id || loc.Query().Get("pack") != "/games/p/"+preview+"/game.rgpk" {
 		t.Fatalf("play: %d %s", w.Code, loc)
 	}
 	code, pack := gamesPack(env, preview)
@@ -357,5 +357,99 @@ func TestGamesTTSRequest(t *testing.T) {
 	b, err := gamesGoogleSpeaker(srv.Client(), srv.URL)(context.Background(), "Hei", "fi", "")
 	if err != nil || string(b) != "RIFFwav" {
 		t.Fatalf("%q %v", b, err)
+	}
+}
+
+func TestGamesEngineFromSite(t *testing.T) {
+	env, _, _ := gamesEnv(t)
+	asked := 0
+	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked++
+		switch r.URL.Path {
+		case "/RangerGames/index.html":
+			w.Write([]byte("<html>engine</html>"))
+		case "/RangerGames/rg_web.wasm":
+			w.Write([]byte("\x00asm"))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer src.Close()
+	env.games.engineSrc = src.URL + "/RangerGames/"
+	get := func(p string) *httptest.ResponseRecorder {
+		return gamesServe(env, httptest.NewRequest("GET", p, nil))
+	}
+	if w := get("/games/engine/"); w.Code != 200 || !strings.Contains(w.Body.String(), "gamePack") || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("page: %d %q", w.Code, w.Body.String())
+	}
+	if w := get("/games/engine/rg_web.wasm"); w.Code != 200 || w.Header().Get("Content-Type") != "application/wasm" {
+		t.Fatalf("wasm: %d", w.Code)
+	}
+	// kept: asked from the source once
+	get("/games/engine/rg_web.wasm")
+	if asked != 1 {
+		t.Fatalf("source asked %d times", asked)
+	}
+	// only the engine's own files
+	for _, p := range []string{"/games/engine/games.rgpk", "/games/engine/../mcp", "/games/engine/games/_voice/fi/x.wav", "/games/engine/js/../../x"} {
+		if w := get(p); w.Code != 404 {
+			t.Fatalf("%s: %d", p, w.Code)
+		}
+	}
+	if w := get("/games/engine"); w.Code != 301 {
+		t.Fatalf("no slash: %d", w.Code)
+	}
+	// the source down: the copy kept is served
+	src.Close()
+	env.games.engine.now = func() time.Time { return time.Now().Add(time.Hour) }
+	if w := get("/games/engine/rg_web.wasm"); w.Code != 200 {
+		t.Fatalf("stale copy: %d", w.Code)
+	}
+	if w := get("/games/engine/js/host.js"); w.Code != 503 {
+		t.Fatalf("never read: %d", w.Code)
+	}
+}
+
+// screenshot_game's painting: the engine's draw stream read as render.go's
+// list (a rect and a clip), painted inside the game's area
+func TestGamesShotPaint(t *testing.T) {
+	rec := func(k, x, y, w, h, r, g, b, a float64) []float32 {
+		n := make([]float32, 23)
+		for i, v := range []float64{k, x, y, w, h, r, g, b, a} {
+			n[i] = float32(v)
+		}
+		return n
+	}
+	var nums []float32
+	nums = append(nums, rec(0, 0, 0, 100, 100, 255, 0, 0, 1)...)
+	nums = append(nums, rec(4, 0, 0, 50, 50, 0, 0, 0, 0)...)
+	nums = append(nums, rec(0, 0, 0, 100, 100, 0, 0, 255, 1)...)
+	nums = append(nums, rec(5, 0, 0, 0, 0, 0, 0, 0, 0)...)
+	cmds, pics := gamesDisplayList(nums, nil)
+	if len(cmds) != 4 || len(pics) != 0 {
+		t.Fatalf("cmds %d pics %d", len(cmds), len(pics))
+	}
+	// a 100×100 game at scale 2, 10 px from the left of a 220×200 screen
+	img := gamesPaint(cmds, nil, 220, 200, [5]float64{2, 10, 0, 100, 100})
+	at := func(x, y int) [3]uint8 {
+		c := img.RGBAAt(x, y)
+		return [3]uint8{c.R, c.G, c.B}
+	}
+	if at(5, 100) != [3]uint8{0, 0, 0} || at(215, 100) != [3]uint8{0, 0, 0} {
+		t.Fatal("outside the game's area is not black")
+	}
+	if at(50, 50) != [3]uint8{0, 0, 255} || at(150, 150) != [3]uint8{255, 0, 0} {
+		t.Fatalf("inside: %v %v", at(50, 50), at(150, 150))
+	}
+	// the arguments
+	if _, err := gamesShotArgs(map[string]any{"frames": float64(5000)}); err == nil {
+		t.Fatal("too many frames")
+	}
+	if _, err := gamesShotArgs(map[string]any{"frames": float64(10), "taps": []any{map[string]any{"x": 1.0, "y": 2.0, "frame": 11.0}}}); err == nil {
+		t.Fatal("a tap after the last frame")
+	}
+	in, err := gamesShotArgs(map[string]any{"taps": []any{map[string]any{"x": 1.0, "y": 2.0, "frame": 3.0}}, "keys": []any{map[string]any{"key": "Enter", "frame": 4.0}}})
+	if err != nil || in.frames != 30 || in.w != 360 || in.h != 640 || len(in.taps[3]) != 1 || in.keys[4][0] != "Enter" {
+		t.Fatalf("args %+v %v", in, err)
 	}
 }
