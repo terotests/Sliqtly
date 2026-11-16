@@ -522,6 +522,7 @@ func (s *gamesService) deleteGame(ctx context.Context, g *gamesGame, a map[strin
 	if err := s.db.Delete(ctx, gamesCol, g.id); err != nil {
 		return nil, err
 	}
+	s.db.Delete(ctx, gamesSnapsCol, g.id)
 	if s.removePrefix != nil {
 		s.removePrefix(ctx, "games/"+g.id+"/")
 	}
@@ -738,6 +739,10 @@ func (s *gamesService) call(ctx context.Context, who gamesWho, op string, a map[
 		return s.speak(ctx, who, u, g, a)
 	case "screenshot_game":
 		return s.screenshot(ctx, g, a)
+	case "play_game":
+		return s.play(ctx, g, a, false)
+	case "inspect_game":
+		return s.play(ctx, g, a, true)
 	}
 	return nil, roomErr{"No such tool: " + op}
 }
