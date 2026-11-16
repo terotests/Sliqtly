@@ -3,6 +3,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -654,5 +655,42 @@ func TestGamesAgentForget(t *testing.T) {
 	gamesAgentForget(c, 2)
 	if len(c[0].Parts[0].FunctionResponse.Parts) != 0 || len(c[1].Parts[0].FunctionResponse.Parts) != 1 || len(c[2].Parts[0].FunctionResponse.Parts) != 1 {
 		t.Fatal("pictures kept")
+	}
+}
+
+// the page's source view and zip: the owner's files, under games/<slug>/
+func TestGamesZip(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	ctx := context.Background()
+	s := env.games
+	tok := gamesToken(db, "u-admin", "admin@example.com", gamesBase+gamesMcpPath)
+	g := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Ätsän Pallot!"})
+	id := g["game_id"].(string)
+	admin := gamesWho{uid: "u-admin", email: "admin@example.com"}
+	f, err := s.homeCall(ctx, admin, "file", map[string]any{"game_id": id, "path": "game.tsx"})
+	if err != nil || f.(map[string]any)["text"] == nil {
+		t.Fatalf("file %v %v", f, err)
+	}
+	w := httptest.NewRecorder()
+	if err := s.zip(ctx, w, admin, id); err != nil {
+		t.Fatal(err)
+	}
+	if w.Header().Get("Content-Disposition") != `attachment; filename="atsan-pallot.zip"` {
+		t.Fatalf("name %q", w.Header().Get("Content-Disposition"))
+	}
+	z, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{}
+	for _, f := range z.File {
+		names = append(names, f.Name)
+	}
+	if strings.Join(names, " ") != "games/atsan-pallot/game.json games/atsan-pallot/game.tsx games/atsan-pallot/style.css" {
+		t.Fatalf("zip %v", names)
+	}
+	s.adminCall(ctx, "invite", map[string]any{"email": "kid@example.com"})
+	if err := s.zip(ctx, httptest.NewRecorder(), gamesWho{uid: "u-kid", email: "kid@example.com"}, id); err == nil {
+		t.Fatal("another account's zip")
 	}
 }

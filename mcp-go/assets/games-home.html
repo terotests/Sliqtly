@@ -44,6 +44,15 @@
   .alog .bad { color: var(--bad); }
   .alog img { width: 120px; border: 1px solid var(--line); border-radius: 6px; margin: 4px 0; display: block; }
   .cost { font-variant-numeric: tabular-nums; }
+  .src { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  .src .flist { display: flex; flex-direction: column; gap: 2px; font-size: 13px; max-height: 420px; overflow-y: auto; }
+  .src .flist a { color: var(--ink); text-decoration: none; padding: 2px 6px; border-radius: 6px; cursor: pointer; word-break: break-all; }
+  .src .flist a.on { background: var(--accent); color: #fff; }
+  .src .fview { min-width: 0; }
+  .src pre { margin: 0; font-size: 12px; line-height: 1.45; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; overflow: auto; max-height: 420px; }
+  .src img { max-width: 100%; max-height: 360px; image-rendering: pixelated; background: repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0 / 16px 16px; }
+  a.btn { font-size: 13px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); text-decoration: none; }
+  @media (max-width: 560px) { .src { grid-template-columns: 1fr; } .src .flist { max-height: 160px; } }
   @media (max-width: 560px) { .game { grid-template-columns: 1fr; } .acts { justify-content: start; } }
 </style>
 </head>
@@ -150,6 +159,12 @@
         });
       }
     }
+    var srcBox = null;
+    btn("Lähdekoodi", "", function () {
+      if (srcBox) { srcBox.remove(); srcBox = null; return; }
+      srcBox = source(g); d.appendChild(srcBox);
+    });
+    var z = el("a", "Lataa .zip", "btn"); z.href = "/games/api/zip?game_id=" + encodeURIComponent(g.game_id); z.title = "Pelin tiedostot kansiossa games/<nimi>/, kuten RangerGames-repossa"; acts.appendChild(z);
     btn(g.hidden ? "Näytä" : "Piilota", "", function () { act("hide", { game_id: g.game_id, hidden: !g.hidden }); });
     btn("Poista", "danger", function () {
       var name = prompt("Peli ja sen tiedostot poistetaan pysyvästi. Kirjoita pelin nimi vahvistukseksi:\n" + g.name);
@@ -165,6 +180,38 @@
     d.appendChild(links);
     return d;
   }
+  // a game's files, to look at in the page
+  var mimes = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", wav: "audio/wav", mp3: "audio/mpeg", ogg: "audio/ogg" };
+  function source(g) {
+    var box = el("div", undefined, "src"), list = el("div", undefined, "flist"), view = el("div", undefined, "fview");
+    box.appendChild(list); box.appendChild(view);
+    view.appendChild(el("div", "Ladataan…", "muted"));
+    function open(f, a) {
+      Array.prototype.forEach.call(list.children, function (c) { c.className = ""; });
+      a.className = "on";
+      view.textContent = "";
+      view.appendChild(el("div", f.path + " · " + Math.max(1, Math.round(f.size / 1024)) + " kt", "muted"));
+      call("file", { game_id: g.game_id, path: f.path }).then(function (r) {
+        var ext = f.path.split(".").pop().toLowerCase();
+        if (r.text !== undefined) view.appendChild(el("pre", r.text));
+        else if (/^image/.test(mimes[ext] || "")) { var im = el("img"); im.src = "data:" + mimes[ext] + ";base64," + r.base64; view.appendChild(im); }
+        else if (/^audio/.test(mimes[ext] || "")) { var au = el("audio"); au.controls = true; au.src = "data:" + mimes[ext] + ";base64," + r.base64; view.appendChild(au); }
+        else view.appendChild(el("div", "Tiedostoa ei voi näyttää tässä; se on zip-paketissa.", "muted"));
+      }).catch(function (e) { view.appendChild(el("div", e.message, "err")); });
+    }
+    call("files", { game_id: g.game_id }).then(function (r) {
+      list.textContent = "";
+      var first = null;
+      (r.files || []).forEach(function (f) {
+        var a = el("a", f.path); a.onclick = function () { open(f, a); }; list.appendChild(a);
+        if (f.path === "game.tsx" || (!first && f.path !== "game.json")) first = [f, a];
+      });
+      view.textContent = "";
+      if (first) open(first[0], first[1]);
+    }).catch(function (e) { view.textContent = ""; view.appendChild(el("div", e.message, "err")); });
+    return box;
+  }
+
   function load() {
     return call("me").then(function (me) {
       document.getElementById("who").textContent = (me.name ? me.name + " · " : "") + (me.email || "");

@@ -9,6 +9,7 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
 //go:embed assets/games-home.html
@@ -53,6 +55,25 @@ func serveGamesHome(env *Env, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op := strings.TrimPrefix(r.URL.Path, gamesPath+"/api/")
+	if op == "zip" && r.Method == http.MethodGet {
+		// a download: a GET the page links to (what it gives is the
+		// signed-in account's own game, which another site cannot read)
+		if t == nil {
+			http.Error(w, "Sign in again.", 401)
+			return
+		}
+		who := gamesWho{uid: t.UID, name: t.Name, email: gamesVerifiedEmail(t)}
+		if err := env.games.zip(r.Context(), w, who, r.URL.Query().Get("game_id")); err != nil {
+			var re roomErr
+			if errors.As(err, &re) {
+				http.Error(w, re.msg, 400)
+			} else {
+				log.Printf("games zip: %v", err)
+				http.Error(w, "Games could not be reached; try again in a moment.", 500)
+			}
+		}
+		return
+	}
 	if r.Method != http.MethodPost || !sameSite(env, r) {
 		editorJSON(w, 403, map[string]string{"error": "Not allowed."})
 		return
@@ -142,6 +163,78 @@ func (s *gamesService) homeCall(ctx context.Context, who gamesWho, op string, a 
 		return s.json(g, false), nil
 	case "delete":
 		return s.deleteGame(ctx, g, a)
+	case "files":
+		return s.getGame(ctx, g)
+	case "file":
+		return s.readFile(ctx, g, a)
 	}
 	return nil, roomErr{"No such call."}
+}
+
+// the folder name a game gets in the zip (and in RangerGames' games/):
+// its name in lower case ASCII letters and digits, else its id
+func gamesSlug(g *gamesGame) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(docStr(g.doc, "name")) {
+		switch r {
+		case 'ä', 'å':
+			r = 'a'
+		case 'ö':
+			r = 'o'
+		}
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			if dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			b.WriteRune(r)
+			dash = false
+		} else {
+			dash = true
+		}
+	}
+	if b.Len() == 0 || b.Len() > 40 {
+		return g.id
+	}
+	return b.String()
+}
+
+// GET /games/api/zip?game_id=: the owner's game as a zip, its files under
+// games/<slug>/ as RangerGames keeps a game
+func (s *gamesService) zip(ctx context.Context, w http.ResponseWriter, who gamesWho, id string) error {
+	if _, err := s.user(ctx, who); err != nil {
+		return err
+	}
+	g, err := s.game(ctx, who, id)
+	if err != nil {
+		return err
+	}
+	slug := gamesSlug(g)
+	// every file first, so that a failed read is an error, not half a zip
+	type entry struct {
+		path string
+		data []byte
+	}
+	var entries []entry
+	for _, f := range g.files() {
+		b, err := s.bucket.Read(ctx, s.blobPath(g.id, f.Sha), gamesMaxFile)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, entry{f.Path, b})
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+slug+`.zip"`)
+	w.Header().Set("Cache-Control", "no-store")
+	z := zip.NewWriter(w)
+	mod := time.UnixMilli(docInt(g.doc["updated"])).UTC()
+	for _, e := range entries {
+		f, err := z.CreateHeader(&zip.FileHeader{Name: "games/" + slug + "/" + e.path, Method: zip.Deflate, Modified: mod})
+		if err != nil {
+			return nil
+		}
+		f.Write(e.data)
+	}
+	z.Close()
+	return nil
 }
