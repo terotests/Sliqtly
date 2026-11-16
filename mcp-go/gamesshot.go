@@ -90,6 +90,19 @@ type gamesShotResult struct {
 	png  []byte
 	log  string
 	fail string // the script threw on a frame
+	// play_game: pictures asked for on the way (before png), and what is
+	// on the screen and the session in words
+	shots [][]byte
+	info  string
+}
+
+// every picture, the last frame last
+func (r *gamesShotResult) pictures() [][]byte {
+	out := append([][]byte{}, r.shots...)
+	if len(r.png) > 0 {
+		out = append(out, r.png)
+	}
+	return out
 }
 
 // the running engine: its calls and memory
@@ -172,86 +185,111 @@ func (v *gamesVM) readFile(path string) []byte {
 	return v.bytesOf("rg_result_ptr", "rg_result_len")
 }
 
-// runs the game and paints its last frame
-func gamesScreenshot(ctx context.Context, wasm, pack []byte, gameID string, in gamesShotInput) (*gamesShotResult, error) {
-	select {
-	case gamesShots.slots <- struct{}{}:
-		defer func() { <-gamesShots.slots }()
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	ctx, cancel := context.WithTimeout(ctx, gamesShotTimeout)
-	defer cancel()
+// a game running in the engine, frame by frame
+type gamesRunner struct {
+	v     *gamesVM
+	mod   api.Module
+	out   *bytes.Buffer
+	frame int
+	w, h  float64
+	logs  []string
+	fail  string
+	// pointer events for coming frames
+	ptrs map[int][]gamesPtr
+	keys map[int][]string
+}
+
+// a pointer event: 0 down, 1 move, 2 up, at game coordinates
+type gamesPtr struct {
+	kind, id int
+	x, y     float64
+}
+
+// starts the game; close it with done. The caller holds a slot.
+func gamesOpen(ctx context.Context, wasm, pack []byte, gameID string, w, h float64) (*gamesRunner, error) {
 	rt, compiled, err := gamesShots.module(ctx, wasm)
 	if err != nil {
 		return nil, err
 	}
-	var out bytes.Buffer
+	out := &bytes.Buffer{}
 	mod, err := rt.InstantiateModule(ctx, compiled, wazero.NewModuleConfig().
-		WithName("").WithStartFunctions().WithStdout(&out).WithStderr(&out).
+		WithName("").WithStartFunctions().WithStdout(out).WithStderr(out).
 		WithSysWalltime().WithSysNanotime())
 	if err != nil {
 		return nil, err
 	}
-	defer mod.Close(context.Background())
-	v := &gamesVM{ctx, mod}
+	r := &gamesRunner{v: &gamesVM{ctx, mod}, mod: mod, out: out, w: w, h: h, ptrs: map[int][]gamesPtr{}, keys: map[int][]string{}}
+	v := r.v
+	fail := func(err error) (*gamesRunner, error) {
+		mod.Close(context.Background())
+		return nil, err
+	}
 	if mod.ExportedFunction("_initialize") != nil {
 		if _, err := v.call("_initialize"); err != nil {
-			return nil, err
-		}
-	}
-	logs := []string{}
-	takeLog := func() {
-		if b := v.bytesOf("rg_log_ptr", "rg_log_len"); len(b) > 0 {
-			logs = append(logs, strings.TrimRight(string(b), "\n"))
+			return fail(err)
 		}
 	}
 	// rg_mount takes (prefix, plen, pack, len): both in memory
 	pp, pn, err := v.put([]byte("/games"))
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	dp, dn, err := v.put(pack)
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
-	r, err := v.call("rg_mount", pp, pn, dp, dn)
+	res, err := v.call("rg_mount", pp, pn, dp, dn)
 	v.free(pp, pn)
 	v.free(dp, dn)
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
-	if int32(r) < 0 {
-		return nil, errors.New("the game's pack does not read")
+	if int32(res) < 0 {
+		return fail(errors.New("the game's pack does not read"))
 	}
 	v.call("rg_seed", api.EncodeF64(12345))
-	v.call("rg_resize", api.EncodeF64(in.w), api.EncodeF64(in.h))
+	v.call("rg_resize", api.EncodeF64(w), api.EncodeF64(h))
 	started, err := v.withText("rg_start", []byte(gameID))
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
-	takeLog()
-	res := &gamesShotResult{}
+	r.takeLog()
 	if started != 0 {
-		res.fail = "start"
+		r.fail = "start"
 	}
-	held := map[int]bool{}
-	for f := 1; f <= in.frames; f++ {
-		// a tap: down on its frame, up on the next
-		for id := range held {
-			if held[id] {
-				held[id] = false
-				x, y := held2xy(v, in.taps, f-1, id)
-				v.call("rg_pointer", api.EncodeI32(2), api.EncodeI32(int32(id)), api.EncodeF64(x), api.EncodeF64(y))
-			}
+	return r, nil
+}
+
+func (r *gamesRunner) done() { r.mod.Close(context.Background()) }
+
+func (r *gamesRunner) takeLog() {
+	if b := r.v.bytesOf("rg_log_ptr", "rg_log_len"); len(b) > 0 {
+		r.logs = append(r.logs, strings.TrimRight(string(b), "\n"))
+	}
+}
+
+// game coordinates on the engine's screen
+func (r *gamesRunner) toScreen(x, y float64) (float64, float64) {
+	s, ox, oy := r.v.view(0), r.v.view(1), r.v.view(2)
+	if s <= 0 {
+		s = 1
+	}
+	return ox + x*s, oy + y*s
+}
+
+// runs n frames with the input waiting for them
+func (r *gamesRunner) run(ctx context.Context, n int) error {
+	v := r.v
+	for i := 0; i < n; i++ {
+		r.frame++
+		f := r.frame
+		for _, p := range r.ptrs[f] {
+			x, y := r.toScreen(p.x, p.y)
+			v.call("rg_pointer", api.EncodeI32(int32(p.kind)), api.EncodeI32(int32(p.id)), api.EncodeF64(x), api.EncodeF64(y))
 		}
-		for i := range in.taps[f] {
-			x, y := held2xy(v, in.taps, f, i)
-			v.call("rg_pointer", api.EncodeI32(0), api.EncodeI32(int32(i)), api.EncodeF64(x), api.EncodeF64(y))
-			held[i] = true
-		}
+		delete(r.ptrs, f)
 		// rg_key(down, key, len): down and up on the same frame
-		for _, k := range in.keys[f] {
+		for _, k := range r.keys[f] {
 			kp, kn, err := v.put([]byte(k))
 			if err == nil {
 				v.call("rg_key", 1, kp, kn)
@@ -259,18 +297,25 @@ func gamesScreenshot(ctx context.Context, wasm, pack []byte, gameID string, in g
 				v.free(kp, kn)
 			}
 		}
-		r, err := v.call("rg_frame", api.EncodeF64(1000.0/60))
+		delete(r.keys, f)
+		res, err := v.call("rg_frame", api.EncodeF64(1000.0/60))
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, errGamesShotSlow
+				return errGamesShotSlow
 			}
-			return nil, err
+			return err
 		}
-		takeLog()
-		if r != 0 && res.fail == "" {
-			res.fail = fmt.Sprintf("frame %d", f)
+		r.takeLog()
+		if res != 0 && r.fail == "" {
+			r.fail = fmt.Sprintf("frame %d", f)
 		}
 	}
+	return nil
+}
+
+// the last frame painted
+func (r *gamesRunner) picture() ([]byte, error) {
+	v := r.v
 	stream := gamesFloats(v)
 	strs := strings.Split(string(v.bytesOf("rg_strings_ptr", "rg_strings_len")), "\x00")
 	view := [5]float64{v.view(0), v.view(1), v.view(2), v.view(3), v.view(4)}
@@ -281,33 +326,60 @@ func gamesScreenshot(ctx context.Context, wasm, pack []byte, gameID string, in g
 			data[src] = b
 		}
 	}
-	img := gamesPaint(cmds, data, int(in.w), int(in.h), view)
+	img := gamesPaint(cmds, data, int(r.w), int(r.h), view)
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		return nil, err
 	}
-	res.png = buf.Bytes()
-	if s := strings.TrimSpace(out.String()); s != "" {
-		logs = append(logs, s)
-	}
-	res.log = strings.Join(logs, "\n")
-	if len(res.log) > 4000 {
-		res.log = res.log[len(res.log)-4000:]
-	}
-	return res, nil
+	return buf.Bytes(), nil
 }
 
-// a tap's place in the engine's screen coordinates
-func held2xy(v *gamesVM, taps map[int][][2]float64, f, i int) (float64, float64) {
-	l := taps[f]
-	if i >= len(l) {
-		return 0, 0
+// what was logged and printed, the latest 4000 characters
+func (r *gamesRunner) logText() string {
+	logs := r.logs
+	if s := strings.TrimSpace(r.out.String()); s != "" {
+		logs = append(logs, s)
 	}
-	s, ox, oy := v.view(0), v.view(1), v.view(2)
-	if s <= 0 {
-		s = 1
+	t := strings.Join(logs, "\n")
+	if len(t) > 4000 {
+		t = t[len(t)-4000:]
 	}
-	return ox + l[i][0]*s, oy + l[i][1]*s
+	return t
+}
+
+// runs the game and paints its last frame
+func gamesScreenshot(ctx context.Context, wasm, pack []byte, gameID string, in gamesShotInput) (*gamesShotResult, error) {
+	select {
+	case gamesShots.slots <- struct{}{}:
+		defer func() { <-gamesShots.slots }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	ctx, cancel := context.WithTimeout(ctx, gamesShotTimeout)
+	defer cancel()
+	r, err := gamesOpen(ctx, wasm, pack, gameID, in.w, in.h)
+	if err != nil {
+		return nil, err
+	}
+	defer r.done()
+	// a tap: down on its frame, up on the next
+	for f, l := range in.taps {
+		for i, t := range l {
+			r.ptrs[f] = append(r.ptrs[f], gamesPtr{0, i, t[0], t[1]})
+			r.ptrs[f+1] = append([]gamesPtr{{2, i, t[0], t[1]}}, r.ptrs[f+1]...)
+		}
+	}
+	for f, l := range in.keys {
+		r.keys[f] = l
+	}
+	if err := r.run(ctx, in.frames); err != nil {
+		return nil, err
+	}
+	pic, err := r.picture()
+	if err != nil {
+		return nil, err
+	}
+	return &gamesShotResult{png: pic, log: r.logText(), fail: r.fail}, nil
 }
 
 // the frame's draw stream as numbers (rg_draw_len counts f32s)
@@ -447,6 +519,9 @@ func (r *gamesShotResult) text() string {
 		b.WriteString("The game's code threw an error on " + r.fail + " (see the log).\n")
 	default:
 		b.WriteString("The game ran without errors.\n")
+	}
+	if r.info != "" {
+		b.WriteString(r.info + "\n")
 	}
 	if r.log != "" {
 		b.WriteString("Log:\n" + r.log)

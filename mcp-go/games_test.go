@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -704,5 +705,105 @@ func TestGamesZip(t *testing.T) {
 	s.adminCall(ctx, "invite", map[string]any{"email": "kid@example.com"})
 	if err := s.zip(ctx, httptest.NewRecorder(), gamesWho{uid: "u-kid", email: "kid@example.com"}, id); err == nil {
 		t.Fatal("another account's zip")
+	}
+}
+
+// play_game's parts that need no engine: the names inspect_game reads, the
+// steps, finding a button by its text, and the saved points
+func TestGamesPlayParts(t *testing.T) {
+	src := "import { x } from \"lib/a\";\n// let hidden = 1;\nlet score: number = 0;\nconst state = { level: 1, f() { let inner = 2; } };\nvar old = 'it\\'s';\nexport let shown = true;\nfunction view() { const local = 1; return <p>Don't {local}</p>; }\nclass Board {}\nlet s = `a ${score} {`;\nfor (let i = 0; i < 2; i++) {}\nfunction* gen() {}\n"
+	got := strings.Join(gamesTopNames(src), ",")
+	if got != "score,state,old,shown,view,Board,s,gen" {
+		t.Fatalf("names %s", got)
+	}
+	expr := gamesGlobalsExpr([]string{"score", "bad-name"})
+	if !strings.Contains(expr, `o["score"] = score`) || strings.Contains(expr, "bad-name") {
+		t.Fatalf("expr %s", expr)
+	}
+
+	steps, err := gamesSteps([]any{
+		map[string]any{"tap": map[string]any{"text": "Pelaa"}, "shot": true},
+		map[string]any{"tap": map[string]any{"x": 10.0, "y": 20.0}, "hold": 30.0, "wait": 0.0},
+		map[string]any{"drag": map[string]any{"from": map[string]any{"cls": "a"}, "to": map[string]any{"x": 1.0, "y": 2.0}}},
+		map[string]any{"key": "ArrowLeft", "wait": 5.0},
+		map[string]any{"wait": 60.0},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frames := []int{}
+	for _, s := range steps {
+		frames = append(frames, s.frames())
+	}
+	if fmt.Sprint(frames) != "[22 31 41 6 60]" || !steps[0].shot {
+		t.Fatalf("frames %v", frames)
+	}
+	for _, bad := range []any{
+		[]any{map[string]any{}},
+		[]any{map[string]any{"tap": map[string]any{"text": " "}}},
+		[]any{map[string]any{"tap": map[string]any{"x": 1.0, "y": 1.0}, "key": "a"}},
+		[]any{map[string]any{"wait": 5000.0}},
+		"tap",
+	} {
+		if _, err := gamesSteps(bad); err == nil {
+			t.Fatalf("%v passed", bad)
+		}
+	}
+
+	root := &gamesNode{T: "div", W: 360, H: 640, C: []*gamesNode{
+		{T: "div", ID: "__h0", Cls: "btn big", X: 100, Y: 300, W: 160, H: 60, C: []*gamesNode{{T: "#text", X: 140, Y: 310, W: 80, H: 40, Text: "Pelaa"}}},
+		{T: "div", X: 0, Y: 0, W: 360, H: 40, C: []*gamesNode{{T: "#text", X: 10, Y: 5, W: 200, H: 30, Text: "Pelaa  uudestaan"}}},
+		{T: "div", ID: "__h1", Cls: "dot", X: 20, Y: 600, W: 20, H: 20},
+	}}
+	gamesFold(root)
+	if root.C[0].Text != "Pelaa" || root.C[0].C != nil {
+		t.Fatalf("fold %+v", root.C[0])
+	}
+	if n := gamesFind(root, &gamesTarget{text: "pelaa"}); n != root.C[0] {
+		t.Fatalf("exact text %+v", n)
+	}
+	if n := gamesFind(root, &gamesTarget{text: "uudestaan"}); n != root.C[1] {
+		t.Fatalf("contained text %+v", n)
+	}
+	if n := gamesFind(root, &gamesTarget{cls: "big"}); n != root.C[0] {
+		t.Fatalf("class %+v", n)
+	}
+	if n := gamesFind(root, &gamesTarget{text: "ei ole"}); n != nil {
+		t.Fatalf("missing %+v", n)
+	}
+	lines := gamesOnScreen(root, map[string]bool{"__h0": true, "__h1": true}, 10)
+	want := "\"Pelaa\" [tap] x=180 y=330 (160×60)|\"Pelaa uudestaan\" x=180 y=20 (360×40)|[tap] div.dot x=30 y=610 (20×20)"
+	if strings.Join(lines, "|") != want {
+		t.Fatalf("on screen %q", lines)
+	}
+
+	// saved points: kept per game, the oldest go past the limit
+	env, db, _ := gamesEnv(t)
+	s := env.games
+	all := map[string]gamesSnap{}
+	for i := 0; i < gamesSnapsMax+2; i++ {
+		if err := s.saveSnap(context.Background(), "g1", fmt.Sprintf("p%02d", i), all, gamesSnap{[]any{map[string]any{"wait": 10.0}}, 360, 640, 10, int64(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	back, err := s.snaps(context.Background(), "g1")
+	if err != nil || len(back) != gamesSnapsMax {
+		t.Fatalf("snaps %d %v", len(back), err)
+	}
+	if _, ok := back["p00"]; ok {
+		t.Fatal("the oldest stayed")
+	}
+	if sn := back["p21"]; sn.w != 360 || sn.frames != 10 || len(sn.steps) != 1 {
+		t.Fatalf("snap %+v", sn)
+	}
+
+	// through the tools: a point that is not saved, and a bad name
+	tok := gamesToken(db, "u1", "admin@example.com", gamesBase+gamesMcpPath)
+	g := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Peli"})
+	if _, e := gamesTool(t, env, tok, "play_game", map[string]any{"game_id": g["game_id"], "from": "taso 2"}); !strings.Contains(e, "no saved points") {
+		t.Fatalf("from: %s", e)
+	}
+	if _, e := gamesTool(t, env, tok, "inspect_game", map[string]any{"game_id": g["game_id"], "save_as": "a/b"}); !strings.Contains(e, "save_as") {
+		t.Fatalf("save_as: %s", e)
 	}
 }

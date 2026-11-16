@@ -44,7 +44,7 @@ const (
 
 // the tools the assistant may call: not publish_game or delete_game (the
 // person does those on the page), and the guide is in its instructions
-var gamesAgentTools = []string{"list_games", "create_game", "get_game", "read_file", "write_files", "delete_files", "rename_game", "speak", "screenshot_game"}
+var gamesAgentTools = []string{"list_games", "create_game", "get_game", "read_file", "write_files", "delete_files", "rename_game", "speak", "screenshot_game", "play_game", "inspect_game"}
 
 // the model the assistant runs on: Gemini API with GEMINI_API_KEY, else
 // Vertex AI in the service's project; SLIQTLY_GAMES_AI_MODEL names it
@@ -166,7 +166,7 @@ const gamesAgentSystem = `You make and change games for young children's phones 
 How to work:
 - To change a game, read its files first (get_game, read_file). For a new one, create_game, then write its files.
 - Write whole files with write_files (game.tsx, style.css, game.json and others).
-- After every change, run the game with screenshot_game and look at the picture: tap through what you made (taps) to check that it works, that nothing is cut off or overlapping, and that the text fits. Fix what is wrong and look again.
+- After every change, play the game with play_game and look at the pictures: tap through what you made (tap a button by its text: {"tap": {"text": "Pelaa"}}) to check that it works, that nothing is cut off or overlapping, and that the text fits. Save a point deep in the game (save_as) and continue from it (from) after the next change, instead of playing from the start again. inspect_game shows the game's variables and its laid-out elements when a picture is not enough. Fix what is wrong and look again.
 - Keep the game simple, clear and kind: big touch targets, few words, Finnish text unless asked otherwise. No real people's names, photos or addresses.
 - Don't ask the person questions: choose sensibly and say what you chose.
 - When it is done, answer in Finnish in a few sentences: what the game is and what you made or changed. Don't paste code.
@@ -379,7 +379,7 @@ func (s *gamesService) agentTool(ctx context.Context, who gamesWho, r *gamesAgen
 			return fail("Too many changes in a short time.")
 		}
 	}
-	if c.Name == "screenshot_game" {
+	if gamesRunsEngine(c.Name) {
 		if why := gamesShotLimit(who.uid); why != "" {
 			return fail("Too many screenshots in a short time.")
 		}
@@ -407,8 +407,10 @@ func (s *gamesService) agentTool(ctx context.Context, who gamesWho, r *gamesAgen
 			entry["error"] = "pelin koodi kaatui"
 		}
 		fr := &geminiResponse{Name: c.Name, Response: map[string]any{"content": text}}
+		for _, p := range shot.pictures() {
+			fr.Parts = append(fr.Parts, geminiInline{InlineData: &geminiData{MimeType: "image/png", Data: base64.StdEncoding.EncodeToString(p)}})
+		}
 		if len(shot.png) > 0 {
-			fr.Parts = []geminiInline{{InlineData: &geminiData{MimeType: "image/png", Data: base64.StdEncoding.EncodeToString(shot.png)}}}
 			entry["png"] = base64.StdEncoding.EncodeToString(shot.png)
 		}
 		return fr, entry
@@ -451,6 +453,19 @@ func gamesAgentAbout(c *geminiCall) string {
 	case "create_game", "rename_game":
 		n, _ := a["name"].(string)
 		return n
+	case "play_game", "inspect_game":
+		steps, _ := a["steps"].([]any)
+		parts := []string{}
+		if f, _ := a["from"].(string); f != "" {
+			parts = append(parts, "jatkaa: "+f)
+		}
+		if len(steps) > 0 {
+			parts = append(parts, fmt.Sprintf("%d askelta", len(steps)))
+		}
+		if n, _ := a["save_as"].(string); n != "" {
+			parts = append(parts, "tallentaa: "+n)
+		}
+		return strings.Join(parts, ", ")
 	case "screenshot_game":
 		taps, _ := a["taps"].([]any)
 		f := docInt(a["frames"])

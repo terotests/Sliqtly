@@ -24,6 +24,13 @@ files every time it opens).
 (60 a second), with what it logged and any error; taps and key presses can play it on the way.
 Use it to check a change before giving the user the link.
 
+`play_game` plays the game step by step: tap a button by its text (`{"tap": {"text": "Pelaa"}}`),
+a class or x, y; drag; press keys; wait; and take pictures on the way (`"shot": true`). Its answer
+lists what is on the screen with places to tap. The game runs the same way every time, so
+`save_as` keeps a session under a name and `from` continues from it after the next change.
+`inspect_game` answers the game's top-level variables, the laid-out elements and an expression's
+value as JSON.
+
 ## The frame loop
 
 Define any of these top-level functions; the engine calls them.

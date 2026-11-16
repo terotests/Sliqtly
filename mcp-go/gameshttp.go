@@ -381,7 +381,7 @@ func gamesRPC(ctx context.Context, env *Env, who gamesWho, msg any) any {
 				return ok200(wardenToolText("Too many changes in a short time; try again in a few minutes.", true))
 			}
 		}
-		if name == "screenshot_game" {
+		if gamesRunsEngine(name) {
 			if why := gamesShotLimit(who.uid); why != "" {
 				return ok200(wardenToolText("Too many screenshots in a short time; try again in a few minutes.", true))
 			}
@@ -396,10 +396,12 @@ func gamesRPC(ctx context.Context, env *Env, who gamesWho, msg any) any {
 			return ok200(wardenToolText("Games could not be reached; try again in a moment.", true))
 		}
 		if shot, ok := out.(*gamesShotResult); ok {
-			return ok200(map[string]any{"content": []any{
-				map[string]any{"type": "image", "data": gamesPNGBase64(shot.png), "mimeType": "image/png"},
-				map[string]any{"type": "text", "text": shot.text()},
-			}, "isError": false})
+			content := []any{}
+			for _, p := range shot.pictures() {
+				content = append(content, map[string]any{"type": "image", "data": gamesPNGBase64(p), "mimeType": "image/png"})
+			}
+			content = append(content, map[string]any{"type": "text", "text": shot.text()})
+			return ok200(map[string]any{"content": content, "isError": false})
 		}
 		if o, ok := out.(map[string]any); ok && name == "games_guide" {
 			return ok200(wardenToolText(o["guide"].(string), false))
