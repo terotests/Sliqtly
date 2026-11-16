@@ -192,6 +192,10 @@ func TestGamesFolderAndPlay(t *testing.T) {
 	if code != 200 || !strings.Contains(files[id+"/game.json"], `"Pupu"`) || !strings.Contains(files[id+"/game.tsx"], "function view") {
 		t.Fatalf("pack %d %v", code, files)
 	}
+	// the link's own menu, for when the game is closed
+	if !strings.Contains(files["launcher/game.tsx"], "games/mcp") || !strings.Contains(files["launcher/game.json"], `"hidden":true`) {
+		t.Fatal("pack without its launcher")
+	}
 
 	// write code and a picture; read them back
 	png := []byte("\x89PNG\r\n\x1a\nfake")

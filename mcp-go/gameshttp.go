@@ -49,6 +49,17 @@ const (
 //go:embed assets/games-guide.md
 var gamesGuide string
 
+// the menu a pack carries (the engine opens /games/launcher when a game is
+// closed): the game to play again and how to make one through the MCP
+//
+//go:embed assets/games-launcher.tsx
+var gamesLauncherTSX []byte
+
+//go:embed assets/games-launcher.css
+var gamesLauncherCSS []byte
+
+var gamesLauncherJSON = []byte(`{"name":"Sliqtly Games","description":"","width":360,"hidden":true}`)
+
 //go:embed assets/games-admin.html
 var gamesAdminHTML string
 
