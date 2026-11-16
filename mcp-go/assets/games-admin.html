@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Games admin</title>
+<style>
+  :root { --bg: #f6f7fb; --card: #fff; --ink: #1b1f3b; --muted: #667; --line: #e3e5ee; --accent: #3a86ff; --bad: #d62839; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #12142a; --card: #1b1f3b; --ink: #eef; --muted: #aab; --line: #2d3366; } }
+  body { margin: 0; font: 15px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+  label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 4px; }
+  input { font: inherit; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+  input[type=email] { width: 240px; } input[type=number] { width: 140px; } input.note { width: 200px; }
+  button { font: inherit; padding: 7px 14px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
+  button.link { background: none; color: var(--bad); padding: 4px 6px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .err { color: var(--bad); min-height: 1.4em; }
+  .wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Games: kutsut ja puhekiintiöt</h1>
+  <p class="sub">MCP-osoite: <code id="mcp"></code>. Vain kutsutut ja ylläpitäjät voivat tehdä pelejä. Pelejä voi pelata kuka tahansa, jolla on linkki.</p>
+  <section>
+    <h2>Kutsu tai muuta</h2>
+    <form id="invite">
+      <label>Google-osoite<input type="email" name="email" required placeholder="nimi@gmail.com"></label>
+      <label>Puhe, merkkiä / kk (0 = ei)<input type="number" name="tts" min="0" step="1000" value="0"></label>
+      <label>Muistiinpano<input class="note" name="note" maxlength="200"></label>
+      <button>Tallenna</button>
+    </form>
+    <div class="err" id="err"></div>
+  </section>
+  <section>
+    <h2>Käyttäjät <small id="month" style="color:var(--muted);font-weight:400"></small></h2>
+    <p class="sub" id="speech"></p>
+    <div class="wrap"><table>
+      <thead><tr><th>Osoite</th><th>Nimi</th><th>Pelejä</th><th>Puhe käytetty / kk</th><th>Muistiinpano</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </section>
+</main>
+<script>
+(function () {
+  var base = location.pathname.replace(/\/$/, "");
+  document.getElementById("mcp").textContent = location.origin + "/games/mcp";
+  var err = document.getElementById("err");
+  function call(op, body) {
+    return fetch(base + "/api/" + op, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.status); return j; }); });
+  }
+  function el(tag, text) { var e = document.createElement(tag); if (text !== undefined) e.textContent = text; return e; }
+  function fmt(n) { return (n || 0).toLocaleString("fi-FI"); }
+  function show(d) {
+    document.getElementById("month").textContent = d.month;
+    document.getElementById("speech").textContent = (d.speech_on ? "Google Cloud TTS on päällä. " : "Puhe on pois päältä palvelimella (SLIQTLY_GAMES_TTS). ") +
+      "Ylläpitäjillä (" + (d.admins || []).join(", ") + ") ei ole rajaa.";
+    var rows = document.getElementById("rows");
+    rows.textContent = "";
+    (d.users || []).forEach(function (u) {
+      var tr = el("tr");
+      tr.appendChild(el("td", u.email));
+      tr.appendChild(el("td", u.name || ""));
+      var g = el("td", u.games === undefined ? "–" : String(u.games)); g.className = "num"; tr.appendChild(g);
+      var t = el("td", fmt(u.tts_used) + " / " + (u.tts_month ? fmt(u.tts_month) : "ei puhetta")); t.className = "num"; tr.appendChild(t);
+      tr.appendChild(el("td", u.note || ""));
+      var td = el("td"), edit = el("button", "Muokkaa"), rm = el("button", "Poista");
+      edit.className = "link"; edit.style.color = "var(--accent)"; rm.className = "link";
+      edit.onclick = function () {
+        var f = document.getElementById("invite");
+        f.email.value = u.email; f.tts.value = u.tts_month || 0; f.note.value = u.note || ""; f.tts.focus();
+      };
+      rm.onclick = function () {
+        if (!window.confirm("Poistetaanko " + u.email + "? Pelit jäävät, mutta hän ei voi enää muokata niitä.")) return;
+        call("remove", { email: u.email }).then(show).catch(function (e) { err.textContent = e.message; });
+      };
+      td.appendChild(edit); td.appendChild(rm); tr.appendChild(td);
+      rows.appendChild(tr);
+    });
+    if (!(d.users || []).length) { var tr = el("tr"), td = el("td", "Ei vielä kutsuttuja."); td.colSpan = 6; tr.appendChild(td); rows.appendChild(tr); }
+  }
+  document.getElementById("invite").addEventListener("submit", function (e) {
+    e.preventDefault();
+    err.textContent = "";
+    var f = e.target;
+    call("invite", { email: f.email.value, tts_month: Number(f.tts.value || 0), note: f.note.value })
+      .then(function (d) { f.reset(); show(d); }).catch(function (x) { err.textContent = x.message; });
+  });
+  call("users").then(show).catch(function (e) { err.textContent = e.message; });
+})();
+</script>
+</body>
+</html>

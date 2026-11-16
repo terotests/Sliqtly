@@ -43,6 +43,10 @@ rules_version = '2';
 // warden_backups, warden_backup_data: the copies of the spaces and the own
 // budgets (mcp-go/wardenbackup.go), written by the server only and restored
 // only from the page; no rule, so no client reads, changes or removes them.
+// games, games_users, games_tts: Games at /games (mcp-go/games.go), the
+// games made through its MCP server, who is invited and their speech used;
+// no rule, so only the server reads or writes them (their files are in
+// Storage under games/, which no rule opens either).
 // stats, stats_salt, stats_seen: the visitor counts (mcp-go/rgr/Stats.rgr); no
 // rule either.
 // licenses/{uid}: what the editor at /editor lets a signed-in user change
