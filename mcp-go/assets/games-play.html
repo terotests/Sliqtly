@@ -31,10 +31,6 @@
   body.framed { background: radial-gradient(circle at 50% 35%, #2d3366 0%, #12142a 70%); }
   body.framed #device { left: 50%; top: 50%; border-radius: 22px; background: #1b1f3b;
     box-shadow: 0 0 0 10px #0b0c16, 0 0 0 11px #3a3f63, 0 24px 60px rgba(0,0,0,.6); }
-  #tools { position: fixed; right: 12px; bottom: 10px; display: none; gap: 8px; font: 500 13px "Fredoka", sans-serif; }
-  body.framed #tools { display: flex; }
-  #tools a { color: #c9cdf5; opacity: .6; text-decoration: none; padding: 4px 8px; border-radius: 8px; background: rgba(255,255,255,.06); }
-  #tools a:hover { opacity: 1; }
   #three { display: none; }
   #status { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;
     color: #fff; font: 600 20px "Fredoka", sans-serif; background: #1b1f3b; }
@@ -48,7 +44,6 @@
 <canvas id="three"></canvas>
 <canvas id="screen"></canvas>
 </div></div>
-<div id="tools"><a href="?mode=mobile" id="tofull">Koko ikkuna</a></div>
 <div id="status">RangerGames<small>Ladataan…</small></div>
 <div id="debug"></div>
 <script src="js/wasi.js"></script>
@@ -65,30 +60,23 @@
       status.innerHTML = "RangerGames<small>Tämä selain ei tue WebAssemblyä.</small>";
       return;
     }
-    // Phone or desktop. A phone (touch screen, or a narrow window) gets the
-    // whole screen like the installed app, and goes full screen at the first
-    // touch. A desktop gets the game in a phone-sized frame at the phone's own
-    // size in dp (Huawei P20: 360 × 720), zoomed to fit the window, so the
-    // menus look as they do on the phone instead of stretching across the
-    // screen. ?mode=mobile or ?mode=frame chooses by hand.
+    // The game takes the whole window like the installed app, and goes full
+    // screen at the first touch or click; a wide desktop window gets it in
+    // a phone-shaped column. ?mode=frame shows it in a phone-sized frame
+    // (Huawei P20: 360 × 720) instead.
     // a game's own page (peli/<id>/, made by build-web.sh) sets RG_PAGE: that
     // game, full window, whatever the device
     var page = window.RG_PAGE || {};
     var params = new URLSearchParams(location.search), mode = params.get("mode") || page.mode;
     var embedded = window.top !== window;
     var coarse = window.matchMedia && matchMedia("(pointer: coarse)").matches;
-    var framed = mode === "frame" || (mode !== "mobile" && !embedded && !coarse && innerWidth > 600);
+    // full window everywhere (a wide desktop window gets a phone-shaped
+    // column); ?mode=frame shows the phone frame
+    var framed = mode === "frame";
     var PW = 360, PH = 720;
     var device = document.getElementById("device"), game = document.getElementById("game");
     if (framed) document.body.classList.add("framed");
     else if (!embedded) document.body.classList.add("phone");
-    var tofull = document.getElementById("tofull");
-    // "Koko ikkuna": the address as it is now (it follows the running game)
-    tofull.addEventListener("click", function () {
-      var q = new URLSearchParams(location.search); q.set("mode", "mobile");
-      tofull.href = "?" + q.toString();
-    });
-    params.set("mode", "mobile"); tofull.href = "?" + params.toString();
     function fit() {
       var W = innerWidth, H = innerHeight;
       if (!framed) {
@@ -132,7 +120,7 @@
           if (p && p.then) p.then(lock).catch(function () { }); else lock();
         } catch (e) { }
       };
-      if (coarse || mode === "mobile") document.addEventListener("pointerup", goFull, true);
+      document.addEventListener("pointerup", goFull, true);
     }
     // ?pack=<url>: one game made with the Games MCP on sliqtly.com, played
     // from its secret link (sliqtly.com/games/p/<token> sends the browser
