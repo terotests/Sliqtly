@@ -27,6 +27,7 @@
      home bar (iPhone), as the installed app does */
   body.phone #device { left: env(safe-area-inset-left, 0px); top: env(safe-area-inset-top, 0px);
     width: auto; height: auto; right: env(safe-area-inset-right, 0px); bottom: env(safe-area-inset-bottom, 0px); }
+  body.phone { background: #0b0c16; }
   body.framed { background: radial-gradient(circle at 50% 35%, #2d3366 0%, #12142a 70%); }
   body.framed #device { left: 50%; top: 50%; border-radius: 22px; background: #1b1f3b;
     box-shadow: 0 0 0 10px #0b0c16, 0 0 0 11px #3a3f63, 0 24px 60px rgba(0,0,0,.6); }
@@ -95,6 +96,16 @@
         device.style.marginLeft = device.style.marginTop = "";
         if (!embedded) { W = device.clientWidth || W; H = device.clientHeight || H; }
         game.style.transform = "";
+        // full window on a desktop's wide window: the game is a phone's,
+        // upright, so it takes the window's height and keeps the phone's
+        // shape in the middle instead of stretching across a landscape screen
+        var left = 0;
+        if (!coarse && !embedded && W > H * PW / PH) {
+          var cw = Math.round(H * PW / PH);
+          left = Math.round((W - cw) / 2);
+          W = cw;
+        }
+        game.style.left = left + "px";
         game.style.width = W + "px"; game.style.height = H + "px";
         return { w: W, h: H, zoom: 1 };
       }
