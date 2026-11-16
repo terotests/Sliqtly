@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sliqtly Games</title>
+<style>
+  :root { --bg: #f6f7fb; --card: #fff; --ink: #1b1f3b; --muted: #667; --line: #e3e5ee; --accent: #3a86ff; --bad: #d62839; --ok: #2a9d58; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #12142a; --card: #1b1f3b; --ink: #eef; --muted: #aab; --line: #2d3366; } }
+  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 60px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 24px; margin: 0; }
+  .who { color: var(--muted); font-size: 13px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 17px; margin: 0 0 10px; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  code { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; font-size: 14px; }
+  ol { margin: 0 0 8px; padding-left: 20px; } li { margin-bottom: 6px; }
+  .game { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .game:first-of-type { border-top: 0; }
+  .name { font-weight: 600; font-size: 16px; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; margin-left: 6px; vertical-align: 2px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
+  .tag.pub { color: var(--ok); border-color: var(--ok); }
+  .tag.hid { color: var(--bad); border-color: var(--bad); }
+  .links { grid-column: 1 / -1; font-size: 13px; display: flex; flex-direction: column; gap: 2px; word-break: break-all; }
+  .links a { color: var(--accent); }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: end; align-items: start; }
+  button { font: inherit; font-size: 13px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--bad); }
+  button.copy { padding: 2px 8px; font-size: 12px; margin-left: 6px; }
+  .err { color: var(--bad); min-height: 1.4em; }
+  .empty { color: var(--muted); padding: 8px 0; }
+  @media (max-width: 560px) { .game { grid-template-columns: 1fr; } .acts { justify-content: start; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Sliqtly Games</h1>
+    <div class="who" id="who"></div>
+  </header>
+
+  <section id="mine" hidden>
+    <h2>Omat pelit <span class="muted" id="count"></span></h2>
+    <div class="err" id="err"></div>
+    <div id="games"></div>
+  </section>
+
+  <section id="notInvited" hidden>
+    <h2>Pelien tekeminen on kutsupohjaista</h2>
+    <p id="why"></p>
+    <p class="muted">Pyydä kutsua sivuston ylläpitäjältä. Pelejä voi silti pelata kenen tahansa jakamasta linkistä.</p>
+  </section>
+
+  <section>
+    <h2>Pelien tekeminen tekoälyavustajalla</h2>
+    <p>Pelit tehdään tekoälyavustajalla (esimerkiksi Claude) Sliqtly Gamesin MCP-yhteyden kautta. Avustaja kirjoittaa pelin koodin, kuvat ja äänet, ja peli tallentuu tänne.</p>
+    <p>MCP-osoite: <code id="mcp">https://sliqtly.com/games/mcp</code><button class="copy" id="copyMcp">Kopioi</button></p>
+    <ol>
+      <li><b>Claude</b> (claude.ai tai työpöytäsovellus): Asetukset → Connectors → Add custom connector. Anna nimeksi esim. "Sliqtly Games" ja osoitteeksi yllä oleva MCP-osoite.</li>
+      <li>Kun yhteys pyytää kirjautumista, kirjaudu samalla Google-tilillä kuin tällä sivulla.</li>
+      <li>Pyydä avustajaa: "Tee lapselle peli, jossa…". Avustaja antaa esikatselulinkin, jolla pelin voi kokeilla heti puhelimessa tai selaimessa.</li>
+      <li>Kun peli on valmis, pyydä avustajaa julkaisemaan se tai julkaise se tältä sivulta. Julkaisulinkillä kuka tahansa voi pelata kirjautumatta.</li>
+    </ol>
+    <p class="muted">Muut MCP-asiakkaat (esim. Claude Code, ChatGPT:n kehittäjätila) toimivat samalla osoitteella, jos ne tukevat MCP:tä OAuth-kirjautumisella.</p>
+  </section>
+
+  <section>
+    <h2>Hyvä tietää</h2>
+    <ul class="muted" style="margin:0;padding-left:20px">
+      <li><b>Esikatselulinkki</b> näyttää aina pelin uusimman version ja on tarkoitettu omaan kokeiluun.</li>
+      <li><b>Julkaisulinkki</b> on erillinen salainen linkki jakamista varten. Julkaisun lopettaminen sulkee sen. "Uusi linkki" vaihtaa sen, ja vanha lakkaa toimimasta.</li>
+      <li><b>Piilotettu</b> peli ei pelaa kummastakaan linkistä, ennen kuin näytät sen taas. Pelin tiedostot säilyvät.</li>
+      <li><b>Poistettu</b> peli häviää tiedostoineen pysyvästi.</li>
+      <li>Älä laita peleihin lasten oikeita nimiä, kuvia tai osoitteita: julkaisulinkin saanut voi jakaa sen eteenpäin.</li>
+    </ul>
+  </section>
+</main>
+<script>
+(function () {
+  var err = document.getElementById("err");
+  function call(op, body) {
+    return fetch("/games/api/" + op, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.status); return j; }); });
+  }
+  function el(tag, text, cls) { var e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
+  function copy(text, btn) {
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () {
+      var t = btn.textContent; btn.textContent = "Kopioitu"; setTimeout(function () { btn.textContent = t; }, 1200);
+    }).catch(function () { window.prompt("Kopioi:", text); });
+  }
+  function link(label, url) {
+    var d = el("div"); d.appendChild(document.createTextNode(label + ": "));
+    var a = el("a", url); a.href = url; a.target = "_blank"; a.rel = "noopener"; d.appendChild(a);
+    var b = el("button", "Kopioi", "copy"); b.onclick = function () { copy(url, b); }; d.appendChild(b);
+    return d;
+  }
+  function act(op, body) {
+    err.textContent = "";
+    return call(op, body).then(load).catch(function (e) { err.textContent = e.message; });
+  }
+  function row(g) {
+    var d = el("div", undefined, "game");
+    var left = el("div");
+    var n = el("span", g.name, "name"); left.appendChild(n);
+    if (g.hidden) left.appendChild(el("span", "piilotettu", "tag hid"));
+    else if (g.published) left.appendChild(el("span", "julkaistu", "tag pub"));
+    var info = el("div", "Muokattu " + new Date(g.updated).toLocaleString("fi-FI") + " · " + g.file_count + " tiedostoa · " + Math.round((g.bytes || 0) / 1024) + " kt", "muted");
+    left.appendChild(info);
+    d.appendChild(left);
+    var acts = el("div", undefined, "acts");
+    function btn(text, cls, fn) { var b = el("button", text, cls); b.onclick = fn; acts.appendChild(b); }
+    if (!g.hidden) {
+      if (g.published) {
+        btn("Lopeta julkaisu", "", function () { act("publish", { game_id: g.game_id, published: false }); });
+        btn("Uusi linkki", "", function () {
+          if (confirm("Tehdäänkö uusi julkaisulinkki? Vanha lakkaa toimimasta.")) act("publish", { game_id: g.game_id, published: true, new_link: true });
+        });
+      } else {
+        btn("Julkaise", "primary", function () {
+          if (confirm("Julkaistaanko \"" + g.name + "\"? Kuka tahansa, jolla on linkki, voi pelata sitä kirjautumatta.")) act("publish", { game_id: g.game_id, published: true });
+        });
+      }
+    }
+    btn(g.hidden ? "Näytä" : "Piilota", "", function () { act("hide", { game_id: g.game_id, hidden: !g.hidden }); });
+    btn("Poista", "danger", function () {
+      var name = prompt("Peli ja sen tiedostot poistetaan pysyvästi. Kirjoita pelin nimi vahvistukseksi:\n" + g.name);
+      if (name === null) return;
+      act("delete", { game_id: g.game_id, confirm_name: name });
+    });
+    d.appendChild(acts);
+    var links = el("div", undefined, "links");
+    if (!g.hidden) {
+      links.appendChild(link("Esikatselu", g.preview_url));
+      if (g.published && g.link) links.appendChild(link("Julkaisulinkki", g.link));
+    }
+    d.appendChild(links);
+    return d;
+  }
+  function load() {
+    return call("me").then(function (me) {
+      document.getElementById("who").textContent = (me.name ? me.name + " · " : "") + (me.email || "");
+      if (me.admin) {
+        var a = el("a", "Ylläpito"); a.href = "/games/main/admin"; a.style.marginLeft = "10px"; a.style.color = "var(--accent)";
+        document.getElementById("who").appendChild(a);
+      }
+      if (me.mcp) document.getElementById("mcp").textContent = me.mcp;
+      if (!me.invited) {
+        document.getElementById("notInvited").hidden = false;
+        document.getElementById("mine").hidden = true;
+        document.getElementById("why").textContent = me.why || "";
+        return;
+      }
+      document.getElementById("mine").hidden = false;
+      var list = me.games || [];
+      document.getElementById("count").textContent = list.length + (me.max_games >= 0 ? " / " + me.max_games : "") +
+        (me.tts_month > 0 ? " · puhetta käytetty " + (me.tts_used || 0).toLocaleString("fi-FI") + " / " + me.tts_month.toLocaleString("fi-FI") + " merkkiä tässä kuussa" : "");
+      var box = document.getElementById("games");
+      box.textContent = "";
+      if (!list.length) box.appendChild(el("div", "Ei vielä pelejä. Kytke MCP-yhteys alla olevan ohjeen mukaan ja pyydä avustajaa tekemään peli.", "empty"));
+      list.forEach(function (g) { box.appendChild(row(g)); });
+    }).catch(function (e) { err.textContent = e.message; document.getElementById("mine").hidden = false; });
+  }
+  document.getElementById("copyMcp").onclick = function () { copy(document.getElementById("mcp").textContent, this); };
+  load();
+})();
+</script>
+</body>
+</html>

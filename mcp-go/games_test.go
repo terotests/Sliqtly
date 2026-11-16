@@ -192,6 +192,10 @@ func TestGamesFolderAndPlay(t *testing.T) {
 	if code != 200 || !strings.Contains(files[id+"/game.json"], `"Pupu"`) || !strings.Contains(files[id+"/game.tsx"], "function view") {
 		t.Fatalf("pack %d %v", code, files)
 	}
+	// the link's own menu, for when the game is closed
+	if !strings.Contains(files["launcher/game.tsx"], "games/mcp") || !strings.Contains(files["launcher/game.json"], `"hidden":true`) {
+		t.Fatal("pack without its launcher")
+	}
 
 	// write code and a picture; read them back
 	png := []byte("\x89PNG\r\n\x1a\nfake")
@@ -451,5 +455,67 @@ func TestGamesShotPaint(t *testing.T) {
 	in, err := gamesShotArgs(map[string]any{"taps": []any{map[string]any{"x": 1.0, "y": 2.0, "frame": 3.0}}, "keys": []any{map[string]any{"key": "Enter", "frame": 4.0}}})
 	if err != nil || in.frames != 30 || in.w != 360 || in.h != 640 || len(in.taps[3]) != 1 || in.keys[4][0] != "Enter" {
 		t.Fatalf("args %+v %v", in, err)
+	}
+}
+
+// sliqtly.com/games/: the page's calls, the per-account limit and hiding
+func TestGamesHome(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	ctx := context.Background()
+	s := env.games
+	kid := gamesWho{uid: "u-kid", name: "Kid", email: "kid@example.com"}
+	// signed in, not invited: told so
+	me, err := s.homeCall(ctx, kid, "me", nil)
+	if err != nil || me.(map[string]any)["invited"] != false {
+		t.Fatalf("not invited: %v %v", me, err)
+	}
+	if _, err := s.homeCall(ctx, kid, "hide", map[string]any{"game_id": "g000000000000"}); err == nil {
+		t.Fatal("a call without an invitation")
+	}
+	// invited with room for one game
+	s.adminCall(ctx, "invite", map[string]any{"email": "kid@example.com", "max_games": float64(1)})
+	tok := gamesToken(db, "u-kid", "kid@example.com", gamesBase+gamesMcpPath)
+	g := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Yksi"})
+	if _, e := gamesTool(t, env, tok, "create_game", map[string]any{"name": "Kaksi"}); !strings.Contains(e, "(1)") {
+		t.Fatalf("over the limit: %q", e)
+	}
+	id := g["game_id"].(string)
+	me, _ = s.homeCall(ctx, kid, "me", nil)
+	m := me.(map[string]any)
+	if m["invited"] != true || m["max_games"] != 1 || len(m["games"].([]any)) != 1 || m["mcp"] != gamesBase+gamesMcpPath {
+		t.Fatalf("me %v", m)
+	}
+	// publish, then hide: neither link plays
+	out, err := s.homeCall(ctx, kid, "publish", map[string]any{"game_id": id, "published": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := gamesTokenOf(t, out.(map[string]any)["link"])
+	preview := gamesTokenOf(t, g["preview_url"])
+	if code, _ := gamesPack(env, link); code != 200 {
+		t.Fatalf("published: %d", code)
+	}
+	s.homeCall(ctx, kid, "hide", map[string]any{"game_id": id, "hidden": true})
+	if c1, _ := gamesPack(env, link); c1 != 404 {
+		t.Fatalf("hidden, link: %d", c1)
+	}
+	if c2, _ := gamesPack(env, preview); c2 != 404 {
+		t.Fatalf("hidden, preview: %d", c2)
+	}
+	s.homeCall(ctx, kid, "hide", map[string]any{"game_id": id, "hidden": false})
+	if code, _ := gamesPack(env, preview); code != 200 {
+		t.Fatalf("shown again: %d", code)
+	}
+	// another account's game is not theirs
+	other := gamesWho{uid: "u-admin", email: "admin@example.com"}
+	if _, err := s.homeCall(ctx, other, "delete", map[string]any{"game_id": id, "confirm_name": "Yksi"}); err == nil {
+		t.Fatal("deleted another's game")
+	}
+	if _, err := s.homeCall(ctx, kid, "delete", map[string]any{"game_id": id, "confirm_name": "Yksi"}); err != nil {
+		t.Fatal(err)
+	}
+	// the admin has no limit
+	if u, _ := s.user(ctx, other); u.maxGames >= 0 {
+		t.Fatal("admin limited")
 	}
 }

@@ -49,6 +49,17 @@ const (
 //go:embed assets/games-guide.md
 var gamesGuide string
 
+// the menu a pack carries (the engine opens /games/launcher when a game is
+// closed): the game to play again and how to make one through the MCP
+//
+//go:embed assets/games-launcher.tsx
+var gamesLauncherTSX []byte
+
+//go:embed assets/games-launcher.css
+var gamesLauncherCSS []byte
+
+var gamesLauncherJSON = []byte(`{"name":"Sliqtly Games","description":"","width":360,"hidden":true}`)
+
 //go:embed assets/games-admin.html
 var gamesAdminHTML string
 
@@ -170,6 +181,9 @@ func serveGames(env *Env, w http.ResponseWriter, r *http.Request) bool {
 	case p == gamesAdmin || strings.HasPrefix(p, gamesAdmin+"/"):
 		w.Header().Set("Cache-Control", "no-store")
 		serveGamesAdmin(env, w, r)
+	case p == gamesPath || p == gamesPath+"/" || strings.HasPrefix(p, gamesPath+"/api/"):
+		w.Header().Set("Cache-Control", "no-store")
+		serveGamesHome(env, w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -487,6 +501,13 @@ func (s *gamesService) adminCall(ctx context.Context, op string, a map[string]an
 			}
 			tts = int64(v)
 		}
+		maxGames := int64(gamesMaxGames)
+		if v, ok := a["max_games"].(float64); ok {
+			if v < 0 || v > 1000 {
+				return nil, roomErr{"Games: 0 to 1000."}
+			}
+			maxGames = int64(v)
+		}
 		note, _ := a["note"].(string)
 		if len([]rune(note)) > 200 {
 			return nil, roomErr{"Note: at most 200 characters."}
@@ -495,7 +516,7 @@ func (s *gamesService) adminCall(ctx context.Context, op string, a map[string]an
 		if err != nil {
 			return nil, err
 		}
-		set := Doc{"email": email, "tts_month": tts, "note": note, "listed": true}
+		set := Doc{"email": email, "tts_month": tts, "max_games": maxGames, "note": note, "listed": true}
 		if d == nil {
 			set["invited"] = s.now().UnixMilli()
 			if err := s.db.Set(ctx, gamesUsersCol, email, set); err != nil {
@@ -528,7 +549,7 @@ func (s *gamesService) adminUsers(ctx context.Context) (any, error) {
 	month := gamesMonth(s.now())
 	l := []any{}
 	for i, d := range docs {
-		row := map[string]any{"email": ids[i], "tts_month": docInt(d["tts_month"]), "note": docStr(d, "note"), "name": docStr(d, "name")}
+		row := map[string]any{"email": ids[i], "tts_month": docInt(d["tts_month"]), "max_games": gamesUserMax(d), "note": docStr(d, "note"), "name": docStr(d, "name")}
 		if uid := docStr(d, "uid"); uid != "" {
 			if u, err := s.db.Get(ctx, gamesTTSCol, uid); err == nil && u != nil {
 				row["tts_used"] = docInt(u[month])

@@ -49,7 +49,7 @@ const (
 	gamesUsersCol = "games_users"
 	gamesTTSCol   = "games_tts"
 
-	gamesMaxGames   = 50       // per account
+	gamesMaxGames   = 30       // per account unless the admin page says otherwise
 	gamesMaxFiles   = 300      // per game
 	gamesMaxFile    = 8 << 20  // one file
 	gamesMaxTotal   = 40 << 20 // one game's files together
@@ -128,6 +128,7 @@ func (s *gamesService) isAdmin(who gamesWho) bool {
 type gamesUser struct {
 	admin    bool
 	ttsMonth int64 // characters of speech a month; < 0: no limit
+	maxGames int   // games the account may keep; < 0: no limit
 }
 
 func (s *gamesService) user(ctx context.Context, who gamesWho) (gamesUser, error) {
@@ -135,7 +136,7 @@ func (s *gamesService) user(ctx context.Context, who gamesWho) (gamesUser, error
 		return gamesUser{}, roomErr{"Sign in to use Games."}
 	}
 	if s.isAdmin(who) {
-		return gamesUser{admin: true, ttsMonth: -1}, nil
+		return gamesUser{admin: true, ttsMonth: -1, maxGames: -1}, nil
 	}
 	if who.email == "" {
 		return gamesUser{}, roomErr{"Games is by invitation for now, and this sign-in has no verified address."}
@@ -151,7 +152,15 @@ func (s *gamesService) user(ctx context.Context, who gamesWho) (gamesUser, error
 	if docStr(d, "uid") != who.uid {
 		s.db.Update(ctx, gamesUsersCol, who.email, Doc{"uid": who.uid, "name": who.name})
 	}
-	return gamesUser{ttsMonth: docInt(d["tts_month"])}, nil
+	return gamesUser{ttsMonth: docInt(d["tts_month"]), maxGames: gamesUserMax(d)}, nil
+}
+
+// the games an invited address may keep: the admin page's number, else the default
+func gamesUserMax(d Doc) int {
+	if v, ok := d["max_games"]; ok && v != nil {
+		return int(docInt(v))
+	}
+	return gamesMaxGames
 }
 
 // ------------------------------------------------------------------- game --
@@ -235,6 +244,7 @@ func (s *gamesService) json(g *gamesGame, withFiles bool) map[string]any {
 	out := map[string]any{
 		"game_id": g.id, "name": docStr(g.doc, "name"),
 		"published":   g.doc["published"] == true,
+		"hidden":      g.doc["hidden"] == true,
 		"preview_url": s.playURL(docStr(g.doc, "preview")),
 		"updated":     time.UnixMilli(docInt(g.doc["updated"])).UTC().Format(time.RFC3339),
 	}
@@ -283,7 +293,7 @@ func gamesName(a map[string]any) (string, error) {
 	return n, nil
 }
 
-func (s *gamesService) createGame(ctx context.Context, who gamesWho, a map[string]any) (any, error) {
+func (s *gamesService) createGame(ctx context.Context, who gamesWho, u gamesUser, a map[string]any) (any, error) {
 	name, err := gamesName(a)
 	if err != nil {
 		return nil, err
@@ -292,8 +302,8 @@ func (s *gamesService) createGame(ctx context.Context, who gamesWho, a map[strin
 	if err != nil {
 		return nil, err
 	}
-	if len(ids) >= gamesMaxGames {
-		return nil, roomErr{fmt.Sprintf("You have %d games, the most one account keeps; delete one first.", len(ids))}
+	if u.maxGames >= 0 && len(ids) >= u.maxGames {
+		return nil, roomErr{fmt.Sprintf("You have %d games, the most this account keeps (%d); delete one first (sliqtly.com/games).", len(ids), u.maxGames)}
 	}
 	id := gamesNewID()
 	files := []gamesFile{}
@@ -607,11 +617,17 @@ func (s *gamesService) speak(ctx context.Context, who gamesWho, u gamesUser, g *
 // --------------------------------------------------------------- the pack --
 
 // the game as one RGPK1 pack, its files under <id>/ (the engine mounts it at
-// /games, so the game is /games/<id>)
+// /games, so the game is /games/<id>), with the link's own menu as
+// launcher/ (a game's id starts with g)
 func (s *gamesService) pack(ctx context.Context, g *gamesGame) ([]byte, error) {
 	fs := g.files()
 	var b strings.Builder
-	out := []byte("RGPK1\n" + strconv.Itoa(len(fs)) + "\n")
+	launcher := []gamesStarterFile{{"game.json", gamesLauncherJSON}, {"game.tsx", gamesLauncherTSX}, {"style.css", gamesLauncherCSS}}
+	out := []byte("RGPK1\n" + strconv.Itoa(len(fs)+len(launcher)) + "\n")
+	for _, f := range launcher {
+		out = append(out, "launcher/"+f.path+"\n"+strconv.Itoa(len(f.data))+"\n"...)
+		out = append(out, f.data...)
+	}
 	for _, f := range fs {
 		data, err := s.bucket.Read(ctx, s.blobPath(g.id, f.Sha), gamesMaxFile+1)
 		if err != nil {
@@ -640,6 +656,10 @@ func (s *gamesService) byToken(ctx context.Context, token string) (*gamesGame, e
 			if field == "link" && d["published"] != true {
 				continue
 			}
+			// a hidden game plays from neither link until it is shown again
+			if d["hidden"] == true {
+				continue
+			}
 			return &gamesGame{ids[i], d}, nil
 		}
 	}
@@ -664,7 +684,7 @@ func (s *gamesService) call(ctx context.Context, who gamesWho, op string, a map[
 	case "list_games":
 		return s.listGames(ctx, who)
 	case "create_game":
-		return s.createGame(ctx, who, a)
+		return s.createGame(ctx, who, u, a)
 	}
 	id, _ := a["game_id"].(string)
 	g, err := s.game(ctx, who, id)
