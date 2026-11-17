@@ -91,3 +91,24 @@ func sysfsKinds(root string, readDir func(string) ([]os.DirEntry, error)) map[st
 	}
 	return m
 }
+
+// windowsKind reads one row of Windows' GetIfEntry2: the interface's IANA
+// type, whether it is hardware (not a Hyper-V switch, a VPN or another
+// adapter of software) and its description, which names a phone shared
+// over USB (Remote NDIS, Apple's driver for an iPhone)
+func windowsKind(ifType uint32, hardware bool, desc string) string {
+	d := strings.ToLower(desc)
+	switch {
+	case ifType == 24: // softwareLoopback
+		return "loopback"
+	case ifType == 71: // ieee80211
+		return "wifi"
+	case ifType == 243 || ifType == 244 || strings.Contains(d, "remote ndis") || strings.Contains(d, "apple mobile device"):
+		return "cellular" // wwanPP, wwanPP2: mobile broadband
+	case !hardware:
+		return "virtual"
+	case ifType == 6: // ethernetCsmacd
+		return "wired"
+	}
+	return "other"
+}
