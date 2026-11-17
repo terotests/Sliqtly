@@ -951,3 +951,54 @@ func TestGamesPackMenuAndLazy(t *testing.T) {
 		t.Fatal("stale pack after a write")
 	}
 }
+
+// a new game from an old one: all its files, game.json with the new name,
+// the original as it was
+func TestGamesCopy(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	tok := gamesToken(db, "u1", "admin@example.com", gamesBase+gamesMcpPath)
+	a := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Eka"})
+	id := a["game_id"].(string)
+	png := []byte("\x89PNG\r\n\x1a\nfake")
+	gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": id, "files": []any{
+		map[string]any{"path": "game.tsx", "text": "function view() { return <div>vanha</div>; }"},
+		map[string]any{"path": "img/a.png", "base64": base64.StdEncoding.EncodeToString(png)},
+	}})
+	c := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Toka", "copy_of": id})
+	cid := c["game_id"].(string)
+	if cid == id || c["copy_of"] != id || len(c["files"].([]any)) != 4 {
+		t.Fatalf("copy %v", c)
+	}
+	read := func(g, p string) any {
+		return gamesMustTool(t, env, tok, "read_file", map[string]any{"game_id": g, "path": p})
+	}
+	if r := read(cid, "game.tsx").(map[string]any); r["text"] != "function view() { return <div>vanha</div>; }" {
+		t.Fatalf("code %v", r)
+	}
+	if r := read(cid, "img/a.png").(map[string]any); r["base64"] != base64.StdEncoding.EncodeToString(png) {
+		t.Fatalf("png %v", r)
+	}
+	if r := read(cid, "game.json").(map[string]any); !strings.Contains(r["text"].(string), `"Toka"`) {
+		t.Fatalf("copy's game.json %v", r)
+	}
+	if r := read(id, "game.json").(map[string]any); !strings.Contains(r["text"].(string), `"Eka"`) {
+		t.Fatalf("original's game.json %v", r)
+	}
+	// changing the copy leaves the original
+	gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": cid, "files": []any{
+		map[string]any{"path": "game.tsx", "text": "function view() { return <div>uusi</div>; }"},
+	}})
+	if r := read(id, "game.tsx").(map[string]any); r["text"] != "function view() { return <div>vanha</div>; }" {
+		t.Fatalf("original changed %v", r)
+	}
+	// only your own games
+	tok2 := gamesToken(db, "u2", "admin@example.com", gamesBase+gamesMcpPath)
+	if _, e := gamesTool(t, env, tok2, "create_game", map[string]any{"name": "Varas", "copy_of": id}); !strings.Contains(e, "No such game") {
+		t.Fatalf("someone else's game: %s", e)
+	}
+	// the editor's button
+	out, err := env.games.homeCall(context.Background(), gamesWho{uid: "u1", email: "admin@example.com"}, "copy", map[string]any{"game_id": id, "name": "Kolmas"})
+	if m, _ := out.(map[string]any); err != nil || m["name"] != "Kolmas" || m["copy_of"] != id {
+		t.Fatalf("home copy %v %v", out, err)
+	}
+}

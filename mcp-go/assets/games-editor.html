@@ -67,6 +67,7 @@
 <header>
   <h1><a href="/games/">Sliqtly Games</a> · Editori</h1>
   <select id="game" title="Peli"><option value="">Uusi peli</option></select>
+  <button id="copy" hidden title="Uusi peli tämän pelin kaikilla tiedostoilla; alkuperäinen ei muutu">Tee kopio uudeksi peliksi</button>
   <button id="newChat" hidden>Uusi keskustelu</button>
   <span class="grow"></span>
   <span class="muted cost" id="cost"></span>
@@ -238,6 +239,7 @@
   // what the next message does, in the box's hint and the button
   function follow() {
     var id = sel.value, going = run && run.game_id && id === run.game_id;
+    $("copy").hidden = !id || busy;
     $("newChat").hidden = !going || busy;
     $("run").textContent = going ? "Lähetä" : "Aloita";
     var name = id && games[id] ? games[id].name : "";
@@ -257,6 +259,25 @@
     show(sel.value);
     follow();
     try { history.replaceState(null, "", sel.value ? "?game=" + encodeURIComponent(sel.value) : location.pathname); } catch (e) { }
+  };
+  // a new game from the chosen one: all its files under a new name, then
+  // the chat goes on with the copy
+  $("copy").onclick = function () {
+    var id = sel.value, g = games[id];
+    if (!g) return;
+    var name = window.prompt("Uuden pelin nimi", (g.name + " 2").slice(0, 60));
+    if (name === null || !name.trim()) return;
+    var b = this; b.disabled = true; $("err").textContent = "";
+    call("copy", { game_id: id, name: name.trim() }).then(function (n) {
+      games[n.game_id] = n;
+      return refresh().then(function () {
+        run = null; remember(); clearLog();
+        sel.value = n.game_id;
+        sel.onchange();
+        line("Tehtiin uusi peli " + n.name + " pelin " + g.name + " pohjalta. Muutokset tehdään nyt kopioon.", "muted");
+        prompt.focus();
+      });
+    }).catch(function (e) { $("err").textContent = e.message; }).then(function () { b.disabled = false; });
   };
   $("newChat").onclick = function () { run = null; remember(); clearLog(); follow(); prompt.focus(); };
 
