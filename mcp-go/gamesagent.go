@@ -202,6 +202,7 @@ How to work:
 - After every change, play the game with play_game and look at the pictures: tap through what you made (tap a button by its text: {"tap": {"text": "Pelaa"}}) to check that it works, that nothing is cut off or overlapping, and that the text fits. Save a point deep in the game (save_as) and continue from it (from) after the next change, instead of playing from the start again. inspect_game shows the game's variables and its laid-out elements when a picture is not enough. Fix what is wrong and look again.
 - Keep the game simple, clear and kind: big touch targets, few words, Finnish text unless asked otherwise. No real people's names, photos or addresses.
 - Don't ask the person questions: choose sensibly and say what you chose.
+- The person may add pictures to a message: a screenshot of the game or something else they pasted. A spot they pointed at on the game is a red ring on its screenshot, and its words give the spot in the game's own coordinates (as play_game taps use) and what they want there: find that element (inspect_game) and change it.
 - When it is done, answer in Finnish in a few sentences: what the game is and what you made or changed. Don't paste code.
 
 The guide to RangerGames games follows.
@@ -218,6 +219,13 @@ func (s *gamesService) agentStart(ctx context.Context, who gamesWho, a map[strin
 	}
 	prompt, _ := a["prompt"].(string)
 	prompt = strings.TrimSpace(prompt)
+	pics, err := gamesAgentPictures(a["images"])
+	if err != nil {
+		return nil, err
+	}
+	if prompt == "" && len(pics) > 0 {
+		prompt = "(See the pictures below.)"
+	}
 	if prompt == "" || len([]rune(prompt)) > 8000 {
 		return nil, roomErr{"Write what the game should be (at most 8000 characters)."}
 	}
@@ -237,7 +245,7 @@ func (s *gamesService) agentStart(ctx context.Context, who gamesWho, a map[strin
 		if r.UID != who.uid {
 			return nil, roomErr{"No such run."}
 		}
-		r.Contents = append(r.Contents, geminiContent{Role: "user", Parts: []geminiPart{{Text: prompt}}})
+		r.Contents = append(r.Contents, geminiContent{Role: "user", Parts: append([]geminiPart{{Text: prompt}}, pics...)})
 	} else {
 		text := prompt
 		if id, _ := a["game_id"].(string); id != "" {
@@ -250,7 +258,7 @@ func (s *gamesService) agentStart(ctx context.Context, who gamesWho, a map[strin
 			text += "\n\n(Make a new game for this with create_game.)"
 		}
 		r = &gamesAgentRun{ID: gamesRandom(12), Key: gamesRandom(16), UID: who.uid, Name: who.name, Email: who.email,
-			Started: s.now().UnixMilli(), Contents: []geminiContent{{Role: "user", Parts: []geminiPart{{Text: text}}}}}
+			Started: s.now().UnixMilli(), Contents: []geminiContent{{Role: "user", Parts: append([]geminiPart{{Text: text}}, pics...)}}}
 		r.GameID, _ = a["game_id"].(string)
 	}
 	// the model chosen on the page, for this message and the next ones
@@ -269,6 +277,50 @@ func (s *gamesService) agentStart(ctx context.Context, who gamesWho, a map[strin
 		step = u + gamesAgentStepPath
 	}
 	return map[string]any{"run_id": r.ID, "key": r.Key, "step_url": step, "cost_usd": usd(r.Micros), "cap_usd": cfg.CapUSD, "spent_usd": usd(s.agentSpent(ctx, "total"))}, nil
+}
+
+// the pictures the person added to a message (pasted, or a spot marked on
+// the game): [{data: base64, mime, note}], each after a line of words that
+// says what it is
+const (
+	gamesAgentMaxPics = 4
+	gamesAgentPicSize = 3 << 20 // bytes of one picture
+)
+
+func gamesAgentPictures(v any) ([]geminiPart, error) {
+	list, _ := v.([]any)
+	if len(list) > gamesAgentMaxPics {
+		return nil, roomErr{fmt.Sprintf("At most %d pictures in one message.", gamesAgentMaxPics)}
+	}
+	var parts []geminiPart
+	for i, x := range list {
+		m, _ := x.(map[string]any)
+		data, _ := m["data"].(string)
+		mime, _ := m["mime"].(string)
+		note, _ := m["note"].(string)
+		switch mime {
+		case "image/png", "image/jpeg", "image/webp":
+		default:
+			return nil, roomErr{"A picture must be PNG, JPEG or WebP."}
+		}
+		b, err := base64.StdEncoding.DecodeString(data)
+		if err != nil || len(b) == 0 {
+			return nil, roomErr{"A picture could not be read."}
+		}
+		if len(b) > gamesAgentPicSize {
+			return nil, roomErr{"A picture is too big (at most 3 MB)."}
+		}
+		note = strings.TrimSpace(note)
+		if len([]rune(note)) > 2000 {
+			note = string([]rune(note)[:2000])
+		}
+		about := fmt.Sprintf("(Picture %d from the person", i+1)
+		if note != "" {
+			about += ": " + note
+		}
+		parts = append(parts, geminiPart{Text: about + ")"}, geminiPart{InlineData: &geminiData{MimeType: mime, Data: data}})
+	}
+	return parts, nil
 }
 
 // runs being stepped on this instance: one request at a time for a run
