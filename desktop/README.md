@@ -17,6 +17,7 @@ npm run deps              # EVG at the commit ranger.json pins (rgrc install)
 npm run native            # native/build-editor/sliqtly-native (+ Sliqtly.app on macOS)
 npm run native:run        # build and start it with the welcome deck
 npm run native:run -- ~/deck.md   # … or with a deck file of your own
+npm run native:start      # start the built binary without building (takes the same args)
 npm run native:check      # headless check: click, typing, wheel direction, a painted frame
 ```
 
@@ -30,6 +31,10 @@ works on files only.
 ```bash
 npm run native:run -- --server http://localhost:8080
 ```
+
+`native:run` compiles PresApp.rgr each time but skips the C++ compile when the
+generated code and the host sources are unchanged (`FORCE=1` rebuilds);
+`native:start` only starts the binary.
 
 - File → Presentations… lists the server's presentations (sort by a column,
   delete one that is not open); a row opens it.
