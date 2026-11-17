@@ -51,6 +51,21 @@
   .stage .tools button, .stage .tools a.btn { background: #232850; border-color: #3a3f63; color: #eef; }
   .stage iframe { flex: 1; width: 100%; border: 0; display: block; }
   .stage .empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #99a; padding: 20px; text-align: center; }
+  .atts { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .atts:empty { display: none; }
+  .att { position: relative; width: 92px; font-size: 11px; color: var(--muted); }
+  .att img { width: 92px; height: 92px; object-fit: cover; border: 1px solid var(--line); border-radius: 8px; display: block; }
+  .att span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .att button { position: absolute; top: 3px; right: 3px; padding: 0 6px; line-height: 18px; border-radius: 9px; background: rgba(0,0,0,.6); color: #fff; border: 0; }
+  .compose.drop { outline: 2px dashed var(--accent); outline-offset: -4px; }
+  .log .you img { width: 80px; margin: 6px 6px 0 0; }
+  .view { position: relative; flex: 1; display: flex; min-height: 0; }
+  .mark { position: absolute; inset: 0; cursor: crosshair; background: rgba(58,134,255,.08); }
+  .mark .dot { position: absolute; width: 28px; height: 28px; margin: -14px 0 0 -14px; border: 3px solid #ff2d55; border-radius: 50%; box-shadow: 0 0 0 2px #fff; pointer-events: none; }
+  .mark form { position: absolute; width: 260px; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.35); cursor: default; }
+  .mark form textarea { width: 100%; min-height: 60px; display: block; margin-bottom: 6px; font-size: 13px; }
+  .mark .tip { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); background: rgba(0,0,0,.75); color: #fff; padding: 4px 10px; border-radius: 8px; font-size: 13px; pointer-events: none; white-space: nowrap; }
+  .stage .tools button.on { background: #ff2d55; border-color: #ff2d55; color: #fff; }
   .flash { animation: flash 1s ease-out; }
   @keyframes flash { from { box-shadow: inset 0 0 0 3px var(--ok); } to { box-shadow: inset 0 0 0 0 transparent; } }
   .gate { max-width: 560px; margin: 60px auto; padding: 0 16px; }
@@ -90,11 +105,14 @@
     </div>
     <div class="compose">
       <div class="muted" id="hint"></div>
+      <div class="atts" id="atts"></div>
       <textarea id="prompt" maxlength="8000"></textarea>
       <div class="bar">
         <button class="primary" id="run">Aloita</button>
         <button id="stop" hidden>Pysäytä</button>
-        <span class="muted">Ctrl+Enter lähettää</span>
+        <button id="attach" title="Liitä kuva (tai liitä leikepöydältä Ctrl+V / vedä kuva tähän)">Liitä kuva</button>
+        <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+        <span class="muted">Ctrl+Enter lähettää · Ctrl+V liittää kuvan</span>
       </div>
       <div class="err" id="err"></div>
     </div>
@@ -103,11 +121,15 @@
     <div class="tools">
       <span class="name" id="gname"></span>
       <span class="grow"></span>
+      <button id="point" hidden title="Napauta pelistä kohtaa ja kirjoita, mitä siinä pitää muuttaa. Avustaja saa kuvan ja kohdan.">Osoita kohta</button>
       <button id="reload" hidden>Käynnistä uudelleen</button>
       <a class="btn" id="open" target="_blank" rel="noopener" hidden>Avaa omaan ikkunaan</a>
     </div>
     <div class="empty" id="noGame">Peli näkyy tässä, kun se on tehty tai valittu ylhäältä.</div>
-    <iframe id="frame" title="Peli" hidden allow="autoplay; fullscreen; clipboard-write"></iframe>
+    <div class="view" id="view" hidden>
+      <iframe id="frame" title="Peli" hidden allow="autoplay; fullscreen; clipboard-write"></iframe>
+      <div class="mark" id="mark" hidden><div class="tip">Napauta kohtaa, jota viesti koskee · Esc lopettaa</div></div>
+    </div>
   </div>
 </div>
 <script>
@@ -129,15 +151,16 @@
     var token = tokenOf(preview || (games[id] && games[id].preview_url));
     var frame = $("frame");
     if (!id || !token) {
-      shown = ""; frame.hidden = true; frame.removeAttribute("src");
+      shown = ""; frame.hidden = true; $("view").hidden = true; frame.removeAttribute("src");
       $("noGame").hidden = false; $("reload").hidden = true; $("open").hidden = true; $("gname").textContent = "";
+      $("point").hidden = true; pointing(false);
       return;
     }
     if (shown === id && !force) return;
     shown = id;
     frame.src = "/games/engine/?pack=" + encodeURIComponent("/games/p/" + token + "/game.rgpk?menu=0") + "&game=" + encodeURIComponent(id) + "&mode=frame&t=" + Date.now();
-    frame.hidden = false; $("noGame").hidden = true;
-    $("reload").hidden = false;
+    frame.hidden = false; $("view").hidden = false; $("noGame").hidden = true;
+    $("reload").hidden = false; $("point").hidden = false;
     $("open").hidden = false; $("open").href = "/games/p/" + token;
     $("gname").textContent = (games[id] && games[id].name) || "";
     if (force) { var st = $("stage"); st.classList.remove("flash"); void st.offsetWidth; st.classList.add("flash"); }
@@ -207,16 +230,20 @@
   }
   function send() {
     var text = prompt.value.trim();
-    if (!text || busy) { prompt.focus(); return; }
+    if ((!text && !atts.length) || busy) { prompt.focus(); return; }
     $("err").textContent = ""; stopping = false;
     var body = { prompt: text }, id = sel.value;
     if ($("aiModel").value) body.model = $("aiModel").value;
+    var sent = atts.slice();
+    if (sent.length) body.images = sent.map(function (a) { return { data: a.data, mime: a.mime, note: a.note }; });
     if (run && (id ? id === run.game_id : !run.game_id)) { body.run_id = run.run_id; body.key = run.key; }
     else { run = null; clearLog(); if (id) body.game_id = id; }
     $("intro").hidden = true;
     setBusy(true);
-    line(text, "you");
+    var you = line(text || "(kuvat)", "you");
+    sent.forEach(function (a) { var im = el("img"); im.src = a.url; im.title = a.label; im.onclick = function () { im.classList.toggle("big"); }; you.appendChild(el("br")); you.appendChild(im); });
     call("agent_start", body).then(function (r) {
+      atts = []; drawAtts();
       var keep = run && run.game_id;
       run = r; if (keep) run.game_id = keep;
       remember();
@@ -227,6 +254,132 @@
   $("run").onclick = send;
   prompt.addEventListener("keydown", function (e) { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } });
   $("stop").onclick = function () { stopping = true; this.hidden = true; };
+
+  // ---- pictures for the next message: pasted, dropped, chosen, or a spot
+  // marked on the game. Each is made a JPEG of at most 1280 px.
+  var atts = [];
+  function drawAtts() {
+    var box = $("atts"); box.textContent = "";
+    atts.forEach(function (a, i) {
+      var d = el("div", undefined, "att"), im = el("img"), x = el("button", "✕");
+      im.src = a.url; im.title = a.note || a.label; x.title = "Poista";
+      x.onclick = function () { atts.splice(i, 1); drawAtts(); };
+      d.appendChild(im); d.appendChild(x); d.appendChild(el("span", a.label));
+      box.appendChild(d);
+    });
+  }
+  function addCanvas(c, label, note) {
+    if (atts.length >= 4) { $("err").textContent = "Yhteen viestiin mahtuu 4 kuvaa."; return; }
+    var k = Math.min(1, 1280 / Math.max(c.width, c.height)), out = c;
+    if (k < 1) {
+      out = document.createElement("canvas");
+      out.width = Math.round(c.width * k); out.height = Math.round(c.height * k);
+      out.getContext("2d").drawImage(c, 0, 0, out.width, out.height);
+    }
+    var url = out.toDataURL("image/jpeg", 0.85);
+    atts.push({ url: url, data: url.split(",")[1], mime: "image/jpeg", label: label, note: note || "" });
+    $("err").textContent = "";
+    drawAtts();
+  }
+  function addFile(f) {
+    if (!/^image\//.test(f.type)) return;
+    var img = new Image(), u = URL.createObjectURL(f);
+    img.onload = function () {
+      var c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      var g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0);
+      URL.revokeObjectURL(u);
+      addCanvas(c, f.name && f.name !== "image.png" ? f.name : "Liitetty kuva", "");
+    };
+    img.onerror = function () { URL.revokeObjectURL(u); $("err").textContent = "Kuvaa ei voitu lukea."; };
+    img.src = u;
+  }
+  document.addEventListener("paste", function (e) {
+    var items = (e.clipboardData && e.clipboardData.items) || [], got = false;
+    for (var i = 0; i < items.length; i++) if (items[i].kind === "file" && /^image\//.test(items[i].type)) { addFile(items[i].getAsFile()); got = true; }
+    if (got) e.preventDefault();
+  });
+  var compose = document.querySelector(".compose");
+  compose.addEventListener("dragover", function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types, "Files") >= 0) { e.preventDefault(); compose.classList.add("drop"); } });
+  compose.addEventListener("dragleave", function () { compose.classList.remove("drop"); });
+  compose.addEventListener("drop", function (e) {
+    compose.classList.remove("drop");
+    if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+    e.preventDefault();
+    Array.prototype.forEach.call(e.dataTransfer.files, addFile);
+  });
+  $("attach").onclick = function () { $("file").click(); };
+  $("file").onchange = function () { Array.prototype.forEach.call(this.files, addFile); this.value = ""; };
+
+  // the game as it is now: its canvases drawn into one, with the spot
+  // marked; x, y in the frame's pixels. Read just after the game's own
+  // frame, while WebGL's picture is still there.
+  function snapGame(x, y, done) {
+    var w = $("frame").contentWindow, d = w && w.document;
+    if (!d) { done(null); return; }
+    w.requestAnimationFrame(function () {
+      var screen = d.getElementById("screen");
+      if (!screen || !screen.width) { done(null); return; }
+      var r = screen.getBoundingClientRect(), k = screen.width / r.width;
+      var c = document.createElement("canvas"); c.width = screen.width; c.height = screen.height;
+      var g = c.getContext("2d");
+      g.fillStyle = "#000"; g.fillRect(0, 0, c.width, c.height);
+      ["gl3d", "three", "screen"].forEach(function (id) {
+        var s = d.getElementById(id);
+        if (!s || !s.width || (s.style.visibility === "hidden" && id === "gl3d") || getComputedStyle(s).display === "none") return;
+        var q = s.getBoundingClientRect();
+        try { g.drawImage(s, (q.left - r.left) * k, (q.top - r.top) * k, q.width * k, q.height * k); } catch (e) { }
+      });
+      var px = (x - r.left), py = (y - r.top);
+      var inside = px >= 0 && py >= 0 && px <= r.width && py <= r.height;
+      var game = null, v = w.rgHost && w.rgHost.view, css = screen.offsetWidth ? screen.offsetWidth / r.width : 1;
+      if (inside && v && v.scale) game = { x: Math.round((px * css - v.x) / v.scale), y: Math.round((py * css - v.y) / v.scale), w: Math.round(v.w), h: Math.round(v.h) };
+      if (inside) {
+        g.lineWidth = Math.max(3, 4 * k); g.strokeStyle = "#ff2d55";
+        g.beginPath(); g.arc(px * k, py * k, 16 * k, 0, Math.PI * 2); g.stroke();
+        g.lineWidth = Math.max(1, 1.5 * k); g.strokeStyle = "#fff";
+        g.beginPath(); g.arc(px * k, py * k, 19 * k, 0, Math.PI * 2); g.stroke();
+      }
+      done(c, game, inside);
+    });
+  }
+  function pointing(on) {
+    var m = $("mark");
+    m.hidden = !on; $("point").classList.toggle("on", on);
+    Array.prototype.slice.call(m.querySelectorAll(".dot, form")).forEach(function (n) { n.remove(); });
+  }
+  $("point").onclick = function () { pointing($("mark").hidden); };
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !$("mark").hidden) pointing(false); });
+  $("mark").addEventListener("click", function (e) {
+    var m = $("mark");
+    if (e.target !== m) return;
+    Array.prototype.slice.call(m.querySelectorAll(".dot, form")).forEach(function (n) { n.remove(); });
+    var b = m.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
+    var fr = $("frame").getBoundingClientRect(), fx = e.clientX - fr.left, fy = e.clientY - fr.top;
+    var dot = el("div", undefined, "dot"); dot.style.left = x + "px"; dot.style.top = y + "px"; m.appendChild(dot);
+    var f = el("form"), t = el("textarea"), ok = el("button", "Lisää viestiin", "primary"), no = el("button", "Peru");
+    no.type = "button"; t.placeholder = "Mitä tässä kohdassa pitää muuttaa?"; t.maxLength = 1000;
+    var bar = el("div", undefined, "bar"); bar.style.marginTop = "0"; bar.appendChild(ok); bar.appendChild(no);
+    f.appendChild(t); f.appendChild(bar);
+    f.style.left = Math.max(8, Math.min(x - 130, b.width - 268)) + "px";
+    f.style.top = (y + 24 + 150 < b.height ? y + 24 : Math.max(8, y - 24 - 130)) + "px";
+    m.appendChild(f); t.focus();
+    no.onclick = function () { f.remove(); dot.remove(); };
+    t.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); f.requestSubmit ? f.requestSubmit() : f.onsubmit(ev); } });
+    f.onsubmit = function (ev) {
+      ev.preventDefault();
+      var said = t.value.trim();
+      snapGame(fx, fy, function (c, game, inside) {
+        if (!c) { $("err").textContent = "Pelin kuvaa ei saatu."; return; }
+        var note = "a screenshot of the game as it is now";
+        if (game) note += "; the person pointed at the red ring, at x=" + game.x + ", y=" + game.y + " in the game's coordinates (screen " + game.w + "×" + game.h + ")";
+        else if (!inside) note += "; the spot they pointed at is outside the game's screen";
+        if (said) note += ". They said about it: " + said;
+        addCanvas(c, said || "Kohta pelissä", note);
+        pointing(false);
+        prompt.focus();
+      });
+    };
+  });
 
   function clearLog() {
     Array.prototype.slice.call(log.children).forEach(function (c) { if (c.id !== "intro") c.remove(); });

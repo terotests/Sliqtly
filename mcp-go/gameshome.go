@@ -105,7 +105,12 @@ func serveGamesHome(env *Env, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a := map[string]any{}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&a); err != nil && !errors.Is(err, io.EOF) {
+	// a message to the assistant may carry pictures
+	limit := int64(64 << 10)
+	if op == "agent_start" {
+		limit = gamesAgentMaxPics*(gamesAgentPicSize*4/3+4096) + 64<<10
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, limit)).Decode(&a); err != nil && !errors.Is(err, io.EOF) {
 		editorJSON(w, 400, map[string]string{"error": "A JSON object is expected."})
 		return
 	}

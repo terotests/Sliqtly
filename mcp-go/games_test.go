@@ -698,6 +698,25 @@ func TestGamesAgent(t *testing.T) {
 	if c := s4["step_usd"].(float64); math.Abs(c-0.1125) > 0.006 {
 		t.Fatalf("flash cost %v", c)
 	}
+
+	// pictures with a message: words that say what each is, then the picture
+	png := base64.StdEncoding.EncodeToString([]byte("\x89PNG fake"))
+	pic := func(mime, data string) map[string]any { return map[string]any{"mime": mime, "data": data, "note": "red ring at x=10, y=20"} }
+	if _, err := s.homeCall(ctx, admin, "agent_start", map[string]any{"prompt": "", "run_id": id, "key": key, "images": []any{pic("image/svg+xml", png)}}); err == nil {
+		t.Fatal("an SVG picture")
+	}
+	if _, err := s.homeCall(ctx, admin, "agent_start", map[string]any{"run_id": id, "key": key, "images": []any{pic("image/png", png), pic("image/png", png), pic("image/png", png), pic("image/png", png), pic("image/png", png)}}); err == nil {
+		t.Fatal("five pictures")
+	}
+	if _, err := s.homeCall(ctx, admin, "agent_start", map[string]any{"run_id": id, "key": key, "images": []any{pic("image/png", png)}}); err != nil {
+		t.Fatal(err)
+	}
+	step()
+	cs := asked[len(asked)-1]["contents"].([]any)
+	b, _ := json.Marshal(cs[len(cs)-1])
+	if !strings.Contains(string(b), `"data":"`+png+`","mimeType":"image/png"`) || !strings.Contains(string(b), "Picture 1 from the person: red ring at x=10, y=20") || !strings.Contains(string(b), "See the pictures") {
+		t.Fatalf("the message with a picture: %s", b)
+	}
 }
 
 // only the latest screenshots keep their pictures
