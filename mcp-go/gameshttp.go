@@ -69,6 +69,9 @@ var gamesLimit = rateLimiter(400, 10*time.Minute)
 // pack downloads per address in ten minutes
 var gamesPlayLimit = rateLimiter(300, 10*time.Minute)
 
+// the clips a lazy pack leaves out, fetched one by one as a game says them
+var gamesBlobLimit = rateLimiter(3000, 10*time.Minute)
+
 // screenshot_game runs the engine here: a few a minute for each account
 var gamesShotLimit = rateLimiter(60, 10*time.Minute)
 
@@ -80,8 +83,8 @@ var gamesTools = []roomTool{
 	{name: "list_games", title: "List games", readOnly: true,
 		desc: "Your games: id, name, whether published, the preview_url (always plays the latest files) and the link when published."},
 	{name: "create_game", title: "Create a game",
-		desc:     "A new game with a small starter (a star to tap) that runs at once; change it with write_files.",
-		props:    map[string]any{"name": strProp("The game's name, shown in the menu")},
+		desc:     "A new game with a small starter (a star to tap) that runs at once; change it with write_files. With copy_of, the new game starts as a copy of one of your games (all its files; the original stays as it is).",
+		props:    map[string]any{"name": strProp("The game's name, shown in the menu"), "copy_of": strProp("Optional: the game_id of your game to copy (list_games)")},
 		required: []string{"name"}},
 	{name: "get_game", title: "Get a game", readOnly: true,
 		desc:     "A game's files (path, size), its game.json and its links.",
@@ -201,15 +204,24 @@ func serveGamesPlay(env *Env, w http.ResponseWriter, r *http.Request, rest strin
 		return
 	}
 	token, file, _ := strings.Cut(rest, "/")
-	if file != "" && file != "game.rgpk" {
+	sha, blob := strings.CutPrefix(file, "b/")
+	if file != "" && file != "game.rgpk" && !blob {
 		http.NotFound(w, r)
 		return
 	}
-	if why := gamesPlayLimit(clientIP(r)); why != "" {
+	limit := gamesPlayLimit
+	if blob {
+		limit = gamesBlobLimit
+	}
+	if why := limit(clientIP(r)); why != "" {
 		http.Error(w, "Too many requests; try again in a few minutes.", 429)
 		return
 	}
-	g, err := env.games.byToken(r.Context(), token)
+	lookup := env.games.byToken
+	if blob {
+		lookup = env.games.byTokenSoon
+	}
+	g, err := lookup(r.Context(), token)
 	if err != nil {
 		log.Printf("games play: %v", err)
 		http.Error(w, "The game could not be read; try again in a moment.", 503)
@@ -230,22 +242,11 @@ func serveGamesPlay(env *Env, w http.ResponseWriter, r *http.Request, rest strin
 		http.Redirect(w, r, gamesEnginePath+"?"+q.Encode(), http.StatusFound)
 		return
 	}
-	etag := `"` + docStr(g.doc, "rev") + `"`
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("ETag", etag)
-	if r.Header.Get("If-None-Match") == etag {
-		w.WriteHeader(304)
+	if blob {
+		serveGamesBlob(env, w, r, g, token, sha)
 		return
 	}
-	b, err := env.games.pack(r.Context(), g)
-	if err != nil {
-		log.Printf("games pack %s: %v", g.id, err)
-		http.Error(w, "The game could not be read; try again in a moment.", 503)
-		return
-	}
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Write(b)
+	serveGamesPack(env, w, r, g)
 }
 
 // -------------------------------------------------------------------- MCP --

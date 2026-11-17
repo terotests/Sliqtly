@@ -152,6 +152,11 @@ func (s *gamesService) homeCall(ctx context.Context, who gamesWho, op string, a 
 			if c, err := s.agentConfig(ctx); err == nil && c.Model != "" {
 				out["agent_model"] = c.Model
 			}
+			models := []any{}
+			for _, m := range gamesAgentModels {
+				models = append(models, map[string]any{"id": m.ID, "label": m.Label, "price_in": m.In, "price_out": m.Out})
+			}
+			out["agent_models"] = models
 		}
 		out["games"] = list.(map[string]any)["games"]
 		if d, err := s.db.Get(ctx, gamesTTSCol, who.uid); err == nil && d != nil {
@@ -171,6 +176,12 @@ func (s *gamesService) homeCall(ctx context.Context, who gamesWho, op string, a 
 		return nil, err
 	}
 	switch op {
+	case "copy":
+		u, err := s.user(ctx, who)
+		if err != nil {
+			return nil, err
+		}
+		return s.createGame(ctx, who, u, map[string]any{"name": a["name"], "copy_of": g.id})
 	case "publish":
 		return s.publish(ctx, g, a)
 	case "hide":

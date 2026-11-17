@@ -247,6 +247,11 @@ func gamesOpen(ctx context.Context, wasm, pack []byte, gameID string, w, h float
 	if int32(res) < 0 {
 		return fail(errors.New("the game's pack does not read"))
 	}
+	// the 3D scene as depth-tested triangles (as the page draws it with
+	// WebGL), not sorted faces that a big box can cover wrongly
+	if mod.ExportedFunction("rg_gl3d") != nil {
+		v.call("rg_gl3d", 1)
+	}
 	v.call("rg_seed", api.EncodeF64(12345))
 	v.call("rg_resize", api.EncodeF64(w), api.EncodeF64(h))
 	started, err := v.withText("rg_start", []byte(gameID))
@@ -326,7 +331,7 @@ func (r *gamesRunner) picture() ([]byte, error) {
 			data[src] = b
 		}
 	}
-	img := gamesPaint(cmds, data, int(r.w), int(r.h), view)
+	img := gamesPaint(cmds, data, int(r.w), int(r.h), view, gamesF32s(v, "rg_tris_ptr", "rg_tris_len"))
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		return nil, err
@@ -384,8 +389,15 @@ func gamesScreenshot(ctx context.Context, wasm, pack []byte, gameID string, in g
 
 // the frame's draw stream as numbers (rg_draw_len counts f32s)
 func gamesFloats(v *gamesVM) []float32 {
-	p, err1 := v.call("rg_draw_ptr")
-	n, err2 := v.call("rg_draw_len")
+	return gamesF32s(v, "rg_draw_ptr", "rg_draw_len")
+}
+
+func gamesF32s(v *gamesVM, ptr, length string) []float32 {
+	if v.mod.ExportedFunction(ptr) == nil {
+		return nil
+	}
+	p, err1 := v.call(ptr)
+	n, err2 := v.call(length)
 	if err1 != nil || err2 != nil || n == 0 {
 		return nil
 	}
@@ -493,7 +505,7 @@ func gamesDisplayList(nums []float32, strs []string) ([]dlCmd, []string) {
 }
 
 // paints the list as the page does: black, then the game's area
-func gamesPaint(cmds []dlCmd, pics map[string][]byte, w, h int, view [5]float64) *image.RGBA {
+func gamesPaint(cmds []dlCmd, pics map[string][]byte, w, h int, view [5]float64, tris []float32) *image.RGBA {
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
 	draw.Draw(dst, dst.Bounds(), image.NewUniform(color.Black), image.Point{}, draw.Src)
 	scale := view[0]
@@ -501,6 +513,7 @@ func gamesPaint(cmds []dlCmd, pics map[string][]byte, w, h int, view [5]float64)
 		scale = 1
 	}
 	area := image.Rect(int(view[1]), int(view[2]), int(math.Round(view[1]+view[3]*scale)), int(math.Round(view[2]+view[4]*scale)))
+	gamesTris(dst, tris, scale, view[1], view[2], area.Intersect(dst.Bounds()))
 	p := &painter{dst: dst, k: scale, off: pt{view[1], view[2]}, pics: &renderPics{data: pics}}
 	p.clips = []image.Rectangle{area.Intersect(dst.Bounds())}
 	p.paint(&dlDoc{Cmds: cmds})
@@ -537,7 +550,7 @@ func (s *gamesService) screenshot(ctx context.Context, g *gamesGame, a map[strin
 	if err != nil {
 		return nil, err
 	}
-	pack, err := s.pack(ctx, g)
+	pack, err := s.pack(ctx, g, gamesPackOpts{launcher: gamesLauncher(nil)})
 	if err != nil {
 		return nil, err
 	}

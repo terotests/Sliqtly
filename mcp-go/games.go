@@ -38,8 +38,8 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -309,9 +309,23 @@ func (s *gamesService) createGame(ctx context.Context, who gamesWho, u gamesUser
 	if u.maxGames >= 0 && len(ids) >= u.maxGames {
 		return nil, roomErr{fmt.Sprintf("You have %d games, the most this account keeps (%d); delete one first (sliqtly.com/games).", len(ids), u.maxGames)}
 	}
+	var from *gamesGame
+	if src, _ := a["copy_of"].(string); src != "" {
+		if from, err = s.game(ctx, who, src); err != nil {
+			return nil, err
+		}
+	}
 	id := gamesNewID()
 	files := []gamesFile{}
+	if from != nil {
+		if files, err = s.copyFiles(ctx, from, id, name); err != nil {
+			return nil, err
+		}
+	}
 	for _, f := range gamesStarter(name) {
+		if from != nil {
+			break
+		}
 		sum := sha256.Sum256(f.data)
 		sha := hex.EncodeToString(sum[:])
 		if err := s.bucket.Save(ctx, s.blobPath(id, sha), "application/octet-stream", f.data, nil); err != nil {
@@ -334,6 +348,52 @@ func (s *gamesService) createGame(ctx context.Context, who gamesWho, u gamesUser
 	g := &gamesGame{id, d}
 	out := s.json(g, true)
 	out["next"] = "The game runs as it is: open preview_url. Change game.tsx and style.css with write_files; games_guide explains the engine."
+	if from != nil {
+		out["copy_of"] = from.id
+		out["next"] = "A copy of " + docStr(from.doc, "name") + " with all its files, under the new name; the original is unchanged. Change the copy with write_files."
+	}
+	return out, nil
+}
+
+// another game's files into the new game id's own blobs; game.json takes
+// the new name
+func (s *gamesService) copyFiles(ctx context.Context, from *gamesGame, id, name string) ([]gamesFile, error) {
+	fs := from.files()
+	data, err := s.readFiles(ctx, from.id, fs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]gamesFile, len(fs))
+	errs := make([]error, len(fs))
+	sem := make(chan struct{}, gamesPackReaders)
+	var wg sync.WaitGroup
+	for i, f := range fs {
+		b := data[i]
+		if f.Path == "game.json" {
+			var m map[string]any
+			if json.Unmarshal(b, &m) == nil && m != nil {
+				m["name"] = name
+				if nb, err := json.MarshalIndent(m, "", "  "); err == nil {
+					b = nb
+				}
+			}
+		}
+		sum := sha256.Sum256(b)
+		out[i] = gamesFile{f.Path, hex.EncodeToString(sum[:]), int64(len(b))}
+		wg.Add(1)
+		go func(i int, b []byte) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			errs[i] = s.bucket.Save(ctx, s.blobPath(id, out[i].Sha), "application/octet-stream", b, nil)
+		}(i, b)
+	}
+	wg.Wait()
+	for _, e := range errs {
+		if e != nil {
+			return nil, e
+		}
+	}
 	return out, nil
 }
 
@@ -620,31 +680,6 @@ func (s *gamesService) speak(ctx context.Context, who gamesWho, u gamesUser, g *
 }
 
 // --------------------------------------------------------------- the pack --
-
-// the game as one RGPK1 pack, its files under <id>/ (the engine mounts it at
-// /games, so the game is /games/<id>), with the link's own menu as
-// launcher/ (a game's id starts with g)
-func (s *gamesService) pack(ctx context.Context, g *gamesGame) ([]byte, error) {
-	fs := g.files()
-	var b strings.Builder
-	launcher := []gamesStarterFile{{"game.json", gamesLauncherJSON}, {"game.tsx", gamesLauncherTSX}, {"style.css", gamesLauncherCSS}}
-	out := []byte("RGPK1\n" + strconv.Itoa(len(fs)+len(launcher)) + "\n")
-	for _, f := range launcher {
-		out = append(out, "launcher/"+f.path+"\n"+strconv.Itoa(len(f.data))+"\n"...)
-		out = append(out, f.data...)
-	}
-	for _, f := range fs {
-		data, err := s.bucket.Read(ctx, s.blobPath(g.id, f.Sha), gamesMaxFile+1)
-		if err != nil {
-			return nil, err
-		}
-		b.Reset()
-		b.WriteString(g.id + "/" + f.Path + "\n" + strconv.Itoa(len(data)) + "\n")
-		out = append(out, b.String()...)
-		out = append(out, data...)
-	}
-	return out, nil
-}
 
 // the game a play link names: the preview link always, the link when
 // published

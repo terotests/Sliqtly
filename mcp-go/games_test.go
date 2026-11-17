@@ -5,6 +5,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -12,6 +13,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -196,9 +199,9 @@ func TestGamesFolderAndPlay(t *testing.T) {
 	if code != 200 || !strings.Contains(files[id+"/game.json"], `"Pupu"`) || !strings.Contains(files[id+"/game.tsx"], "function view") {
 		t.Fatalf("pack %d %v", code, files)
 	}
-	// the link's own menu, for when the game is closed
-	if !strings.Contains(files["launcher/game.tsx"], "games/mcp") || !strings.Contains(files["launcher/game.json"], `"hidden":true`) {
-		t.Fatal("pack without its launcher")
+	// not signed in: no menu (the engine then draws no close button)
+	if _, ok := files["launcher/game.tsx"]; ok {
+		t.Fatal("a menu for a player who is not signed in")
 	}
 
 	// write code and a picture; read them back
@@ -404,8 +407,23 @@ func TestGamesEngineFromSite(t *testing.T) {
 	if w := get("/games/engine/rg_web.wasm"); w.Code != 200 || w.Header().Get("Content-Type") != "application/wasm" {
 		t.Fatalf("wasm: %d", w.Code)
 	}
+	// compressed when the browser takes it, and not sent again when it has it
+	r := httptest.NewRequest("GET", "/games/engine/rg_web.wasm", nil)
+	r.Header.Set("Accept-Encoding", "gzip, br")
+	w := gamesServe(env, r)
+	zr, err := gzip.NewReader(w.Body)
+	if err != nil || w.Header().Get("Content-Encoding") != "gzip" {
+		t.Fatalf("gzip: %v %q", err, w.Header().Get("Content-Encoding"))
+	}
+	if b, _ := io.ReadAll(zr); string(b) != "\x00asm" {
+		t.Fatalf("unzipped %q", b)
+	}
+	r = httptest.NewRequest("GET", "/games/engine/rg_web.wasm", nil)
+	r.Header.Set("If-None-Match", w.Header().Get("ETag"))
+	if w := gamesServe(env, r); w.Code != 304 || w.Header().Get("ETag") == "" {
+		t.Fatalf("etag: %d", w.Code)
+	}
 	// kept: asked from the source once
-	get("/games/engine/rg_web.wasm")
 	if asked != 1 {
 		t.Fatalf("source asked %d times", asked)
 	}
@@ -449,7 +467,7 @@ func TestGamesShotPaint(t *testing.T) {
 		t.Fatalf("cmds %d pics %d", len(cmds), len(pics))
 	}
 	// a 100×100 game at scale 2, 10 px from the left of a 220×200 screen
-	img := gamesPaint(cmds, nil, 220, 200, [5]float64{2, 10, 0, 100, 100})
+	img := gamesPaint(cmds, nil, 220, 200, [5]float64{2, 10, 0, 100, 100}, nil)
 	at := func(x, y int) [3]uint8 {
 		c := img.RGBAAt(x, y)
 		return [3]uint8{c.R, c.G, c.B}
@@ -545,7 +563,9 @@ func TestGamesAgent(t *testing.T) {
 	admin := gamesWho{uid: "u-admin", name: "Admin", email: "admin@example.com"}
 	// the model: create_game, then write_files and a screenshot, then words
 	var asked []map[string]any
+	var paths []string
 	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
 		var ask map[string]any
 		json.NewDecoder(r.Body).Decode(&ask)
 		asked = append(asked, ask)
@@ -655,8 +675,28 @@ func TestGamesAgent(t *testing.T) {
 		t.Fatalf("over the budget: %v", err)
 	}
 	// December's price
-	if in, out := (gamesAgentConfig{}).prices(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)); in != 4 || out != 20 {
+	if in, out := (gamesAgentConfig{}).prices("gemini-4-argon", time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)); in != 4 || out != 20 {
 		t.Fatalf("december %v %v", in, out)
+	}
+
+	// a model chosen on the page: its address and its price
+	s.adminCall(ctx, "agent_set", map[string]any{"cap_usd": 20.0})
+	if ms := me.(map[string]any)["agent_models"].([]any); len(ms) < 3 || ms[0].(map[string]any)["id"] != "gemini-4-argon" {
+		t.Fatalf("models %v", ms)
+	}
+	if _, err := s.homeCall(ctx, admin, "agent_start", map[string]any{"prompt": "lisää", "run_id": id, "key": key, "model": "gpt-9"}); err == nil {
+		t.Fatal("an unknown model")
+	}
+	if _, err := s.homeCall(ctx, admin, "agent_start", map[string]any{"prompt": "lisää", "run_id": id, "key": key, "model": "gemini-3.8-flash"}); err != nil {
+		t.Fatal(err)
+	}
+	s4 := step()
+	if !strings.Contains(paths[len(paths)-1], "gemini-3.8-flash") || s4["model"] != "gemini-3.8-flash" {
+		t.Fatalf("model %s %v", paths[len(paths)-1], s4["model"])
+	}
+	// $0.75 / $3.75 a million: 100k in, 10k out
+	if c := s4["step_usd"].(float64); math.Abs(c-0.1125) > 0.006 {
+		t.Fatalf("flash cost %v", c)
 	}
 }
 
@@ -839,5 +879,149 @@ func TestGamesEditorPage(t *testing.T) {
 		if !strings.Contains(gamesEditorHTML, want) {
 			t.Fatalf("editor page lacks %s", want)
 		}
+	}
+}
+
+// a signed-in player's menu lists their games; ?lazy=1 leaves the .wav files
+// to b/<sha>
+func TestGamesPackMenuAndLazy(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	web := fstest.MapFS{"index.html": {Data: []byte("<!doctype html>")}, "main.js": {Data: []byte("//")}, "pres_app.js": {Data: []byte("//")}}
+	verify := func(_ context.Context, tok string) (*IDToken, error) {
+		if tok == "u1" {
+			return &IDToken{UID: "u1", Email: "admin@example.com", Name: "U", Verified: true}, nil
+		}
+		return nil, errors.New("expired")
+	}
+	env.EditorGate = newEditorGate(web, env.DB, verify, nil)
+	tok := gamesToken(db, "u1", "admin@example.com", gamesBase+gamesMcpPath)
+	a := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Eka"})
+	b := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Toka"})
+	wav := []byte("RIFF....WAVEfmt fake clip")
+	gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": a["game_id"], "files": []any{
+		map[string]any{"path": "voice/hei.wav", "base64": base64.StdEncoding.EncodeToString(wav)},
+	}})
+	id := a["game_id"].(string)
+	preview := gamesTokenOf(t, a["preview_url"])
+	get := func(path, cookie, etag string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", path, nil)
+		if cookie != "" {
+			r.AddCookie(&http.Cookie{Name: editorCookie, Value: cookie})
+		}
+		if etag != "" {
+			r.Header.Set("If-None-Match", etag)
+		}
+		return gamesServe(env, r)
+	}
+
+	// signed in: the menu with both games, this one first
+	w := get("/games/p/"+preview+"/game.rgpk", "u1", "")
+	files := gamesUnpack(t, w.Body.Bytes())
+	menu := files["launcher/game.tsx"]
+	if w.Code != 200 || !strings.Contains(menu, `"name":"Eka"`) || !strings.Contains(menu, `"name":"Toka"`) ||
+		strings.Index(menu, "Eka") > strings.Index(menu, "Toka") || !strings.Contains(menu, `"here":true`) ||
+		!strings.Contains(menu, gamesTokenOf(t, b["preview_url"])) || !strings.HasPrefix(w.Header().Get("Cache-Control"), "private") {
+		t.Fatalf("menu %d %s %.300s", w.Code, w.Header().Get("Cache-Control"), menu)
+	}
+	if files[id+"/voice/hei.wav"] != string(wav) {
+		t.Fatal("the whole pack lacks the clip")
+	}
+	etag := w.Header().Get("ETag")
+	if w := get("/games/p/"+preview+"/game.rgpk", "u1", etag); w.Code != 304 {
+		t.Fatalf("same pack again: %d", w.Code)
+	}
+	// another account's pack is another
+	if w := get("/games/p/"+preview+"/game.rgpk", "", etag); w.Code != 200 {
+		t.Fatalf("signed out with the signed-in etag: %d", w.Code)
+	}
+	// ?menu=0: none even when signed in (the editor's frame)
+	if f := gamesUnpack(t, get("/games/p/"+preview+"/game.rgpk?menu=0", "u1", "").Body.Bytes()); f["launcher/game.tsx"] != "" {
+		t.Fatal("menu=0 has a menu")
+	}
+
+	// lazy: the clip left out, listed with its sha, and served from b/<sha>
+	w = get("/games/p/"+preview+"/game.rgpk?lazy=1", "", "")
+	files = gamesUnpack(t, w.Body.Bytes())
+	if _, ok := files[id+"/voice/hei.wav"]; ok || files[id+"/game.tsx"] == "" {
+		t.Fatalf("lazy pack %v", files)
+	}
+	remote := map[string]string{}
+	json.Unmarshal([]byte(files[id+"/.remote.json"]), &remote)
+	sha := remote["voice/hei.wav"]
+	if len(sha) != 64 {
+		t.Fatalf("remote %v", files[id+"/.remote.json"])
+	}
+	if w.Header().Get("ETag") == get("/games/p/"+preview+"/game.rgpk", "", "").Header().Get("ETag") {
+		t.Fatal("lazy and whole packs share an etag")
+	}
+	w = get("/games/p/"+preview+"/b/"+sha, "", "")
+	if w.Code != 200 || w.Body.String() != string(wav) || !strings.Contains(w.Header().Get("Cache-Control"), "immutable") || w.Header().Get("Content-Type") != "audio/wav" {
+		t.Fatalf("blob %d %s %q", w.Code, w.Header().Get("Cache-Control"), w.Body.String())
+	}
+	// only the game's own files
+	other := strings.Repeat("ab", 32)
+	if w := get("/games/p/"+preview+"/b/"+other, "", ""); w.Code != 404 {
+		t.Fatalf("foreign sha: %d", w.Code)
+	}
+	if w := get("/games/p/"+gamesTokenOf(t, b["preview_url"])+"/b/"+sha, "", ""); w.Code != 404 {
+		t.Fatalf("another game's link: %d", w.Code)
+	}
+	// a new file reaches the pack at once (the editor reloads right after a write)
+	gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": id, "files": []any{
+		map[string]any{"path": "game.tsx", "text": "function view() { return <div>uusi</div>; }"},
+	}})
+	if f := gamesUnpack(t, get("/games/p/"+preview+"/game.rgpk?lazy=1", "", "").Body.Bytes()); !strings.Contains(f[id+"/game.tsx"], "uusi") {
+		t.Fatal("stale pack after a write")
+	}
+}
+
+// a new game from an old one: all its files, game.json with the new name,
+// the original as it was
+func TestGamesCopy(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	tok := gamesToken(db, "u1", "admin@example.com", gamesBase+gamesMcpPath)
+	a := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Eka"})
+	id := a["game_id"].(string)
+	png := []byte("\x89PNG\r\n\x1a\nfake")
+	gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": id, "files": []any{
+		map[string]any{"path": "game.tsx", "text": "function view() { return <div>vanha</div>; }"},
+		map[string]any{"path": "img/a.png", "base64": base64.StdEncoding.EncodeToString(png)},
+	}})
+	c := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Toka", "copy_of": id})
+	cid := c["game_id"].(string)
+	if cid == id || c["copy_of"] != id || len(c["files"].([]any)) != 4 {
+		t.Fatalf("copy %v", c)
+	}
+	read := func(g, p string) any {
+		return gamesMustTool(t, env, tok, "read_file", map[string]any{"game_id": g, "path": p})
+	}
+	if r := read(cid, "game.tsx").(map[string]any); r["text"] != "function view() { return <div>vanha</div>; }" {
+		t.Fatalf("code %v", r)
+	}
+	if r := read(cid, "img/a.png").(map[string]any); r["base64"] != base64.StdEncoding.EncodeToString(png) {
+		t.Fatalf("png %v", r)
+	}
+	if r := read(cid, "game.json").(map[string]any); !strings.Contains(r["text"].(string), `"Toka"`) {
+		t.Fatalf("copy's game.json %v", r)
+	}
+	if r := read(id, "game.json").(map[string]any); !strings.Contains(r["text"].(string), `"Eka"`) {
+		t.Fatalf("original's game.json %v", r)
+	}
+	// changing the copy leaves the original
+	gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": cid, "files": []any{
+		map[string]any{"path": "game.tsx", "text": "function view() { return <div>uusi</div>; }"},
+	}})
+	if r := read(id, "game.tsx").(map[string]any); r["text"] != "function view() { return <div>vanha</div>; }" {
+		t.Fatalf("original changed %v", r)
+	}
+	// only your own games
+	tok2 := gamesToken(db, "u2", "admin@example.com", gamesBase+gamesMcpPath)
+	if _, e := gamesTool(t, env, tok2, "create_game", map[string]any{"name": "Varas", "copy_of": id}); !strings.Contains(e, "No such game") {
+		t.Fatalf("someone else's game: %s", e)
+	}
+	// the editor's button
+	out, err := env.games.homeCall(context.Background(), gamesWho{uid: "u1", email: "admin@example.com"}, "copy", map[string]any{"game_id": id, "name": "Kolmas"})
+	if m, _ := out.(map[string]any); err != nil || m["name"] != "Kolmas" || m["copy_of"] != id {
+		t.Fatalf("home copy %v %v", out, err)
 	}
 }
