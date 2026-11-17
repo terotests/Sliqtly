@@ -537,7 +537,7 @@ func (s *gamesService) screenshot(ctx context.Context, g *gamesGame, a map[strin
 	if err != nil {
 		return nil, err
 	}
-	pack, err := s.pack(ctx, g)
+	pack, err := s.pack(ctx, g, gamesPackOpts{launcher: gamesLauncher(nil)})
 	if err != nil {
 		return nil, err
 	}

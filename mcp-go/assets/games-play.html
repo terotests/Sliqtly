@@ -145,7 +145,29 @@
       debug: document.getElementById("debug")
     });
     window.rgHost = host;
-    host.boot("rg_web.wasm", gamePack() || "games.rgpk").catch(function (e) {
+    // a lazy pack leaves out the .wav files (most of a game's size) and lists
+    // them in <game>/.remote.json ({path: sha}); a clip is fetched from
+    // <pack's folder>/b/<sha> the first time the game says it. Only with an
+    // engine that knows remoteURL.
+    var pack = gamePack();
+    if (pack && host.audio && "remoteURL" in Object.getPrototypeOf(host.audio)) {
+      var dir = pack.replace(/game\.rgpk(\?.*)?$/, ""), remote = null;
+      pack += (pack.indexOf("?") < 0 ? "?" : "&") + "lazy=1";
+      host.audio.remoteURL = function (path) {
+        var m = /^\/games\/([^\/]+)\/(.+)$/.exec(path);
+        if (!m) return null;
+        if (!remote) {
+          remote = {};
+          try {
+            var b = host.readFile("/games/" + m[1] + "/.remote.json");
+            if (b) remote[m[1]] = JSON.parse(new TextDecoder().decode(b));
+          } catch (e) { }
+        }
+        var l = remote[m[1]], sha = l && l[m[2]];
+        return sha ? dir + "b/" + sha : null;
+      };
+    }
+    host.boot("rg_web.wasm", pack || "games.rgpk").catch(function (e) {
       console.error(e);
       status.innerHTML = "RangerGames<small>" + String(e.message || e) + "</small>";
     });

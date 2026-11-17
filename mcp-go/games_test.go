@@ -5,6 +5,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -12,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -196,9 +198,9 @@ func TestGamesFolderAndPlay(t *testing.T) {
 	if code != 200 || !strings.Contains(files[id+"/game.json"], `"Pupu"`) || !strings.Contains(files[id+"/game.tsx"], "function view") {
 		t.Fatalf("pack %d %v", code, files)
 	}
-	// the link's own menu, for when the game is closed
-	if !strings.Contains(files["launcher/game.tsx"], "games/mcp") || !strings.Contains(files["launcher/game.json"], `"hidden":true`) {
-		t.Fatal("pack without its launcher")
+	// not signed in: no menu (the engine then draws no close button)
+	if _, ok := files["launcher/game.tsx"]; ok {
+		t.Fatal("a menu for a player who is not signed in")
 	}
 
 	// write code and a picture; read them back
@@ -404,8 +406,23 @@ func TestGamesEngineFromSite(t *testing.T) {
 	if w := get("/games/engine/rg_web.wasm"); w.Code != 200 || w.Header().Get("Content-Type") != "application/wasm" {
 		t.Fatalf("wasm: %d", w.Code)
 	}
+	// compressed when the browser takes it, and not sent again when it has it
+	r := httptest.NewRequest("GET", "/games/engine/rg_web.wasm", nil)
+	r.Header.Set("Accept-Encoding", "gzip, br")
+	w := gamesServe(env, r)
+	zr, err := gzip.NewReader(w.Body)
+	if err != nil || w.Header().Get("Content-Encoding") != "gzip" {
+		t.Fatalf("gzip: %v %q", err, w.Header().Get("Content-Encoding"))
+	}
+	if b, _ := io.ReadAll(zr); string(b) != "\x00asm" {
+		t.Fatalf("unzipped %q", b)
+	}
+	r = httptest.NewRequest("GET", "/games/engine/rg_web.wasm", nil)
+	r.Header.Set("If-None-Match", w.Header().Get("ETag"))
+	if w := gamesServe(env, r); w.Code != 304 || w.Header().Get("ETag") == "" {
+		t.Fatalf("etag: %d", w.Code)
+	}
 	// kept: asked from the source once
-	get("/games/engine/rg_web.wasm")
 	if asked != 1 {
 		t.Fatalf("source asked %d times", asked)
 	}
@@ -839,5 +856,98 @@ func TestGamesEditorPage(t *testing.T) {
 		if !strings.Contains(gamesEditorHTML, want) {
 			t.Fatalf("editor page lacks %s", want)
 		}
+	}
+}
+
+// a signed-in player's menu lists their games; ?lazy=1 leaves the .wav files
+// to b/<sha>
+func TestGamesPackMenuAndLazy(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	web := fstest.MapFS{"index.html": {Data: []byte("<!doctype html>")}, "main.js": {Data: []byte("//")}, "pres_app.js": {Data: []byte("//")}}
+	verify := func(_ context.Context, tok string) (*IDToken, error) {
+		if tok == "u1" {
+			return &IDToken{UID: "u1", Email: "admin@example.com", Name: "U", Verified: true}, nil
+		}
+		return nil, errors.New("expired")
+	}
+	env.EditorGate = newEditorGate(web, env.DB, verify, nil)
+	tok := gamesToken(db, "u1", "admin@example.com", gamesBase+gamesMcpPath)
+	a := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Eka"})
+	b := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Toka"})
+	wav := []byte("RIFF....WAVEfmt fake clip")
+	gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": a["game_id"], "files": []any{
+		map[string]any{"path": "voice/hei.wav", "base64": base64.StdEncoding.EncodeToString(wav)},
+	}})
+	id := a["game_id"].(string)
+	preview := gamesTokenOf(t, a["preview_url"])
+	get := func(path, cookie, etag string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", path, nil)
+		if cookie != "" {
+			r.AddCookie(&http.Cookie{Name: editorCookie, Value: cookie})
+		}
+		if etag != "" {
+			r.Header.Set("If-None-Match", etag)
+		}
+		return gamesServe(env, r)
+	}
+
+	// signed in: the menu with both games, this one first
+	w := get("/games/p/"+preview+"/game.rgpk", "u1", "")
+	files := gamesUnpack(t, w.Body.Bytes())
+	menu := files["launcher/game.tsx"]
+	if w.Code != 200 || !strings.Contains(menu, `"name":"Eka"`) || !strings.Contains(menu, `"name":"Toka"`) ||
+		strings.Index(menu, "Eka") > strings.Index(menu, "Toka") || !strings.Contains(menu, `"here":true`) ||
+		!strings.Contains(menu, gamesTokenOf(t, b["preview_url"])) || !strings.HasPrefix(w.Header().Get("Cache-Control"), "private") {
+		t.Fatalf("menu %d %s %.300s", w.Code, w.Header().Get("Cache-Control"), menu)
+	}
+	if files[id+"/voice/hei.wav"] != string(wav) {
+		t.Fatal("the whole pack lacks the clip")
+	}
+	etag := w.Header().Get("ETag")
+	if w := get("/games/p/"+preview+"/game.rgpk", "u1", etag); w.Code != 304 {
+		t.Fatalf("same pack again: %d", w.Code)
+	}
+	// another account's pack is another
+	if w := get("/games/p/"+preview+"/game.rgpk", "", etag); w.Code != 200 {
+		t.Fatalf("signed out with the signed-in etag: %d", w.Code)
+	}
+	// ?menu=0: none even when signed in (the editor's frame)
+	if f := gamesUnpack(t, get("/games/p/"+preview+"/game.rgpk?menu=0", "u1", "").Body.Bytes()); f["launcher/game.tsx"] != "" {
+		t.Fatal("menu=0 has a menu")
+	}
+
+	// lazy: the clip left out, listed with its sha, and served from b/<sha>
+	w = get("/games/p/"+preview+"/game.rgpk?lazy=1", "", "")
+	files = gamesUnpack(t, w.Body.Bytes())
+	if _, ok := files[id+"/voice/hei.wav"]; ok || files[id+"/game.tsx"] == "" {
+		t.Fatalf("lazy pack %v", files)
+	}
+	remote := map[string]string{}
+	json.Unmarshal([]byte(files[id+"/.remote.json"]), &remote)
+	sha := remote["voice/hei.wav"]
+	if len(sha) != 64 {
+		t.Fatalf("remote %v", files[id+"/.remote.json"])
+	}
+	if w.Header().Get("ETag") == get("/games/p/"+preview+"/game.rgpk", "", "").Header().Get("ETag") {
+		t.Fatal("lazy and whole packs share an etag")
+	}
+	w = get("/games/p/"+preview+"/b/"+sha, "", "")
+	if w.Code != 200 || w.Body.String() != string(wav) || !strings.Contains(w.Header().Get("Cache-Control"), "immutable") || w.Header().Get("Content-Type") != "audio/wav" {
+		t.Fatalf("blob %d %s %q", w.Code, w.Header().Get("Cache-Control"), w.Body.String())
+	}
+	// only the game's own files
+	other := strings.Repeat("ab", 32)
+	if w := get("/games/p/"+preview+"/b/"+other, "", ""); w.Code != 404 {
+		t.Fatalf("foreign sha: %d", w.Code)
+	}
+	if w := get("/games/p/"+gamesTokenOf(t, b["preview_url"])+"/b/"+sha, "", ""); w.Code != 404 {
+		t.Fatalf("another game's link: %d", w.Code)
+	}
+	// a new file reaches the pack at once (the editor reloads right after a write)
+	gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": id, "files": []any{
+		map[string]any{"path": "game.tsx", "text": "function view() { return <div>uusi</div>; }"},
+	}})
+	if f := gamesUnpack(t, get("/games/p/"+preview+"/game.rgpk?lazy=1", "", "").Body.Bytes()); !strings.Contains(f[id+"/game.tsx"], "uusi") {
+		t.Fatal("stale pack after a write")
 	}
 }

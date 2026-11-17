@@ -38,7 +38,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -620,31 +619,6 @@ func (s *gamesService) speak(ctx context.Context, who gamesWho, u gamesUser, g *
 }
 
 // --------------------------------------------------------------- the pack --
-
-// the game as one RGPK1 pack, its files under <id>/ (the engine mounts it at
-// /games, so the game is /games/<id>), with the link's own menu as
-// launcher/ (a game's id starts with g)
-func (s *gamesService) pack(ctx context.Context, g *gamesGame) ([]byte, error) {
-	fs := g.files()
-	var b strings.Builder
-	launcher := []gamesStarterFile{{"game.json", gamesLauncherJSON}, {"game.tsx", gamesLauncherTSX}, {"style.css", gamesLauncherCSS}}
-	out := []byte("RGPK1\n" + strconv.Itoa(len(fs)+len(launcher)) + "\n")
-	for _, f := range launcher {
-		out = append(out, "launcher/"+f.path+"\n"+strconv.Itoa(len(f.data))+"\n"...)
-		out = append(out, f.data...)
-	}
-	for _, f := range fs {
-		data, err := s.bucket.Read(ctx, s.blobPath(g.id, f.Sha), gamesMaxFile+1)
-		if err != nil {
-			return nil, err
-		}
-		b.Reset()
-		b.WriteString(g.id + "/" + f.Path + "\n" + strconv.Itoa(len(data)) + "\n")
-		out = append(out, b.String()...)
-		out = append(out, data...)
-	}
-	return out, nil
-}
 
 // the game a play link names: the preview link always, the link when
 // published

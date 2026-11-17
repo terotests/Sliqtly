@@ -132,7 +132,7 @@
     }
     if (shown === id && !force) return;
     shown = id;
-    frame.src = "/games/engine/?pack=" + encodeURIComponent("/games/p/" + token + "/game.rgpk") + "&game=" + encodeURIComponent(id) + "&mode=frame&t=" + Date.now();
+    frame.src = "/games/engine/?pack=" + encodeURIComponent("/games/p/" + token + "/game.rgpk?menu=0") + "&game=" + encodeURIComponent(id) + "&mode=frame&t=" + Date.now();
     frame.hidden = false; $("noGame").hidden = true;
     $("reload").hidden = false;
     $("open").hidden = false; $("open").href = "/games/p/" + token;
