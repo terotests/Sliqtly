@@ -152,6 +152,11 @@ func (s *gamesService) homeCall(ctx context.Context, who gamesWho, op string, a 
 			if c, err := s.agentConfig(ctx); err == nil && c.Model != "" {
 				out["agent_model"] = c.Model
 			}
+			models := []any{}
+			for _, m := range gamesAgentModels {
+				models = append(models, map[string]any{"id": m.ID, "label": m.Label, "price_in": m.In, "price_out": m.Out})
+			}
+			out["agent_models"] = models
 		}
 		out["games"] = list.(map[string]any)["games"]
 		if d, err := s.db.Get(ctx, gamesTTSCol, who.uid); err == nil && d != nil {

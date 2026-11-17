@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -466,7 +467,7 @@ func TestGamesShotPaint(t *testing.T) {
 		t.Fatalf("cmds %d pics %d", len(cmds), len(pics))
 	}
 	// a 100×100 game at scale 2, 10 px from the left of a 220×200 screen
-	img := gamesPaint(cmds, nil, 220, 200, [5]float64{2, 10, 0, 100, 100})
+	img := gamesPaint(cmds, nil, 220, 200, [5]float64{2, 10, 0, 100, 100}, nil)
 	at := func(x, y int) [3]uint8 {
 		c := img.RGBAAt(x, y)
 		return [3]uint8{c.R, c.G, c.B}
@@ -562,7 +563,9 @@ func TestGamesAgent(t *testing.T) {
 	admin := gamesWho{uid: "u-admin", name: "Admin", email: "admin@example.com"}
 	// the model: create_game, then write_files and a screenshot, then words
 	var asked []map[string]any
+	var paths []string
 	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
 		var ask map[string]any
 		json.NewDecoder(r.Body).Decode(&ask)
 		asked = append(asked, ask)
@@ -672,8 +675,28 @@ func TestGamesAgent(t *testing.T) {
 		t.Fatalf("over the budget: %v", err)
 	}
 	// December's price
-	if in, out := (gamesAgentConfig{}).prices(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)); in != 4 || out != 20 {
+	if in, out := (gamesAgentConfig{}).prices("gemini-4-argon", time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)); in != 4 || out != 20 {
 		t.Fatalf("december %v %v", in, out)
+	}
+
+	// a model chosen on the page: its address and its price
+	s.adminCall(ctx, "agent_set", map[string]any{"cap_usd": 20.0})
+	if ms := me.(map[string]any)["agent_models"].([]any); len(ms) < 3 || ms[0].(map[string]any)["id"] != "gemini-4-argon" {
+		t.Fatalf("models %v", ms)
+	}
+	if _, err := s.homeCall(ctx, admin, "agent_start", map[string]any{"prompt": "lisää", "run_id": id, "key": key, "model": "gpt-9"}); err == nil {
+		t.Fatal("an unknown model")
+	}
+	if _, err := s.homeCall(ctx, admin, "agent_start", map[string]any{"prompt": "lisää", "run_id": id, "key": key, "model": "gemini-3.8-flash"}); err != nil {
+		t.Fatal(err)
+	}
+	s4 := step()
+	if !strings.Contains(paths[len(paths)-1], "gemini-3.8-flash") || s4["model"] != "gemini-3.8-flash" {
+		t.Fatalf("model %s %v", paths[len(paths)-1], s4["model"])
+	}
+	// $0.75 / $3.75 a million: 100k in, 10k out
+	if c := s4["step_usd"].(float64); math.Abs(c-0.1125) > 0.006 {
+		t.Fatalf("flash cost %v", c)
 	}
 }
 

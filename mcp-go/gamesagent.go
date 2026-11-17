@@ -72,6 +72,7 @@ type gamesAgentRun struct {
 	Email    string          `json:"email"`
 	GameID   string          `json:"game_id"`
 	Model    string          `json:"model"`
+	Pick     string          `json:"pick"` // the model chosen on the page; "": the site's
 	Contents []geminiContent `json:"contents"`
 	Rounds   int             `json:"rounds"` // for the latest message
 	In       int64           `json:"in"`
@@ -105,12 +106,43 @@ func (s *gamesService) agentConfig(ctx context.Context) (gamesAgentConfig, error
 	return c, nil
 }
 
-// USD per million tokens in and out (thinking counts as out): Gemini 4
-// Argon's list price, which doubles from December 2026
-func (c gamesAgentConfig) prices(now time.Time) (float64, float64) {
-	in, out := 2.0, 10.0
-	if !now.Before(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)) {
-		in, out = 4.0, 20.0
+// the Gemini models the editor offers, with their list prices (USD per
+// million tokens in and out, thinking counts as out) and a change on a date
+// (Google's pricing, November 2026)
+type gamesAgentModel struct {
+	ID, Label       string
+	In, Out         float64
+	From            time.Time // zero: no change announced
+	InFrom, OutFrom float64
+}
+
+var gamesAgentModels = []gamesAgentModel{
+	{"gemini-4-argon", "Gemini 4 Argon", 2, 10, time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), 4, 20},
+	{"gemini-4-hydrogen", "Gemini 4 Hydrogen", 1.5, 7.5, time.Time{}, 0, 0},
+	{"gemini-3.1-pro-preview", "Gemini 3.1 Pro (preview)", 2, 12, time.Time{}, 0, 0},
+	{"gemini-3.8-flash", "Gemini 3.8 Flash", 0.75, 3.75, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 1.5, 7.5},
+	{"gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", 0.3, 2.5, time.Time{}, 0, 0},
+}
+
+func gamesAgentModelOf(id string) *gamesAgentModel {
+	for i := range gamesAgentModels {
+		if gamesAgentModels[i].ID == id {
+			return &gamesAgentModels[i]
+		}
+	}
+	return nil
+}
+
+// USD per million tokens in and out for a model: its list price (Gemini 4
+// Argon's for a model not in the list), or the admin page's prices
+func (c gamesAgentConfig) prices(model string, now time.Time) (float64, float64) {
+	m := gamesAgentModelOf(model)
+	if m == nil {
+		m = &gamesAgentModels[0]
+	}
+	in, out := m.In, m.Out
+	if !m.From.IsZero() && !now.Before(m.From) {
+		in, out = m.InFrom, m.OutFrom
 	}
 	if c.PriceIn > 0 {
 		in = c.PriceIn
@@ -221,6 +253,13 @@ func (s *gamesService) agentStart(ctx context.Context, who gamesWho, a map[strin
 			Started: s.now().UnixMilli(), Contents: []geminiContent{{Role: "user", Parts: []geminiPart{{Text: text}}}}}
 		r.GameID, _ = a["game_id"].(string)
 	}
+	// the model chosen on the page, for this message and the next ones
+	if v, ok := a["model"].(string); ok {
+		if v != "" && gamesAgentModelOf(v) == nil {
+			return nil, roomErr{"Unknown model: " + v}
+		}
+		r.Pick = v
+	}
 	r.Rounds, r.Done = 0, false
 	if err := s.saveRun(ctx, r); err != nil {
 		return nil, err
@@ -264,6 +303,9 @@ func (s *gamesService) agentStep(ctx context.Context, id, key string) (map[strin
 	if cfg.Model != "" {
 		m.model = cfg.Model
 	}
+	if r.Pick != "" {
+		m.model = r.Pick
+	}
 	r.Model = m.model
 	decls := []map[string]any{}
 	for _, name := range gamesAgentTools {
@@ -283,7 +325,7 @@ func (s *gamesService) agentStep(ctx context.Context, id, key string) (map[strin
 	if err != nil {
 		return nil, err
 	}
-	pin, pout := cfg.prices(s.now())
+	pin, pout := cfg.prices(m.model, s.now())
 	cost := gamesAgentCost(res.in, res.out, pin, pout)
 	month := gamesMonth(s.now())
 	for _, k := range []string{"total", r.UID} {
@@ -592,11 +634,11 @@ func (s *gamesService) agentAdmin(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	pin, pout := cfg.prices(s.now())
 	model := cfg.Model
 	if model == "" && s.agent != nil {
 		model = s.agent.model
 	}
+	pin, pout := cfg.prices(model, s.now())
 	return map[string]any{"on": s.agent != nil, "cap_usd": cfg.CapUSD, "model": model, "model_set": cfg.Model,
 		"price_in": pin, "price_out": pout, "spent_usd": usd(s.agentSpent(ctx, "total")), "month": gamesMonth(s.now())}, nil
 }

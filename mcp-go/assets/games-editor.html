@@ -16,6 +16,7 @@
   header h1 { font-size: 17px; margin: 0; white-space: nowrap; }
   header h1 a { color: inherit; text-decoration: none; }
   header select { flex: 1; min-width: 180px; max-width: 420px; }
+  header select#aiModel { flex: 0 1 auto; min-width: 0; max-width: 270px; }
   .grow { flex: 1; }
   .muted { color: var(--muted); font-size: 13px; }
   .cost { font-variant-numeric: tabular-nums; }
@@ -70,6 +71,7 @@
   <button id="copy" hidden title="Uusi peli tämän pelin kaikilla tiedostoilla; alkuperäinen ei muutu">Tee kopio uudeksi peliksi</button>
   <button id="newChat" hidden>Uusi keskustelu</button>
   <span class="grow"></span>
+  <select id="aiModel" title="Tekoälymalli (hinta: $ miljoonaa sanaa kohden sisään / ulos)" hidden></select>
   <span class="muted cost" id="cost"></span>
   <span class="muted" id="who"></span>
 </header>
@@ -208,6 +210,7 @@
     if (!text || busy) { prompt.focus(); return; }
     $("err").textContent = ""; stopping = false;
     var body = { prompt: text }, id = sel.value;
+    if ($("aiModel").value) body.model = $("aiModel").value;
     if (run && (id ? id === run.game_id : !run.game_id)) { body.run_id = run.run_id; body.key = run.key; }
     else { run = null; clearLog(); if (id) body.game_id = id; }
     $("intro").hidden = true;
@@ -306,6 +309,23 @@
     }
     $("split").hidden = false;
     $("model").textContent = me.agent_model || "Gemini";
+    // the model: the one chosen last in this browser, else the site's
+    var pick = $("aiModel"), want0 = "";
+    try { want0 = localStorage.getItem("games.agent.model") || ""; } catch (e) { }
+    (me.agent_models || []).forEach(function (m) {
+      var o = el("option", m.label + " · " + String(m.price_in).replace(".", ",") + " / " + String(m.price_out).replace(".", ",") + " $");
+      o.value = m.id; pick.appendChild(o);
+    });
+    if (pick.options.length) {
+      pick.hidden = false;
+      var has = function (v) { return Array.prototype.some.call(pick.options, function (o) { return o.value === v; }); };
+      pick.value = has(want0) ? want0 : has(me.agent_model) ? me.agent_model : pick.options[0].value;
+      $("model").textContent = pick.options[pick.selectedIndex].text.split(" · ")[0];
+      pick.onchange = function () {
+        try { localStorage.setItem("games.agent.model", pick.value); } catch (e) { }
+        $("model").textContent = pick.options[pick.selectedIndex].text.split(" · ")[0];
+      };
+    }
     var want = new URLSearchParams(location.search).get("game") || "";
     if (want && !games[want]) want = "";
     if (run && run.game_id && !games[run.game_id]) { run = null; remember(); }
