@@ -701,7 +701,9 @@ func TestGamesAgent(t *testing.T) {
 
 	// pictures with a message: words that say what each is, then the picture
 	png := base64.StdEncoding.EncodeToString([]byte("\x89PNG fake"))
-	pic := func(mime, data string) map[string]any { return map[string]any{"mime": mime, "data": data, "note": "red ring at x=10, y=20"} }
+	pic := func(mime, data string) map[string]any {
+		return map[string]any{"mime": mime, "data": data, "note": "red ring at x=10, y=20"}
+	}
 	if _, err := s.homeCall(ctx, admin, "agent_start", map[string]any{"prompt": "", "run_id": id, "key": key, "images": []any{pic("image/svg+xml", png)}}); err == nil {
 		t.Fatal("an SVG picture")
 	}
