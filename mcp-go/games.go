@@ -49,13 +49,13 @@ const (
 	gamesUsersCol = "games_users"
 	gamesTTSCol   = "games_tts"
 
-	gamesMaxGames   = 30       // per account unless the admin page says otherwise
-	gamesMaxFiles   = 300      // per game
-	gamesMaxFile    = 8 << 20  // one file
-	gamesMaxTotal   = 40 << 20 // one game's files together
-	gamesMaxPerCall = 60       // files in one write_files
-	gamesMaxRead    = 2 << 20  // read_file's answer, before base64
-	gamesMaxSpeech  = 1500     // characters in one speak
+	gamesMaxGames   = 30        // per account unless the admin page says otherwise
+	gamesMaxFiles   = 1000      // per game
+	gamesMaxFile    = 8 << 20   // one file
+	gamesMaxTotal   = 100 << 20 // one game's files together
+	gamesMaxPerCall = 60        // files in one write_files
+	gamesMaxRead    = 2 << 20   // read_file's answer, before base64
+	gamesMaxSpeech  = 1500      // characters in one speak
 )
 
 var (
