@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -805,5 +806,38 @@ func TestGamesPlayParts(t *testing.T) {
 	}
 	if _, e := gamesTool(t, env, tok, "inspect_game", map[string]any{"game_id": g["game_id"], "save_as": "a/b"}); !strings.Contains(e, "save_as") {
 		t.Fatalf("save_as: %s", e)
+	}
+}
+
+// /games/editor: the assistant beside the game, behind the sign-in
+func TestGamesEditorPage(t *testing.T) {
+	env, _, _ := gamesEnv(t)
+	web := fstest.MapFS{"index.html": {Data: []byte("<!doctype html>")}, "main.js": {Data: []byte("//")}, "pres_app.js": {Data: []byte("//")}}
+	verify := func(_ context.Context, tok string) (*IDToken, error) {
+		if tok == "tero" {
+			return &IDToken{UID: "u-tero", Email: "teroktolonen@gmail.com", Name: "Tero", Verified: true}, nil
+		}
+		return nil, errors.New("expired")
+	}
+	env.EditorGate = newEditorGate(web, env.DB, verify, nil)
+	if env.EditorGate == nil {
+		t.Fatal("no gate")
+	}
+	r := httptest.NewRequest("GET", gamesEditorPath, nil)
+	r.AddCookie(&http.Cookie{Name: editorCookie, Value: "tero"})
+	if w := gamesServe(env, r); w.Code != 200 || w.Body.String() != gamesEditorHTML {
+		t.Fatalf("signed in: %d %.200s", w.Code, w.Body.String())
+	}
+	w := gamesServe(env, httptest.NewRequest("GET", gamesEditorPath, nil))
+	if w.Code != 200 || w.Body.String() != gamesHomeLoginHTML {
+		t.Fatalf("signed out: %d %.200s", w.Code, w.Body.String())
+	}
+	if w := gamesServe(env, httptest.NewRequest("POST", gamesEditorPath, nil)); w.Code != 405 {
+		t.Fatalf("POST: %d", w.Code)
+	}
+	for _, want := range []string{"agent_start", "/games/engine/?pack=", "mode=frame", "games.agent.run"} {
+		if !strings.Contains(gamesEditorHTML, want) {
+			t.Fatalf("editor page lacks %s", want)
+		}
 	}
 }
