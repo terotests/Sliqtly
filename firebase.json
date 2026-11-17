@@ -245,6 +245,13 @@
         }
       },
       {
+        "source": "/games/editor",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/games/api/**",
         "run": {
           "serviceId": "sliqtly-mcp",

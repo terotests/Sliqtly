@@ -40,6 +40,7 @@ const (
 	gamesAgentShots     = 2     // screenshots the model still sees (older ones: words only)
 	gamesAgentResultMax = 40000 // characters of one tool's answer
 	gamesAgentStepPath  = gamesPath + "/agent/step"
+	gamesEditorPath     = gamesPath + "/editor"
 )
 
 // the tools the assistant may call: not publish_game or delete_game (the

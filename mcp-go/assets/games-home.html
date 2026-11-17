@@ -73,7 +73,7 @@
   </section>
 
   <section id="agent" hidden>
-    <h2>Tee peli tekoälyllä <span class="tag">kokeilu · vain ylläpitäjä</span></h2>
+    <h2>Tee peli tekoälyllä <span class="tag">kokeilu · vain ylläpitäjä</span> <a class="btn" href="/games/editor" style="float:right">Avaa editori →</a></h2>
     <p class="muted">Kirjoita, millainen peli tehdään tai mitä muutetaan. <span id="amodel"></span> tekee sen Games-työkaluilla, kokeilee pelin kuvakaappauksilla ja korjaa virheet. Yksi peli maksaa yleensä noin 0,5–2 $.</p>
     <div class="row"><select id="agame"><option value="">Uusi peli</option></select><button id="anew" hidden>Uusi keskustelu</button></div>
     <div class="alog" id="alog" hidden></div>
@@ -163,7 +163,7 @@
         });
       }
     }
-    if (agentOn) btn("Muokkaa tekoälyllä", "", function () { editWithAI(g); });
+    if (agentOn) { var ed = el("a", "Muokkaa editorissa", "btn"); ed.href = "/games/editor?game=" + encodeURIComponent(g.game_id); acts.appendChild(ed); }
     var srcBox = null;
     btn("Lähdekoodi", "", function () {
       if (srcBox) { srcBox.remove(); srcBox = null; return; }

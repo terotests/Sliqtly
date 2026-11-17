@@ -24,6 +24,11 @@ import (
 //go:embed assets/games-home.html
 var gamesHomeHTML string
 
+// the editor: the assistant's conversation beside the game it makes
+//
+//go:embed assets/games-editor.html
+var gamesEditorHTML string
+
 var gamesHomeLoginHTML = strings.NewReplacer(
 	"<title>Sliqtly editor</title>", "<title>Sliqtly Games</title>",
 	">Sign in to the editor<", ">Sign in to Sliqtly Games<",
@@ -41,6 +46,19 @@ func serveGamesHome(env *Env, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := g.user(r)
+	if r.URL.Path == gamesEditorPath {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "GET only", 405)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if t == nil {
+			io.WriteString(w, gamesHomeLoginHTML)
+			return
+		}
+		io.WriteString(w, gamesEditorHTML)
+		return
+	}
 	if r.URL.Path == gamesPath || r.URL.Path == gamesPath+"/" {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "GET only", 405)

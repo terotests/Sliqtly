@@ -183,7 +183,7 @@ func serveGames(env *Env, w http.ResponseWriter, r *http.Request) bool {
 		serveGamesAdmin(env, w, r)
 	case p == gamesAgentStepPath:
 		serveGamesAgentStep(env, w, r)
-	case p == gamesPath || p == gamesPath+"/" || strings.HasPrefix(p, gamesPath+"/api/"):
+	case p == gamesPath || p == gamesPath+"/" || p == gamesEditorPath || strings.HasPrefix(p, gamesPath+"/api/"):
 		w.Header().Set("Cache-Control", "no-store")
 		serveGamesHome(env, w, r)
 	default:
