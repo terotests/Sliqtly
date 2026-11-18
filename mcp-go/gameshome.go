@@ -37,6 +37,7 @@ var gamesSourceHTML string
 
 var gamesHomeLoginHTML = strings.NewReplacer(
 	"<title>Sliqtly editor</title>", "<title>Sliqtly Games</title>",
+	`href="/favicon.svg"`, `href="/games/engine/icon.svg"`,
 	">Sign in to the editor<", ">Sign in to Sliqtly Games<",
 	"The Sliqtly editor is for signed-in users. Sign in with your Google account: a Trial license lets you edit two presentations in the cloud.",
 	"Sliqtly Games: games for children's phones, made with an AI assistant through MCP. Sign in with your Google account to see your games.",

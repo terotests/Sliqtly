@@ -1052,6 +1052,43 @@ func TestGamesCopy(t *testing.T) {
 
 // without SLIQTLY_GAMES_INVITE_ONLY any verified Google address may make
 // games: fewer of them and no speech until the admin page invites it
+func TestGamesSpeechSiteCap(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	ctx := context.Background()
+	env.games.inviteOnly = false
+	env.games.tts = func(_ context.Context, text, lang, voice string) ([]byte, error) {
+		return []byte("RIFF....WAVE"), nil
+	}
+	if _, err := env.games.adminCall(ctx, "tts_set", map[string]any{"open_month": float64(100), "cap_chars": float64(12)}); err != nil {
+		t.Fatal(err)
+	}
+	a := gamesToken(db, "a1", "a@example.com", gamesBase+gamesMcpPath)
+	b := gamesToken(db, "b1", "b@example.com", gamesBase+gamesMcpPath)
+	ga := gamesMustTool(t, env, a, "create_game", map[string]any{"name": "A"})["game_id"].(string)
+	gb := gamesMustTool(t, env, b, "create_game", map[string]any{"name": "B"})["game_id"].(string)
+	speak := func(tok, id, text string) string {
+		_, e := gamesTool(t, env, tok, "speak", map[string]any{"game_id": id, "text": text, "path": "sounds/x.wav"})
+		return e
+	}
+	if e := speak(a, ga, "Hei maailma"); e != "" { // 11 of the site's 12
+		t.Fatal(e)
+	}
+	if e := speak(b, gb, "Moi"); !strings.Contains(e, "whole site") {
+		t.Fatalf("over the site's budget: %q", e)
+	}
+	got, _ := env.games.adminCall(ctx, "tts", nil)
+	if m := got.(map[string]any); m["used"] != int64(11) || m["cap_chars"] != int64(12) || m["open_month"] != int64(100) {
+		t.Fatalf("tts %v", m)
+	}
+	// a refused clip is not counted for its user either
+	users, _ := env.games.adminCall(ctx, "users", nil)
+	for _, u := range users.(map[string]any)["users"].([]any) {
+		if u := u.(map[string]any); u["email"] == "b@example.com" && u["tts_used"] != nil && u["tts_used"] != int64(0) {
+			t.Fatalf("b counted %v", u)
+		}
+	}
+}
+
 func TestGamesOpen(t *testing.T) {
 	env, db, _ := gamesEnv(t)
 	ctx := context.Background()
@@ -1061,7 +1098,7 @@ func TestGamesOpen(t *testing.T) {
 		t.Fatal("games before any")
 	}
 	me, err := env.games.homeCall(ctx, gamesWho{uid: "u9", email: "anyone@example.com"}, "me", nil)
-	if err != nil || me.(map[string]any)["invited"] != true || me.(map[string]any)["max_games"] != gamesOpenGames || me.(map[string]any)["tts_month"] != int64(0) {
+	if err != nil || me.(map[string]any)["invited"] != true || me.(map[string]any)["max_games"] != gamesOpenGames || me.(map[string]any)["tts_month"] != int64(gamesTTSOpenMonth) {
 		t.Fatalf("me %v %v", me, err)
 	}
 	if me.(map[string]any)["agent"] == true {

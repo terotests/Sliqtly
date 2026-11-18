@@ -5,6 +5,31 @@ RangerGames is an engine for children's phone games. A game is a folder; the eng
 with CSS (flexbox) and draws it on a canvas, on the web and natively on Android. The screen is a
 phone held upright, about 360 × 640 to 720 points.
 
+## Layout that holds (read this first)
+
+The engine lays out with its own flexbox, not a browser's, and the same tree is drawn by more
+than one renderer. These patterns come out the same everywhere:
+
+- **Say the direction.** Every `div` is a flex column; write `flex-direction: row` on every row
+  (icon + text, a row of buttons, a score bar). Don't rely on inline flow or `display`.
+- **Icon + text column (a card, a menu tile):** a row with `align-items: center`; the icon in a
+  box of fixed `width` and `height` with `align-items: center; justify-content: center`; the text
+  in a column with a fixed `width` (or `flex-grow: 1`) and `align-items: flex-start`, so every
+  line starts at the column's left edge. One `div` per line (title, subtitle, stars).
+- **Left alignment comes from the column**, not from `text-align`: give text lines their own
+  `div` and let `align-items: flex-start` place them. Use `text-align: center` only on a box of
+  known width that should centre its text.
+- **Give sizes in px** to anything that must line up (tiles, icon boxes, buttons); keep `%` for
+  full-width bars. A box sized only by its text can come out a few px off between renderers.
+- **Centre with flex**: `align-items: center; justify-content: center` on the parent, not
+  margins or padding guessed by eye.
+- **Overlays** (a panel, a toast, a flying score): `position: absolute` with `left`/`top` in px
+  from the game's `width`/`height`; everything else in normal flow.
+- **Emoji are glyphs**: give an emoji its own box (`font-size` + fixed `width`) when it must sit
+  exactly; a row of emoji (⭐⭐⭐) in a text line is fine.
+- **Avoid**: `float`, `grid`, `display: inline`, `vh`/`vw`, `calc()`, CSS variables, `::before`
+  and `::after`, `:hover`; text that relies on wrapping to line up.
+
 ## The folder
 
 | File | What |

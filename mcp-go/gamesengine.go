@@ -123,6 +123,11 @@ var gamesEngineTypes = map[string]string{
 	".json": "application/manifest+json", ".svg": "image/svg+xml",
 }
 
+// the Games icon (a helicopter), for every Games page's tab
+//
+//go:embed assets/games-icon.svg
+var gamesIconSVG []byte
+
 func serveGamesEngine(env *Env, w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == gamesPath+"/engine" {
 		http.Redirect(w, r, gamesEnginePath, http.StatusMovedPermanently)
@@ -145,6 +150,8 @@ func serveGamesEngine(env *Env, w http.ResponseWriter, r *http.Request) {
 	var err error
 	if name == "index.html" {
 		b = gamesPlayHTML
+	} else if name == "icon.svg" {
+		b = gamesIconSVG
 	} else {
 		b, err = env.games.engine.get(r.Context(), env.games.engineSrc, name)
 	}

@@ -502,6 +502,10 @@ func (s *gamesService) adminCall(ctx context.Context, op string, a map[string]an
 	switch op {
 	case "users":
 		return s.adminUsers(ctx)
+	case "tts":
+		return s.ttsAdmin(ctx)
+	case "tts_set":
+		return s.ttsAdminSet(ctx, a)
 	case "agent":
 		return s.agentAdmin(ctx)
 	case "agent_set":

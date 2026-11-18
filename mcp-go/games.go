@@ -141,6 +141,7 @@ type gamesUser struct {
 	admin    bool
 	ttsMonth int64 // characters of speech a month; < 0: no limit
 	maxGames int   // games the account may keep; < 0: no limit
+	open     bool  // signed in without an invitation
 }
 
 func (s *gamesService) user(ctx context.Context, who gamesWho) (gamesUser, error) {
@@ -161,7 +162,11 @@ func (s *gamesService) user(ctx context.Context, who gamesWho) (gamesUser, error
 		if s.inviteOnly {
 			return gamesUser{}, roomErr{"Games is by invitation for now: " + who.email + " has not been invited."}
 		}
-		return gamesUser{maxGames: gamesOpenGames}, nil
+		c, err := s.ttsConfig(ctx)
+		if err != nil {
+			return gamesUser{}, err
+		}
+		return gamesUser{maxGames: gamesOpenGames, ttsMonth: c.OpenMonth, open: true}, nil
 	}
 	// the account behind the address, for the admin page's usage column
 	if docStr(d, "uid") != who.uid {
@@ -681,8 +686,23 @@ func (s *gamesService) speak(ctx context.Context, who gamesWho, u gamesUser, g *
 	if u.ttsMonth == 0 {
 		return nil, roomErr{"Speech is not in your plan; the admin can give you an allowance."}
 	}
+	// everyone but the admins: the site's monthly budget for speech first
 	if u.ttsMonth > 0 {
-		ok, err := s.db.IncrementCapped(ctx, gamesTTSCol, who.uid, []string{month}, n, u.ttsMonth)
+		c, err := s.ttsConfig(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ok, err := s.db.IncrementCapped(ctx, gamesTTSCol, gamesTTSTotal, []string{month}, n, c.CapChars)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, roomErr{"This month's speech budget for the whole site is used up; it starts again next month (or the admin can raise it)."}
+		}
+		ok, err = s.db.IncrementCapped(ctx, gamesTTSCol, who.uid, []string{month}, n, u.ttsMonth)
+		if err != nil || !ok {
+			s.db.Increment(ctx, gamesTTSCol, gamesTTSTotal, Doc{month: -n})
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -697,6 +717,7 @@ func (s *gamesService) speak(ctx context.Context, who gamesWho, u gamesUser, g *
 		// what was not made is not counted
 		if u.ttsMonth > 0 {
 			s.db.Increment(ctx, gamesTTSCol, who.uid, Doc{month: -n})
+			s.db.Increment(ctx, gamesTTSCol, gamesTTSTotal, Doc{month: -n})
 		}
 		return nil, err
 	}
@@ -885,4 +906,70 @@ func gamesGuideTopic(a map[string]any) (any, error) {
 		return map[string]any{"guide": gamesExampleText(x)}, nil
 	}
 	return nil, roomErr{"No such topic: " + t + ". Topics: menus, 3d, examples, example:<name>."}
+}
+
+// speech for those not invited, and the site's monthly budget for everyone
+// but the admins (games_config/tts; the admin page sets them)
+const (
+	gamesTTSTotal     = "_total" // games_tts: all non-admin characters a month
+	gamesTTSOpenMonth = 20000    // characters a month for an account not invited
+	gamesTTSCapChars  = 1700000  // all non-admin characters a month: about 20 € (Chirp 3 HD, 1M free a month)
+)
+
+type gamesTTSConfig struct {
+	OpenMonth int64 `json:"open_month"`
+	CapChars  int64 `json:"cap_chars"`
+}
+
+func (s *gamesService) ttsConfig(ctx context.Context) (gamesTTSConfig, error) {
+	c := gamesTTSConfig{OpenMonth: gamesTTSOpenMonth, CapChars: gamesTTSCapChars}
+	d, err := s.db.Get(ctx, gamesConfigCol, "tts")
+	if err != nil || d == nil {
+		return c, err
+	}
+	if v, ok := d["open_month"]; ok && v != nil {
+		c.OpenMonth = docInt(v)
+	}
+	if v, ok := d["cap_chars"]; ok && v != nil {
+		c.CapChars = docInt(v)
+	}
+	return c, nil
+}
+
+func (s *gamesService) ttsAdmin(ctx context.Context) (any, error) {
+	c, err := s.ttsConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	month := gamesMonth(s.now())
+	used := int64(0)
+	if d, err := s.db.Get(ctx, gamesTTSCol, gamesTTSTotal); err == nil && d != nil {
+		used = docInt(d[month])
+	}
+	return map[string]any{"open_month": c.OpenMonth, "cap_chars": c.CapChars, "used": used, "month": month, "speech_on": s.tts != nil}, nil
+}
+
+func (s *gamesService) ttsAdminSet(ctx context.Context, a map[string]any) (any, error) {
+	set := Doc{}
+	for _, k := range []string{"open_month", "cap_chars"} {
+		if v, ok := a[k].(float64); ok {
+			if v < 0 || v > 100e6 {
+				return nil, roomErr{"Characters: 0 to 100 000 000."}
+			}
+			set[k] = int64(v)
+		}
+	}
+	d, err := s.db.Get(ctx, gamesConfigCol, "tts")
+	if err != nil {
+		return nil, err
+	}
+	if d == nil {
+		err = s.db.Set(ctx, gamesConfigCol, "tts", set)
+	} else {
+		err = s.db.Update(ctx, gamesConfigCol, "tts", set)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.ttsAdmin(ctx)
 }
