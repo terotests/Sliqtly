@@ -131,7 +131,7 @@
       if (!v) return "";
       try {
         var u = new URL(v, location.href);
-        var ok = /^\/games\/p\/[A-Za-z0-9_-]{20,64}\/game\.rgpk$/.test(u.pathname) &&
+        var ok = /^\/games\/(p\/[A-Za-z0-9_-]{20,64}|x\/[a-z0-9-]{1,40})\/game\.rgpk$/.test(u.pathname) &&
           (u.origin === "https://sliqtly.com" || u.origin === location.origin || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(u.origin));
         return ok ? u.href : "";
       } catch (e) { return ""; }
