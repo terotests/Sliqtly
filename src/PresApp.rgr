@@ -4289,20 +4289,8 @@ class PresApp {
             }
             return
         }
-        if (selected <= 0) {
-            clock = 0.0
-            pStep = 0
-            chromeRev = (chromeRev + 1)
-            return
-        }
-        selected = (selected - 1)
-        this.viewReset()
-        activeDia = -1
-        def s:PresSlide (deck.slideAt(selected))
-        pStep = s.steps
-        clock = ((PresTimeline.slideStart(deck selected)) + s.duration)
-        this.inkFollow()
-        chromeRev = (chromeRev + 1)
+        ; a build step back, or the slide before with all of its builds
+        this.jump((PresNav.back(deck selected pStep false)))
     }
 
     ; A jump (PresNav): straight to where it lands, no transition on the way.

@@ -123,6 +123,7 @@ function act(action) {
   if (action === "next") nav.next();
   else if (action === "nextSlide") nav.nextSlide();
   else if (action === "prevSlide") nav.prevSlide();
+  else if (action === "back") nav.back();
   else if (action === "first") nav.go(0);
   else if (action === "last") {
     nav.go(nav.count - 1);
@@ -163,7 +164,7 @@ canvas.addEventListener("click", () => {
   pressed = false;
   act("next");
 });
-document.getElementById("pPrev").addEventListener("click", () => act("prevSlide"));
+document.getElementById("pPrev").addEventListener("click", () => act("back"));
 document.getElementById("pNext").addEventListener("click", () => act("next"));
 pAuto.addEventListener("click", () => act("auto"));
 document.getElementById("pFull").addEventListener("click", () => {

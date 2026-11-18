@@ -36,7 +36,8 @@ export function recUrl(link) {
 
 /**
  * A key (web/recstream.js RecNav): Space, Enter and N go on to the next
- * step ("next"); the arrows and the page keys from slide to slide; Home and
+ * step ("next"); ← ↑ a step back ("back"); → ↓ and the page keys from slide
+ * to slide; Home and
  * End the first and last slide; A plays it all ("auto"). "" for any other.
  */
 export function recActionForKey(key) {
@@ -45,7 +46,9 @@ export function recActionForKey(key) {
       return "next";
     case "ArrowRight": case "ArrowDown": case "PageDown":
       return "nextSlide";
-    case "ArrowLeft": case "ArrowUp": case "PageUp": case "Backspace": case "p": case "P":
+    case "ArrowLeft": case "ArrowUp": case "Backspace": case "p": case "P":
+      return "back";
+    case "PageUp":
       return "prevSlide";
     case "Home":
       return "first";

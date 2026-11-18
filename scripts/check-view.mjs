@@ -336,9 +336,18 @@ try {
     await rp.waitForTimeout(1500);
     if ((await look()) === held) fail("Space did not play the recording's next step");
     if ((await count()) !== `3 / ${recN}`) fail("Space at a build step left the slide");
+    // ← takes the build step back: the slide as it held before it
     await rp.keyboard.press("ArrowLeft");
-    await rp.waitForTimeout(100);
+    await rp.waitForTimeout(300);
+    if ((await count()) !== `3 / ${recN}`) fail("← after a build step left the slide");
+    if ((await look()) !== held) fail("← did not take the recording's build step back");
+    // ← with no step shown: the slide before, shown whole and still
+    await rp.keyboard.press("ArrowLeft");
+    await rp.waitForTimeout(300);
     if ((await count()) !== `2 / ${recN}`) fail("← in the light player did not go back a slide");
+    const back2 = await look();
+    await rp.waitForTimeout(600);
+    if ((await look()) !== back2) fail("← landed on the slide before still moving, not whole");
     await rp.keyboard.press("a");
     await rp.waitForFunction((n) => document.getElementById("pCount").textContent === `4 / ${n}`, recN, { timeout: 15000 }).catch(() => fail("A (play it all) did not go on to slide 4"));
     await rp.close();

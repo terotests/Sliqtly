@@ -44,9 +44,10 @@
 // faces come from the site's fonts/, the pictures are in the stream (and a
 // deck with programs loads their engine, as the viewer does).
 //
-// Played (RecNav): ← → go from slide to slide (each plays its way in up to
-// its first step), Space goes on to the next step and from a slide's end to
-// the next slide, and autoplay plays the whole recording through.
+// Played (RecNav): → goes to the next slide (it plays its way in up to its
+// first step), ← a step back and from a slide's start to the slide before
+// shown whole, Space goes on to the next step and from a slide's end to the
+// next slide, and autoplay plays the whole recording through.
 
 export const FORMAT = 2;
 export const REV = 1;
@@ -375,9 +376,32 @@ export class RecNav {
     else this.finish();
   }
 
-  /** ← : the previous slide (or this one again from its start). */
+  /** The slide before, shown whole (its builds all there); on the first
+   * slide, its start. */
   prevSlide() {
-    this.go(this.slide - 1);
+    if (this.slide <= 0) {
+      this.go(0);
+      return;
+    }
+    this.slide -= 1;
+    this.t = restOf(this.rec.slides[this.slide]);
+    this.playing = false;
+  }
+
+  /** ← : one build step back, held where it would start; with none of the
+   * slide's steps shown, the slide before, whole. Going back never lands
+   * on a slide with its builds hidden. */
+  back() {
+    const s = this.rec.slides[this.slide];
+    if (!s) return;
+    let at = -1;
+    for (const step of s.steps) if (step < this.t - 1e-6) at = step;
+    if (at >= 0) {
+      this.t = at;
+      this.playing = false;
+      return;
+    }
+    this.prevSlide();
   }
 
   /** Space: what is moving lands where it stops; at a step the next one

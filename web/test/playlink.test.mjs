@@ -16,7 +16,8 @@ test("/r/{id}/{hash} names a deck's recording", () => {
 test("keys: Space the steps, arrows the slides, A plays it all", () => {
   assert.equal(recActionForKey(" "), "next");
   assert.equal(recActionForKey("ArrowRight"), "nextSlide");
-  assert.equal(recActionForKey("ArrowLeft"), "prevSlide");
+  assert.equal(recActionForKey("ArrowLeft"), "back");
+  assert.equal(recActionForKey("PageUp"), "prevSlide");
   assert.equal(recActionForKey("Home"), "first");
   assert.equal(recActionForKey("End"), "last");
   assert.equal(recActionForKey("a"), "auto");
