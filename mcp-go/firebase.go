@@ -367,6 +367,13 @@ func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) er
 		}
 		env.games.tts = tts
 		env.games.agent = newGamesAgentModel(ctx)
+		env.games.lookupUser = func(ctx context.Context, uid string) (string, string, error) {
+			u, err := auth.GetUser(ctx, uid)
+			if err != nil {
+				return "", "", err
+			}
+			return strings.ToLower(u.Email), u.DisplayName, nil
+		}
 	}
 	return nil
 }
