@@ -175,11 +175,6 @@
     }
     var sc = el("a", "Muokkaa koodia", "btn"); sc.href = "/games/source?game=" + encodeURIComponent(g.game_id); sc.title = "Pelin lähdekoodi vasemmalla, peli oikealla"; acts.appendChild(sc);
     if (agentOn) { var ed = el("a", "Muokkaa tekoälyllä", "btn"); ed.href = "/games/editor?game=" + encodeURIComponent(g.game_id); acts.appendChild(ed); }
-    var srcBox = null;
-    btn("Lähdekoodi", "", function () {
-      if (srcBox) { srcBox.remove(); srcBox = null; return; }
-      srcBox = source(g); d.appendChild(srcBox);
-    });
     var z = el("a", "Lataa .zip", "btn"); z.href = "/games/api/zip?game_id=" + encodeURIComponent(g.game_id); z.title = "Pelin tiedostot kansiossa games/<nimi>/, kuten RangerGames-repossa"; acts.appendChild(z);
     btn(g.hidden ? "Näytä" : "Piilota", "", function () { act("hide", { game_id: g.game_id, hidden: !g.hidden }); });
     btn("Poista", "danger", function () {
@@ -196,38 +191,6 @@
     d.appendChild(links);
     return d;
   }
-  // a game's files, to look at in the page
-  var mimes = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", wav: "audio/wav", mp3: "audio/mpeg", ogg: "audio/ogg" };
-  function source(g) {
-    var box = el("div", undefined, "src"), list = el("div", undefined, "flist"), view = el("div", undefined, "fview");
-    box.appendChild(list); box.appendChild(view);
-    view.appendChild(el("div", "Ladataan…", "muted"));
-    function open(f, a) {
-      Array.prototype.forEach.call(list.children, function (c) { c.className = ""; });
-      a.className = "on";
-      view.textContent = "";
-      view.appendChild(el("div", f.path + " · " + Math.max(1, Math.round(f.size / 1024)) + " kt", "muted"));
-      call("file", { game_id: g.game_id, path: f.path }).then(function (r) {
-        var ext = f.path.split(".").pop().toLowerCase();
-        if (r.text !== undefined) view.appendChild(el("pre", r.text));
-        else if (/^image/.test(mimes[ext] || "")) { var im = el("img"); im.src = "data:" + mimes[ext] + ";base64," + r.base64; view.appendChild(im); }
-        else if (/^audio/.test(mimes[ext] || "")) { var au = el("audio"); au.controls = true; au.src = "data:" + mimes[ext] + ";base64," + r.base64; view.appendChild(au); }
-        else view.appendChild(el("div", "Tiedostoa ei voi näyttää tässä; se on zip-paketissa.", "muted"));
-      }).catch(function (e) { view.appendChild(el("div", e.message, "err")); });
-    }
-    call("files", { game_id: g.game_id }).then(function (r) {
-      list.textContent = "";
-      var first = null;
-      (r.files || []).forEach(function (f) {
-        var a = el("a", f.path); a.onclick = function () { open(f, a); }; list.appendChild(a);
-        if (f.path === "game.tsx" || (!first && f.path !== "game.json")) first = [f, a];
-      });
-      view.textContent = "";
-      if (first) open(first[0], first[1]);
-    }).catch(function (e) { view.textContent = ""; view.appendChild(el("div", e.message, "err")); });
-    return box;
-  }
-
   // the example games: play, or a copy of one's own
   function examples(list, canCopy) {
     var box = document.getElementById("exs");

@@ -158,9 +158,16 @@ func (s *gamesService) user(ctx context.Context, who gamesWho) (gamesUser, error
 	if err != nil {
 		return gamesUser{}, err
 	}
-	if d == nil {
+	// an address not invited: the admin page lists it (open: true) with
+	// its games and speech; inviting it gives it the admin's numbers
+	if d == nil || d["listed"] != true {
 		if s.inviteOnly {
 			return gamesUser{}, roomErr{"Games is by invitation for now: " + who.email + " has not been invited."}
+		}
+		if d == nil {
+			s.db.Set(ctx, gamesUsersCol, who.email, Doc{"uid": who.uid, "name": who.name, "open": true, "first": s.now().UnixMilli()})
+		} else if docStr(d, "uid") != who.uid {
+			s.db.Update(ctx, gamesUsersCol, who.email, Doc{"uid": who.uid, "name": who.name})
 		}
 		c, err := s.ttsConfig(ctx)
 		if err != nil {

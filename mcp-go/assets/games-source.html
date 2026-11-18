@@ -99,6 +99,7 @@
     <div class="tools">
       <span id="gname"></span>
       <span class="grow"></span>
+      <label title="Muutokset näkyvät pelissä heti kirjoittaessa, ennen tallennusta. CSS vaihtuu pelin tilaa menettämättä; koodimuutos käynnistää pelin uudelleen."><input type="checkbox" id="hot" checked> Pikapäivitys</label>
       <button id="reload">Käynnistä uudelleen</button>
       <a class="btn" id="open" target="_blank" rel="noopener">Avaa omaan ikkunaan</a>
     </div>
@@ -161,7 +162,31 @@
     if (!cur || !docs[cur]) return;
     docs[cur].draft = text;
     drawFiles(); dirtyState();
+    hotSoon(cur);
   }
+
+  // ---- hot reload: drafts go to the game as they are typed (not saved)
+  var hotOn = true, hotTimer = 0, hotPaths = {};
+  try { hotOn = localStorage.getItem("games.hot") !== "0"; } catch (e) { }
+  $("hot").checked = hotOn;
+  $("hot").onchange = function () { hotOn = this.checked; try { localStorage.setItem("games.hot", hotOn ? "1" : "0"); } catch (e) { } if (hotOn) hotAll(); };
+  function hotSoon(p) {
+    if (!hotOn || docs[p].binary) return;
+    hotPaths[p] = true;
+    clearTimeout(hotTimer);
+    hotTimer = setTimeout(hotSend, /\.css$/i.test(p) ? 250 : 800);
+  }
+  function hotSend() {
+    var w = $("frame").contentWindow, list = Object.keys(hotPaths).filter(function (p) { return docs[p] && !docs[p].binary; });
+    hotPaths = {};
+    if (!w || !list.length) return;
+    w.postMessage({ rgHot: { files: list.map(function (p) { return { path: p, text: docs[p].draft }; }) } }, location.origin);
+  }
+  // a fresh game frame has the saved files: send it the drafts
+  function hotAll() { Object.keys(docs).filter(dirty).forEach(function (p) { hotPaths[p] = true; }); hotSend(); }
+  window.addEventListener("message", function (e) {
+    if (e.origin === location.origin && e.source === $("frame").contentWindow && e.data && e.data.rgReady && hotOn) hotAll();
+  });
   function dirty(p) { var d = docs[p]; return d && !d.binary && d.draft !== d.text; }
   function anyDirty() { return Object.keys(docs).some(dirty); }
   function dirtyState() {
@@ -253,7 +278,8 @@
     }).then(function () {
       drawFiles();
       say(warn.length ? "Tallennettu. Huom: " + warn.join(" ") : "Tallennettu", warn.length ? "bad" : "ok");
-      play(true);
+      // with hot reload the game already runs what was saved: keep its state
+      if (!hotOn) play(true);
     }).catch(function (e) { say(e.message, "bad"); }).then(function () { saving = false; dirtyState(); });
   }
   $("save").onclick = save;

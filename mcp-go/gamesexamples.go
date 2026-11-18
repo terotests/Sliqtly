@@ -9,6 +9,7 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"sort"
@@ -31,6 +32,7 @@ type gamesExample struct {
 // what each example teaches; the order is the list's
 var gamesExampleAbout = []struct{ name, about string }{
 	{"nappikisa", "The smallest whole game (about 100 lines): two players on one phone, the top half turned 180°, a state machine (title, wait, go, point, won) timed in tick, onPointerDown and keys."},
+	{"shakki", "Real chess against a friend or the phone on three levels (easy, normal, hard): lib/chess.ts has the rules (castling, en passant, promotion, check, mate, stalemate, repetition) and a computer player that thinks a slice at a time in tick so the screen keeps moving; pictures of the pieces in img/, a saved game to continue, a level menu."},
 	{"muistipeli", "A memory card game with a start menu (alone, against the phone, with a friend), a choice of size saved with rg.save, card-flip animation, a simple computer opponent, a results panel with Again and Back, and onBack."},
 }
 
@@ -40,14 +42,17 @@ func loadGamesExamples() []gamesExample {
 	var out []gamesExample
 	for _, e := range gamesExampleAbout {
 		dir := "assets/games-examples/" + e.name
-		ents, err := gamesExamplesFS.ReadDir(dir)
+		x := gamesExample{Name: e.name, About: e.about}
+		err := fs.WalkDir(gamesExamplesFS, dir, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			b, err := gamesExamplesFS.ReadFile(p)
+			x.files = append(x.files, gamesStarterFile{strings.TrimPrefix(p, dir+"/"), b})
+			return err
+		})
 		if err != nil {
 			panic("games example " + e.name + ": " + err.Error())
-		}
-		x := gamesExample{Name: e.name, About: e.about}
-		for _, f := range ents {
-			b, _ := gamesExamplesFS.ReadFile(dir + "/" + f.Name())
-			x.files = append(x.files, gamesStarterFile{f.Name(), b})
 		}
 		sort.Slice(x.files, func(i, j int) bool { return gamesFileOrder(x.files[i].path) < gamesFileOrder(x.files[j].path) })
 		var m struct{ Name, Icon, Description string }
@@ -117,6 +122,10 @@ func gamesExampleText(x *gamesExample) string {
 	var b strings.Builder
 	b.WriteString("# Example: " + x.Title + " (" + x.Name + ")\n\n" + x.About + "\n\nStart a game from it with create_game example: \"" + x.Name + "\". Its words come in three languages with rg.t(fi, en, es); a new game may write Finnish only.\n")
 	for _, f := range x.files {
+		if strings.HasSuffix(f.path, ".png") {
+			b.WriteString("\n## " + f.path + "\n\n(a picture, " + strconv.Itoa(len(f.data)) + " bytes; it comes with create_game example)\n")
+			continue
+		}
 		lang := strings.TrimPrefix(f.path[strings.LastIndex(f.path, ".")+1:], ".")
 		b.WriteString("\n## " + f.path + "\n\n```" + lang + "\n" + string(f.data))
 		if !strings.HasSuffix(string(f.data), "\n") {

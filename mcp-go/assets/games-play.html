@@ -167,9 +167,27 @@
         return sha ? dir + "b/" + sha : null;
       };
     }
-    host.boot("rg_web.wasm", pack || "games.rgpk").catch(function (e) {
+    host.boot("rg_web.wasm", pack || "games.rgpk").then(function () {
+      if (window.parent !== window) window.parent.postMessage({ rgReady: true }, location.origin);
+    }).catch(function (e) {
       console.error(e);
       status.innerHTML = "RangerGames<small>" + String(e.message || e) + "</small>";
+    });
+    // hot reload from the code editor (/games/source, same origin): the
+    // changed files go into the game's folder; a stylesheet alone is read
+    // again while the game runs (rg_restyle), anything else starts the game
+    // again (what it keeps with rg.save stays)
+    window.addEventListener("message", function (e) {
+      var hot = e.data && e.data.rgHot, id = params.get("game");
+      if (e.origin !== location.origin || !hot || !id || !host.x) return;
+      var css = true;
+      (hot.files || []).forEach(function (f) {
+        if (typeof f.path !== "string" || typeof f.text !== "string" || /(^|\/)\.\.(\/|$)/.test(f.path)) return;
+        host.putFile("/games/" + id + "/" + f.path, new TextEncoder().encode(f.text));
+        if (!/\.css$/i.test(f.path)) css = false;
+      });
+      if (css && host.x.rg_restyle) { host.x.rg_restyle(); host.afterCall(); }
+      else host.start(id);
     });
     if ("serviceWorker" in navigator && location.protocol === "https:") {
       navigator.serviceWorker.register("sw.js").catch(function () { });
