@@ -497,6 +497,48 @@ var gamesLoginHTML = strings.NewReplacer(
 	"Games-ylläpito on sivuston ylläpitäjälle. Kirjaudu Google-tililläsi.",
 ).Replace(editorLoginHTML)
 
+// the owners of games whose address games_users does not have (they made
+// games before sign-ins were recorded): found by uid and recorded as open
+func (s *gamesService) unrecordedOwners(ctx context.Context, known []Doc) ([]Doc, []string) {
+	if s.lookupUser == nil {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	for _, d := range known {
+		seen[docStr(d, "uid")] = true
+	}
+	var out []Doc
+	var ids []string
+	for _, pub := range []bool{false, true} {
+		games, _, err := s.db.WhereEq(ctx, gamesCol, "published", pub)
+		if err != nil {
+			continue
+		}
+		for _, g := range games {
+			uid := docStr(g, "owner")
+			if uid == "" || seen[uid] {
+				continue
+			}
+			seen[uid] = true
+			email, name, err := s.lookupUser(ctx, uid)
+			if err != nil || email == "" || s.isAdmin(gamesWho{uid: uid, email: email}) {
+				continue
+			}
+			if d, err := s.db.Get(ctx, gamesUsersCol, email); err != nil || d != nil {
+				continue // invited, or recorded meanwhile
+			}
+			if name == "" {
+				name = docStr(g, "owner_name")
+			}
+			d := Doc{"uid": uid, "name": name, "open": true, "first": s.now().UnixMilli()}
+			if s.db.Set(ctx, gamesUsersCol, email, d) == nil {
+				out, ids = append(out, d), append(ids, email)
+			}
+		}
+	}
+	return out, ids
+}
+
 // the admin page's calls
 func (s *gamesService) adminCall(ctx context.Context, op string, a map[string]any) (any, error) {
 	switch op {
@@ -578,6 +620,9 @@ func (s *gamesService) adminUsers(ctx context.Context) (any, error) {
 	c, err := s.ttsConfig(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if extra, ids := s.unrecordedOwners(ctx, append(docs, odocs...)); len(extra) > 0 {
+		odocs, oids = append(odocs, extra...), append(oids, ids...)
 	}
 	month := gamesMonth(s.now())
 	l := []any{}

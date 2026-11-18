@@ -107,6 +107,9 @@ type gamesService struct {
 	// only the admins and the invited may make games (SLIQTLY_GAMES_INVITE_ONLY=1);
 	// otherwise any Google account with a verified address may
 	inviteOnly bool
+	// the account's address and name by its uid (Firebase Auth), for the
+	// admin page's owners of games made before sign-ins were recorded
+	lookupUser func(ctx context.Context, uid string) (email, name string, err error)
 }
 
 func newGamesService(db DB, bucket Bucket, admins []string) *gamesService {

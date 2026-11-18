@@ -1129,6 +1129,35 @@ func TestGamesOpen(t *testing.T) {
 	}
 }
 
+// owners of games made before sign-ins were recorded show on the admin page
+func TestGamesAdminBackfill(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	ctx := context.Background()
+	env.games.inviteOnly = false
+	anyone := gamesToken(db, "u9", "anyone@example.com", gamesBase+gamesMcpPath)
+	gamesMustTool(t, env, anyone, "create_game", map[string]any{"name": "Vanha"})
+	db.Delete(ctx, gamesUsersCol, "anyone@example.com") // as before records
+	env.games.lookupUser = func(_ context.Context, uid string) (string, string, error) {
+		if uid == "u9" {
+			return "anyone@example.com", "Anyone", nil
+		}
+		return "", "", nil
+	}
+	users, _ := env.games.adminCall(ctx, "users", nil)
+	var row map[string]any
+	for _, u := range users.(map[string]any)["users"].([]any) {
+		if u.(map[string]any)["email"] == "anyone@example.com" {
+			row = u.(map[string]any)
+		}
+	}
+	if row == nil || row["open"] != true || row["games"] != 1 {
+		t.Fatalf("backfilled row %v", row)
+	}
+	if d, _ := db.Get(ctx, gamesUsersCol, "anyone@example.com"); d == nil || d["open"] != true || d["uid"] != "u9" {
+		t.Fatalf("recorded %v", d)
+	}
+}
+
 // example games: the guide's topics, a game from one, playing one unsigned
 func TestGamesExamples(t *testing.T) {
 	// the play page takes an example's pack (it showed games.rgpk: 404)
