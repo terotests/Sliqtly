@@ -2,6 +2,7 @@
 <html lang="fi">
 <head>
 <meta charset="utf-8">
+<link rel="icon" href="/games/engine/icon.svg" type="image/svg+xml">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Games admin</title>
@@ -42,6 +43,16 @@
       <button>Tallenna</button>
     </form>
     <div class="err" id="err"></div>
+  </section>
+  <section id="tts">
+    <h2>Puhe (Google TTS)</h2>
+    <p class="sub" id="ttsInfo"></p>
+    <form id="ttsForm">
+      <label>Kutsumattomille, merkkiä / kk<input type="number" name="open" min="0" max="100000000" step="1000"></label>
+      <label>Koko sivuston katto, merkkiä / kk<input type="number" name="cap" min="0" max="100000000" step="10000"></label>
+      <button>Tallenna</button>
+    </form>
+    <div class="err" id="ttsErr"></div>
   </section>
   <section id="agent">
     <h2>Tekoälyavustaja (/games-sivun kehote)</h2>
@@ -120,6 +131,18 @@
     var f = e.target, ae = document.getElementById("agentErr"); ae.textContent = "";
     call("agent_set", { cap_usd: Number(f.cap.value || 0), model: f.model.value }).then(agentShow).catch(function (x) { ae.textContent = x.message; });
   });
+  function ttsShow(d) {
+    var f = document.getElementById("ttsForm");
+    f.open.value = d.open_month; f.cap.value = d.cap_chars;
+    document.getElementById("ttsInfo").textContent = (d.speech_on ? "" : "Puhe on pois päältä palvelimella. ") +
+      "Käytetty " + d.month + " (muut kuin ylläpitäjät): " + fmt(d.used) + " / " + fmt(d.cap_chars) + " merkkiä. Kun katto täyttyy, puhetta ei tehdä ennen seuraavaa kuuta. Chirp 3 HD -äänet maksavat noin 30 $ miljoonalta merkiltä; 1 miljoona merkkiä kuussa on ilmaista. Kutsutuilla on oma raja alla olevassa taulukossa.";
+  }
+  document.getElementById("ttsForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var f = e.target, te = document.getElementById("ttsErr"); te.textContent = "";
+    call("tts_set", { open_month: Number(f.open.value || 0), cap_chars: Number(f.cap.value || 0) }).then(ttsShow).catch(function (x) { te.textContent = x.message; });
+  });
+  call("tts").then(ttsShow).catch(function (e) { document.getElementById("ttsErr").textContent = e.message; });
   call("agent").then(agentShow).catch(function (e) { document.getElementById("agentErr").textContent = e.message; });
   call("users").then(show).catch(function (e) { err.textContent = e.message; });
 })();

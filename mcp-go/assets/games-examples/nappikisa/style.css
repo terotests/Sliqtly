@@ -1,0 +1,8 @@
+.screen { width: 100%; height: 100%; background-color: #1b1f3b; }
+.half { width: 100%; flex-grow: 1; align-items: center; justify-content: center; }
+.mid { width: 100%; height: 6px; background-color: #1b1f3b; }
+.points { flex-direction: row; margin-bottom: 16px; }
+.pt { width: 22px; height: 22px; border-radius: 11px; margin: 5px; background-color: rgba(255,255,255,0.3); }
+.pt.on { background-color: #ffd166; }
+.light { border-radius: 999px; background-color: rgba(255,255,255,0.22); align-items: center; justify-content: center; font-size: 70px; }
+.msg { margin-top: 16px; font-size: 24px; font-weight: 700; color: #ffffff; }

@@ -32,6 +32,8 @@ func gamesEnv(t *testing.T) (*Env, *fakeDB, *fakeBucket) {
 	env := &Env{DB: db, Bucket: bucket, OAuth: true, BaseURL: gamesBase}
 	env.games = newGamesService(db, bucket, []string{"admin@example.com"})
 	env.games.base = gamesBase
+	// most tests are of the invited; TestGamesOpen turns it off
+	env.games.inviteOnly = true
 	env.games.removePrefix = func(ctx context.Context, prefix string) { bucket.RemovePrefix(ctx, prefix) }
 	return env, db, bucket
 }
@@ -1045,5 +1047,162 @@ func TestGamesCopy(t *testing.T) {
 	out, err := env.games.homeCall(context.Background(), gamesWho{uid: "u1", email: "admin@example.com"}, "copy", map[string]any{"game_id": id, "name": "Kolmas"})
 	if m, _ := out.(map[string]any); err != nil || m["name"] != "Kolmas" || m["copy_of"] != id {
 		t.Fatalf("home copy %v %v", out, err)
+	}
+}
+
+// without SLIQTLY_GAMES_INVITE_ONLY any verified Google address may make
+// games: fewer of them and no speech until the admin page invites it
+func TestGamesSpeechSiteCap(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	ctx := context.Background()
+	env.games.inviteOnly = false
+	env.games.tts = func(_ context.Context, text, lang, voice string) ([]byte, error) {
+		return []byte("RIFF....WAVE"), nil
+	}
+	if _, err := env.games.adminCall(ctx, "tts_set", map[string]any{"open_month": float64(100), "cap_chars": float64(12)}); err != nil {
+		t.Fatal(err)
+	}
+	a := gamesToken(db, "a1", "a@example.com", gamesBase+gamesMcpPath)
+	b := gamesToken(db, "b1", "b@example.com", gamesBase+gamesMcpPath)
+	ga := gamesMustTool(t, env, a, "create_game", map[string]any{"name": "A"})["game_id"].(string)
+	gb := gamesMustTool(t, env, b, "create_game", map[string]any{"name": "B"})["game_id"].(string)
+	speak := func(tok, id, text string) string {
+		_, e := gamesTool(t, env, tok, "speak", map[string]any{"game_id": id, "text": text, "path": "sounds/x.wav"})
+		return e
+	}
+	if e := speak(a, ga, "Hei maailma"); e != "" { // 11 of the site's 12
+		t.Fatal(e)
+	}
+	if e := speak(b, gb, "Moi"); !strings.Contains(e, "whole site") {
+		t.Fatalf("over the site's budget: %q", e)
+	}
+	got, _ := env.games.adminCall(ctx, "tts", nil)
+	if m := got.(map[string]any); m["used"] != int64(11) || m["cap_chars"] != int64(12) || m["open_month"] != int64(100) {
+		t.Fatalf("tts %v", m)
+	}
+	// a refused clip is not counted for its user either
+	users, _ := env.games.adminCall(ctx, "users", nil)
+	for _, u := range users.(map[string]any)["users"].([]any) {
+		if u := u.(map[string]any); u["email"] == "b@example.com" && u["tts_used"] != nil && u["tts_used"] != int64(0) {
+			t.Fatalf("b counted %v", u)
+		}
+	}
+}
+
+func TestGamesOpen(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	ctx := context.Background()
+	env.games.inviteOnly = false
+	anyone := gamesToken(db, "u9", "anyone@example.com", gamesBase+gamesMcpPath)
+	if out := gamesMustTool(t, env, anyone, "list_games", nil); len(out["games"].([]any)) != 0 {
+		t.Fatal("games before any")
+	}
+	me, err := env.games.homeCall(ctx, gamesWho{uid: "u9", email: "anyone@example.com"}, "me", nil)
+	if err != nil || me.(map[string]any)["invited"] != true || me.(map[string]any)["max_games"] != gamesOpenGames || me.(map[string]any)["tts_month"] != int64(gamesTTSOpenMonth) {
+		t.Fatalf("me %v %v", me, err)
+	}
+	if me.(map[string]any)["agent"] == true {
+		t.Fatal("the assistant for anyone")
+	}
+	// an address no provider vouches for is still out
+	if _, err := env.games.user(ctx, gamesWho{uid: "u10"}); err == nil {
+		t.Fatal("no verified address")
+	}
+}
+
+// example games: the guide's topics, a game from one, playing one unsigned
+func TestGamesExamples(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	ctx := context.Background()
+	admin := gamesToken(db, "u-admin", "admin@example.com", gamesBase+gamesMcpPath)
+	core := gamesMustTool(t, env, admin, "games_guide", nil)["text"].(string)
+	if !strings.Contains(core, "topic") || strings.Contains(core, "AnimationMixer") {
+		t.Fatal("the core guide: topics listed, 3D in its own")
+	}
+	for topic, want := range map[string]string{"3d": "AnimationMixer", "menus": "onBack", "examples": "muistipeli", "example:nappikisa": "function Half(", "EXAMPLE:muistipeli": "## style.css"} {
+		if g := gamesMustTool(t, env, admin, "games_guide", map[string]any{"topic": topic})["text"].(string); !strings.Contains(g, want) {
+			t.Fatalf("topic %s: no %q", topic, want)
+		}
+	}
+	if _, e := gamesTool(t, env, admin, "games_guide", map[string]any{"topic": "nope"}); !strings.Contains(e, "Topics") {
+		t.Fatalf("an unknown topic: %q", e)
+	}
+	for _, x := range gamesExamples {
+		for _, f := range x.files {
+			if strings.Contains(string(f.data), "rg.say") || strings.Contains(string(f.data), "rg.exit") {
+				t.Fatalf("%s/%s uses the engine's own clips or menu", x.Name, f.path)
+			}
+		}
+	}
+	// create_game from an example: its files, the new name in game.json
+	out := gamesMustTool(t, env, admin, "create_game", map[string]any{"name": "Oma muistipeli", "example": "muistipeli"})
+	g, _ := env.games.game(ctx, gamesWho{uid: "u-admin"}, out["game_id"].(string))
+	f, err := env.games.readFile(ctx, g, map[string]any{"path": "game.tsx"})
+	if err != nil || !strings.Contains(f.(map[string]any)["text"].(string), "function Menu()") {
+		t.Fatalf("example files: %v %v", f, err)
+	}
+	j, _ := env.games.readFile(ctx, g, map[string]any{"path": "game.json"})
+	if s := j.(map[string]any)["text"].(string); !strings.Contains(s, `"Oma muistipeli"`) || strings.Contains(s, "i18n") {
+		t.Fatalf("game.json %s", s)
+	}
+	if _, e := gamesTool(t, env, admin, "create_game", map[string]any{"name": "X", "example": "tetris"}); !strings.Contains(e, "No such example") {
+		t.Fatalf("an unknown example: %q", e)
+	}
+	// the page: a copy of an example
+	who := gamesWho{uid: "u-admin", email: "admin@example.com"}
+	me, _ := env.games.homeCall(ctx, who, "me", nil)
+	if len(me.(map[string]any)["examples"].([]gamesExample)) != len(gamesExamples) {
+		t.Fatal("me: no examples")
+	}
+	n, err := env.games.homeCall(ctx, who, "from_example", map[string]any{"example": "nappikisa"})
+	if err != nil || n.(map[string]any)["name"] != "Nappikisa" {
+		t.Fatalf("from_example %v %v", n, err)
+	}
+	// played without signing in
+	w := gamesServe(env, httptest.NewRequest("GET", "/games/x/nappikisa", nil))
+	if w.Code != 302 || !strings.Contains(w.Header().Get("Location"), "pack=%2Fgames%2Fx%2Fnappikisa%2Fgame.rgpk") || !strings.Contains(w.Header().Get("Location"), "game=x-nappikisa") {
+		t.Fatalf("play: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	w = gamesServe(env, httptest.NewRequest("GET", "/games/x/nappikisa/game.rgpk", nil))
+	if b := w.Body.String(); w.Code != 200 || !strings.HasPrefix(b, "RGPK1\n6\n") || !strings.Contains(b, "x-nappikisa/game.tsx\n") || !strings.Contains(b, "launcher/game.tsx\n") {
+		t.Fatalf("pack: %d %.60q", w.Code, b)
+	}
+	if w := gamesServe(env, httptest.NewRequest("GET", "/games/x/nope", nil)); w.Code != 404 {
+		t.Fatalf("no such example: %d", w.Code)
+	}
+}
+
+// the source editor: its page, and saving one text file of one's own game
+func TestGamesSource(t *testing.T) {
+	env, _, _ := gamesEnv(t)
+	ctx := context.Background()
+	s := env.games
+	s.inviteOnly = false
+	who := gamesWho{uid: "u5", email: "maker@example.com"}
+	other := gamesWho{uid: "u6", email: "other@example.com"}
+	n, err := s.homeCall(ctx, who, "from_example", map[string]any{"example": "nappikisa", "name": "Oma"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := n.(map[string]any)["game_id"].(string)
+	if _, err := s.homeCall(ctx, who, "write", map[string]any{"game_id": id, "path": "lib/tasot.ts", "text": "export const N = 3;\n"}); err != nil {
+		t.Fatal(err)
+	}
+	g, _ := s.game(ctx, who, id)
+	if f, err := s.readFile(ctx, g, map[string]any{"path": "lib/tasot.ts"}); err != nil || f.(map[string]any)["text"] != "export const N = 3;\n" {
+		t.Fatalf("written: %v %v", f, err)
+	}
+	if _, err := s.homeCall(ctx, who, "delete_file", map[string]any{"game_id": id, "path": "lib/tasot.ts"}); err != nil {
+		t.Fatal(err)
+	}
+	// another account's game: not found, not written
+	if _, err := s.homeCall(ctx, other, "write", map[string]any{"game_id": id, "path": "game.tsx", "text": "x"}); err == nil || !strings.Contains(err.Error(), "No such game") {
+		t.Fatalf("another's game: %v", err)
+	}
+	if _, err := s.homeCall(ctx, who, "write", map[string]any{"game_id": id, "path": "../x.ts", "text": "x"}); err == nil {
+		t.Fatal("a path out of the folder")
+	}
+	if !strings.Contains(gamesSourceHTML, `call("write"`) {
+		t.Fatal("the page")
 	}
 }

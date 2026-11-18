@@ -41,11 +41,12 @@ const (
 	gamesAgentResultMax = 40000 // characters of one tool's answer
 	gamesAgentStepPath  = gamesPath + "/agent/step"
 	gamesEditorPath     = gamesPath + "/editor"
+	gamesSourcePath     = gamesPath + "/source"
 )
 
 // the tools the assistant may call: not publish_game or delete_game (the
 // person does those on the page), and the guide is in its instructions
-var gamesAgentTools = []string{"list_games", "create_game", "get_game", "read_file", "write_files", "delete_files", "rename_game", "speak", "screenshot_game", "play_game", "inspect_game"}
+var gamesAgentTools = []string{"games_guide", "list_games", "create_game", "get_game", "read_file", "write_files", "delete_files", "rename_game", "speak", "screenshot_game", "play_game", "inspect_game"}
 
 // the model the assistant runs on: Gemini API with GEMINI_API_KEY, else
 // Vertex AI in the service's project; SLIQTLY_GAMES_AI_MODEL names it

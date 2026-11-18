@@ -2,6 +2,7 @@
 <html lang="fi">
 <head>
 <meta charset="utf-8">
+<link rel="icon" href="/games/engine/icon.svg" type="image/svg+xml">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Sliqtly Games</title>
@@ -55,6 +56,10 @@
   .src pre { margin: 0; font-size: 12px; line-height: 1.45; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; overflow: auto; max-height: 420px; }
   .src img { max-width: 100%; max-height: 360px; image-rendering: pixelated; background: repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0 / 16px 16px; }
   a.btn { font-size: 13px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); text-decoration: none; }
+  .exs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+  .ex { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .ex .icon { font-size: 28px; line-height: 1; }
+  .ex .acts { justify-content: start; margin-top: auto; }
   @media (max-width: 560px) { .src { grid-template-columns: 1fr; } .src .flist { max-height: 160px; } }
   @media (max-width: 560px) { .game { grid-template-columns: 1fr; } .acts { justify-content: start; } }
 </style>
@@ -66,6 +71,11 @@
     <div class="who" id="who"></div>
   </header>
 
+  <section id="examples" hidden>
+    <h2>Esimerkkipelit</h2>
+    <p class="muted">Pelaa, tai tee esimerkistä oma kopio ja muuta sitä koodieditorissa tai tekoälyavustajalla. Avustaja näkee samat esimerkit Gamesin ohjeessa.</p>
+    <div class="exs" id="exs"></div>
+  </section>
   <section id="mine" hidden>
     <h2>Omat pelit <span class="muted" id="count"></span></h2>
     <div class="err" id="err"></div>
@@ -163,7 +173,8 @@
         });
       }
     }
-    if (agentOn) { var ed = el("a", "Muokkaa editorissa", "btn"); ed.href = "/games/editor?game=" + encodeURIComponent(g.game_id); acts.appendChild(ed); }
+    var sc = el("a", "Muokkaa koodia", "btn"); sc.href = "/games/source?game=" + encodeURIComponent(g.game_id); sc.title = "Pelin lähdekoodi vasemmalla, peli oikealla"; acts.appendChild(sc);
+    if (agentOn) { var ed = el("a", "Muokkaa tekoälyllä", "btn"); ed.href = "/games/editor?game=" + encodeURIComponent(g.game_id); acts.appendChild(ed); }
     var srcBox = null;
     btn("Lähdekoodi", "", function () {
       if (srcBox) { srcBox.remove(); srcBox = null; return; }
@@ -217,6 +228,34 @@
     return box;
   }
 
+  // the example games: play, or a copy of one's own
+  function examples(list, canCopy) {
+    var box = document.getElementById("exs");
+    box.textContent = "";
+    document.getElementById("examples").hidden = !list.length;
+    list.forEach(function (x) {
+      var d = el("div", undefined, "ex");
+      d.appendChild(el("div", x.icon || "🎮", "icon"));
+      d.appendChild(el("div", x.title, "name"));
+      d.appendChild(el("div", x.description || "", "muted"));
+      var acts = el("div", undefined, "acts");
+      var play = el("a", "Pelaa", "btn"); play.href = "/games/x/" + encodeURIComponent(x.name); play.target = "_blank"; play.rel = "noopener"; acts.appendChild(play);
+      if (canCopy) {
+        var b = el("button", "Tee oma kopio", "primary");
+        b.onclick = function () {
+          var name = prompt("Uuden pelin nimi", x.title + " (oma)");
+          if (name === null || !name.trim()) return;
+          b.disabled = true; err.textContent = "";
+          call("from_example", { example: x.name, name: name.trim() }).then(load).then(function () {
+            document.getElementById("mine").scrollIntoView({ behavior: "smooth" });
+          }).catch(function (e) { err.textContent = e.message; }).then(function () { b.disabled = false; });
+        };
+        acts.appendChild(b);
+      }
+      d.appendChild(acts);
+      box.appendChild(d);
+    });
+  }
   function load() {
     return call("me").then(function (me) {
       agentOn = !!me.agent;
@@ -226,6 +265,7 @@
         document.getElementById("who").appendChild(a);
       }
       if (me.mcp) document.getElementById("mcp").textContent = me.mcp;
+      examples(me.examples || [], me.invited);
       if (!me.invited) {
         document.getElementById("notInvited").hidden = false;
         document.getElementById("mine").hidden = true;
