@@ -1112,6 +1112,10 @@ func TestGamesOpen(t *testing.T) {
 
 // example games: the guide's topics, a game from one, playing one unsigned
 func TestGamesExamples(t *testing.T) {
+	// the play page takes an example's pack (it showed games.rgpk: 404)
+	if !strings.Contains(string(gamesPlayHTML), `x\/[a-z0-9-]{1,40})\/game\.rgpk`) {
+		t.Fatal("the play page does not take /games/x/<name>/game.rgpk")
+	}
 	env, db, _ := gamesEnv(t)
 	ctx := context.Background()
 	admin := gamesToken(db, "u-admin", "admin@example.com", gamesBase+gamesMcpPath)
