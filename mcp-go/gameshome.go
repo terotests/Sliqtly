@@ -14,6 +14,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -28,6 +29,11 @@ var gamesHomeHTML string
 //
 //go:embed assets/games-editor.html
 var gamesEditorHTML string
+
+// the source editor: a game's files beside the game, for anyone on their own
+//
+//go:embed assets/games-source.html
+var gamesSourceHTML string
 
 var gamesHomeLoginHTML = strings.NewReplacer(
 	"<title>Sliqtly editor</title>", "<title>Sliqtly Games</title>",
@@ -46,7 +52,7 @@ func serveGamesHome(env *Env, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := g.user(r)
-	if r.URL.Path == gamesEditorPath {
+	if r.URL.Path == gamesEditorPath || r.URL.Path == gamesSourcePath {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "GET only", 405)
 			return
@@ -56,7 +62,11 @@ func serveGamesHome(env *Env, w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, gamesHomeLoginHTML)
 			return
 		}
-		io.WriteString(w, gamesEditorHTML)
+		if r.URL.Path == gamesSourcePath {
+			io.WriteString(w, gamesSourceHTML)
+		} else {
+			io.WriteString(w, gamesEditorHTML)
+		}
 		return
 	}
 	if r.URL.Path == gamesPath || r.URL.Path == gamesPath+"/" {
@@ -110,6 +120,9 @@ func serveGamesHome(env *Env, w http.ResponseWriter, r *http.Request) {
 	if op == "agent_start" {
 		limit = gamesAgentMaxPics*(gamesAgentPicSize*4/3+4096) + 64<<10
 	}
+	if op == "write" {
+		limit = gamesMaxRead*2 + 64<<10 // a source file, JSON-escaped
+	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, limit)).Decode(&a); err != nil && !errors.Is(err, io.EOF) {
 		editorJSON(w, 400, map[string]string{"error": "A JSON object is expected."})
 		return
@@ -132,7 +145,7 @@ func serveGamesHome(env *Env, w http.ResponseWriter, r *http.Request) {
 // invited, on their own games
 func (s *gamesService) homeCall(ctx context.Context, who gamesWho, op string, a map[string]any) (any, error) {
 	if op == "me" {
-		out := map[string]any{"email": who.email, "name": who.name, "mcp": s.base + gamesMcpPath}
+		out := map[string]any{"email": who.email, "name": who.name, "mcp": s.base + gamesMcpPath, "examples": gamesExamples}
 		u, err := s.user(ctx, who)
 		var re roomErr
 		if errors.As(err, &re) {
@@ -175,6 +188,22 @@ func (s *gamesService) homeCall(ctx context.Context, who gamesWho, op string, a 
 	if op == "agent_start" {
 		return s.agentStart(ctx, who, a)
 	}
+	// a game of one's own from an example game (the page's examples)
+	if op == "from_example" {
+		u, err := s.user(ctx, who)
+		if err != nil {
+			return nil, err
+		}
+		x := gamesExampleOf(fmt.Sprint(a["example"]))
+		if x == nil {
+			return nil, roomErr{"No such example game."}
+		}
+		name, _ := a["name"].(string)
+		if strings.TrimSpace(name) == "" {
+			name = x.Title
+		}
+		return s.createGame(ctx, who, u, map[string]any{"name": name, "example": x.Name})
+	}
 	id, _ := a["game_id"].(string)
 	g, err := s.game(ctx, who, id)
 	if err != nil {
@@ -201,6 +230,23 @@ func (s *gamesService) homeCall(ctx context.Context, who gamesWho, op string, a 
 		return s.getGame(ctx, g)
 	case "file":
 		return s.readFile(ctx, g, a)
+	case "write":
+		// the source editor saves one text file
+		text, ok := a["text"].(string)
+		if !ok {
+			return nil, roomErr{"text: the file's text."}
+		}
+		ws, err := gamesWrites([]any{map[string]any{"path": a["path"], "text": text}})
+		if err != nil {
+			return nil, err
+		}
+		return s.change(ctx, g, ws, nil)
+	case "delete_file":
+		p, err := gamesCheckPath(fmt.Sprint(a["path"]))
+		if err != nil {
+			return nil, err
+		}
+		return s.change(ctx, g, nil, []string{p})
 	}
 	return nil, roomErr{"No such call."}
 }

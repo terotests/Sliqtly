@@ -34,6 +34,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path"
 	"regexp"
 	"slices"
@@ -49,7 +50,8 @@ const (
 	gamesUsersCol = "games_users"
 	gamesTTSCol   = "games_tts"
 
-	gamesMaxGames   = 30        // per account unless the admin page says otherwise
+	gamesMaxGames   = 30        // per invited account unless the admin page says otherwise
+	gamesOpenGames  = 10        // per account that signed in without an invitation
 	gamesMaxFiles   = 1000      // per game
 	gamesMaxFile    = 8 << 20   // one file
 	gamesMaxTotal   = 100 << 20 // one game's files together
@@ -102,6 +104,9 @@ type gamesService struct {
 	tts          gamesSpeaker
 	// Games' own assistant (gamesagent.go); nil: none
 	agent *geminiModel
+	// only the admins and the invited may make games (SLIQTLY_GAMES_INVITE_ONLY=1);
+	// otherwise any Google account with a verified address may
+	inviteOnly bool
 }
 
 func newGamesService(db DB, bucket Bucket, admins []string) *gamesService {
@@ -109,7 +114,8 @@ func newGamesService(db DB, bucket Bucket, admins []string) *gamesService {
 		return nil
 	}
 	return &gamesService{db: db, bucket: bucket, admins: admins, now: time.Now,
-		engineSrc: "https://terotests.github.io/RangerGames/", engine: newGamesEngine(nil)}
+		engineSrc: "https://terotests.github.io/RangerGames/", engine: newGamesEngine(nil),
+		inviteOnly: os.Getenv("SLIQTLY_GAMES_INVITE_ONLY") == "1"}
 }
 
 func gamesRandom(n int) string {
@@ -128,7 +134,9 @@ func (s *gamesService) isAdmin(who gamesWho) bool {
 	return who.email != "" && slices.Contains(s.admins, who.email)
 }
 
-// one who may use Games: the admins, and those the admin page invited
+// one who may use Games: the admins, those the admin page invited, and
+// (unless inviteOnly) anyone signed in with a verified Google address, with
+// fewer games and no speech until the admin page gives them more
 type gamesUser struct {
 	admin    bool
 	ttsMonth int64 // characters of speech a month; < 0: no limit
@@ -143,14 +151,17 @@ func (s *gamesService) user(ctx context.Context, who gamesWho) (gamesUser, error
 		return gamesUser{admin: true, ttsMonth: -1, maxGames: -1}, nil
 	}
 	if who.email == "" {
-		return gamesUser{}, roomErr{"Games is by invitation for now, and this sign-in has no verified address."}
+		return gamesUser{}, roomErr{"Games needs a sign-in with a verified Google address."}
 	}
 	d, err := s.db.Get(ctx, gamesUsersCol, who.email)
 	if err != nil {
 		return gamesUser{}, err
 	}
 	if d == nil {
-		return gamesUser{}, roomErr{"Games is by invitation for now: " + who.email + " has not been invited."}
+		if s.inviteOnly {
+			return gamesUser{}, roomErr{"Games is by invitation for now: " + who.email + " has not been invited."}
+		}
+		return gamesUser{maxGames: gamesOpenGames}, nil
 	}
 	// the account behind the address, for the admin page's usage column
 	if docStr(d, "uid") != who.uid {
@@ -315,6 +326,12 @@ func (s *gamesService) createGame(ctx context.Context, who gamesWho, u gamesUser
 			return nil, err
 		}
 	}
+	var ex *gamesExample
+	if n, _ := a["example"].(string); n != "" && from == nil {
+		if ex = gamesExampleOf(strings.TrimPrefix(n, "example:")); ex == nil {
+			return nil, roomErr{"No such example game: " + n + " (games_guide topic examples lists them)."}
+		}
+	}
 	id := gamesNewID()
 	files := []gamesFile{}
 	if from != nil {
@@ -322,7 +339,11 @@ func (s *gamesService) createGame(ctx context.Context, who gamesWho, u gamesUser
 			return nil, err
 		}
 	}
-	for _, f := range gamesStarter(name) {
+	starter := gamesStarter(name)
+	if ex != nil {
+		starter = ex.filesNamed(name)
+	}
+	for _, f := range starter {
 		if from != nil {
 			break
 		}
@@ -348,6 +369,10 @@ func (s *gamesService) createGame(ctx context.Context, who gamesWho, u gamesUser
 	g := &gamesGame{id, d}
 	out := s.json(g, true)
 	out["next"] = "The game runs as it is: open preview_url. Change game.tsx and style.css with write_files; games_guide explains the engine."
+	if ex != nil {
+		out["example"] = ex.Name
+		out["next"] = "A copy of the example " + ex.Title + " under the new name: it runs as it is. Change it with write_files; games_guide topic example:" + ex.Name + " shows its files."
+	}
 	if from != nil {
 		out["copy_of"] = from.id
 		out["next"] = "A copy of " + docStr(from.doc, "name") + " with all its files, under the new name; the original is unchanged. Change the copy with write_files."
@@ -719,7 +744,7 @@ func (s *gamesService) call(ctx context.Context, who gamesWho, op string, a map[
 		a = map[string]any{}
 	}
 	if op == "games_guide" {
-		return map[string]any{"guide": gamesGuide}, nil
+		return gamesGuideTopic(a)
 	}
 	u, err := s.user(ctx, who)
 	if err != nil {
@@ -841,3 +866,23 @@ const gamesStarterCSS = `.screen { width: 100%; height: 100%; align-items: cente
 .score { margin-top: 70px; font-size: 36px; font-weight: 700; color: #ffffff; }
 .star { position: absolute; width: 100px; height: 100px; align-items: center; justify-content: center; font-size: 64px; }
 `
+
+// games_guide: the core guide, or one topic of it
+func gamesGuideTopic(a map[string]any) (any, error) {
+	t, _ := a["topic"].(string)
+	t = strings.ToLower(strings.TrimSpace(t))
+	switch {
+	case t == "" || t == "core" || t == "guide":
+		return map[string]any{"guide": gamesGuide}, nil
+	case t == "3d":
+		return map[string]any{"guide": gamesGuide3D}, nil
+	case t == "menus" || t == "menu" || t == "screens":
+		return map[string]any{"guide": gamesGuideMenus}, nil
+	case t == "examples":
+		return map[string]any{"guide": gamesExamplesText()}, nil
+	}
+	if x := gamesExampleOf(strings.TrimPrefix(t, "example:")); x != nil {
+		return map[string]any{"guide": gamesExampleText(x)}, nil
+	}
+	return nil, roomErr{"No such topic: " + t + ". Topics: menus, 3d, examples, example:<name>."}
+}

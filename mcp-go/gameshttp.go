@@ -49,6 +49,12 @@ const (
 //go:embed assets/games-guide.md
 var gamesGuide string
 
+//go:embed assets/games-guide-3d.md
+var gamesGuide3D string
+
+//go:embed assets/games-guide-menus.md
+var gamesGuideMenus string
+
 // the launcher a pack carries (the engine opens /games/launcher when a game is
 // closed): it starts the game again at its first page
 //
@@ -79,12 +85,13 @@ var gamesGameID = strProp("The game's id (list_games)")
 
 var gamesTools = []roomTool{
 	{name: "games_guide", title: "Games guide", readOnly: true,
-		desc: "How a RangerGames game is written: the folder (game.json, game.tsx, style.css, pictures, sounds), the frame loop (init, tick, view, pointer and key handlers), the rg.* API (sounds, speech files, vibration, saves, celebrate, random, 3D) and the layout CSS the engine knows. Read it before writing a game."},
+		desc:  "How a RangerGames game is written: the folder (game.json, game.tsx, style.css, pictures, sounds), the frame loop (init, tick, view, pointer and key handlers), the rg.* API (sounds, speech files, vibration, saves, celebrate, random) and the layout CSS the engine knows. Read it before writing a game. With topic, one subject in depth: menus (screens, menus, levels, two players, results), 3d, examples (whole example games), example:<name> (one example's files).",
+		props: map[string]any{"topic": strProp("Optional: menus, 3d, examples or example:<name> (e.g. example:muistipeli); without it, the core guide")}},
 	{name: "list_games", title: "List games", readOnly: true,
 		desc: "Your games: id, name, whether published, the preview_url (always plays the latest files) and the link when published."},
 	{name: "create_game", title: "Create a game",
-		desc:     "A new game with a small starter (a star to tap) that runs at once; change it with write_files. With copy_of, the new game starts as a copy of one of your games (all its files; the original stays as it is).",
-		props:    map[string]any{"name": strProp("The game's name, shown in the menu"), "copy_of": strProp("Optional: the game_id of your game to copy (list_games)")},
+		desc:     "A new game with a small starter (a star to tap) that runs at once; change it with write_files. With copy_of, the new game starts as a copy of one of your games (all its files; the original stays as it is). With example, it starts as a copy of an example game (games_guide topic examples).",
+		props:    map[string]any{"name": strProp("The game's name, shown in the menu"), "copy_of": strProp("Optional: the game_id of your game to copy (list_games)"), "example": strProp("Optional: an example game to start from: nappikisa, muistipeli")},
 		required: []string{"name"}},
 	{name: "get_game", title: "Get a game", readOnly: true,
 		desc:     "A game's files (path, size), its game.json and its links.",
@@ -147,7 +154,7 @@ func findGamesTool(name string) *roomTool {
 	return nil
 }
 
-const gamesInstructions = "Games makes RangerGames games (the engine for kids' phone games: TSX laid out with CSS, sounds, vibration) and keeps each as a folder in the cloud. Read games_guide first. create_game makes a game that runs at once; write game.tsx, style.css, pictures and sounds with write_files and give the user the preview_url to try it (it plays on a phone and in a browser). publish_game makes a secret link to share: ask the user before publishing. Games is by invitation."
+const gamesInstructions = "Games makes RangerGames games (the engine for kids' phone games: TSX laid out with CSS, sounds, vibration) and keeps each as a folder in the cloud. Read games_guide first. create_game makes a game that runs at once; write game.tsx, style.css, pictures and sounds with write_files and give the user the preview_url to try it (it plays on a phone and in a browser). publish_game makes a secret link to share: ask the user before publishing. Games needs a Google sign-in."
 
 // serveGames: true when the request was Games'
 func serveGames(env *Env, w http.ResponseWriter, r *http.Request) bool {
@@ -181,12 +188,14 @@ func serveGames(env *Env, w http.ResponseWriter, r *http.Request) bool {
 		serveGamesEngine(env, w, r)
 	case strings.HasPrefix(p, gamesPath+"/p/"):
 		serveGamesPlay(env, w, r, strings.TrimPrefix(p, gamesPath+"/p/"))
+	case strings.HasPrefix(p, gamesPath+"/x/"):
+		serveGamesExample(env, w, r, strings.TrimPrefix(p, gamesPath+"/x/"))
 	case p == gamesAdmin || strings.HasPrefix(p, gamesAdmin+"/"):
 		w.Header().Set("Cache-Control", "no-store")
 		serveGamesAdmin(env, w, r)
 	case p == gamesAgentStepPath:
 		serveGamesAgentStep(env, w, r)
-	case p == gamesPath || p == gamesPath+"/" || p == gamesEditorPath || strings.HasPrefix(p, gamesPath+"/api/"):
+	case p == gamesPath || p == gamesPath+"/" || p == gamesEditorPath || p == gamesSourcePath || strings.HasPrefix(p, gamesPath+"/api/"):
 		w.Header().Set("Cache-Control", "no-store")
 		serveGamesHome(env, w, r)
 	default:

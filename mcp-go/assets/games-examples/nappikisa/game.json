@@ -1,0 +1,18 @@
+{
+  "name": "Nappikisa",
+  "description": "Kaksinpeli: kumpi on nopeampi?",
+  "icon": "⚡",
+  "color": "#7b2cbf",
+  "players": "2",
+  "width": 360,
+  "i18n": {
+    "en": {
+      "name": "Button Race",
+      "description": "Two players: who is faster?"
+    },
+    "es": {
+      "name": "Carrera de botones",
+      "description": "Dos jugadores: ¿quién es más rápido?"
+    }
+  }
+}

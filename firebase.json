@@ -231,6 +231,13 @@
         }
       },
       {
+        "source": "/games/x/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/games",
         "run": {
           "serviceId": "sliqtly-mcp",
@@ -239,6 +246,13 @@
       },
       {
         "source": "/games/",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/games/source",
         "run": {
           "serviceId": "sliqtly-mcp",
           "region": "europe-west1"

@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Lähdekoodi · Sliqtly Games</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<style>
+  :root { --bg: #f6f7fb; --card: #fff; --ink: #1b1f3b; --muted: #667; --line: #e3e5ee; --accent: #3a86ff; --bad: #d62839; --ok: #2a9d58; --stage: #12142a; --code: #fbfbfd; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #12142a; --card: #1b1f3b; --ink: #eef; --muted: #aab; --line: #2d3366; --stage: #0b0c16; --code: #151832; } }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--ink); display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--card); flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; white-space: nowrap; }
+  header h1 a { color: inherit; text-decoration: none; }
+  header select { flex: 0 1 320px; min-width: 160px; }
+  .grow { flex: 1; }
+  .muted { color: var(--muted); font-size: 13px; }
+  button, select { font: inherit; }
+  button, a.btn { font-size: 13px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); cursor: pointer; text-decoration: none; white-space: nowrap; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .55; cursor: default; }
+  select { padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+  .split { flex: 1; min-height: 0; display: grid; grid-template-columns: 170px minmax(0, 1fr) minmax(320px, 40%); }
+  .files { border-right: 1px solid var(--line); background: var(--card); overflow-y: auto; padding: 8px 6px; font-size: 13px; }
+  .files a { display: block; padding: 3px 8px; border-radius: 6px; color: var(--ink); text-decoration: none; cursor: pointer; word-break: break-all; }
+  .files a.on { background: var(--accent); color: #fff; }
+  .files a.dirty::after { content: " •"; color: #f4a261; font-weight: 700; }
+  .files .add { margin: 8px 4px 0; width: calc(100% - 8px); }
+  .code { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); background: var(--code); }
+  .code .bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--card); }
+  .code .path { font-weight: 600; font-size: 13px; }
+  .code .host { flex: 1; min-height: 0; position: relative; }
+  .code textarea { width: 100%; height: 100%; border: 0; padding: 10px; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; background: var(--code); color: var(--ink); resize: none; outline: none; tab-size: 2; }
+  .CodeMirror { height: 100%; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; background: var(--code); color: var(--ink); }
+  .CodeMirror-gutters { background: var(--card); border-right: 1px solid var(--line); }
+  .CodeMirror-cursor { border-left-color: var(--ink); }
+  @media (prefers-color-scheme: dark) {
+    .cm-s-default .cm-keyword { color: #c792ea; } .cm-s-default .cm-string { color: #c3e88d; } .cm-s-default .cm-number { color: #f78c6c; }
+    .cm-s-default .cm-comment { color: #7f86b0; } .cm-s-default .cm-def, .cm-s-default .cm-variable-2 { color: #82aaff; } .cm-s-default .cm-tag { color: #f07178; }
+    .cm-s-default .cm-attribute, .cm-s-default .cm-property { color: #ffcb6b; } .cm-s-default .cm-variable { color: #eef; } .cm-s-default .cm-type { color: #89ddff; }
+    .CodeMirror-selected { background: #2d3366 !important; } .CodeMirror-linenumber { color: #667; }
+  }
+  .view { flex: 1; overflow: auto; padding: 14px; }
+  .view img { max-width: 100%; background: repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0 / 16px 16px; }
+  .stage { display: flex; flex-direction: column; min-height: 0; background: var(--stage); }
+  .stage .tools { display: flex; gap: 8px; align-items: center; padding: 6px 10px; color: #dde; font-size: 13px; }
+  .stage .tools button, .stage .tools a.btn { background: #232850; border-color: #3a3f63; color: #eef; }
+  .stage iframe { flex: 1; width: 100%; border: 0; display: block; }
+  .msg { font-size: 13px; }
+  .msg.bad { color: var(--bad); }
+  .msg.ok { color: var(--ok); }
+  .gate { max-width: 560px; margin: 60px auto; padding: 0 16px; }
+  .flash { animation: flash 1s ease-out; }
+  @keyframes flash { from { box-shadow: inset 0 0 0 3px var(--ok); } to { box-shadow: inset 0 0 0 0 transparent; } }
+  @media (max-width: 900px) {
+    html, body { height: auto; }
+    body { display: block; }
+    .split { display: block; }
+    .files { border-right: 0; border-bottom: 1px solid var(--line); max-height: 140px; }
+    .code { height: 60vh; border-right: 0; }
+    .stage { height: 80vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/games/">Sliqtly Games</a> · Lähdekoodi</h1>
+  <select id="game" title="Peli"></select>
+  <button class="primary" id="save" disabled title="Tallenna (Ctrl+S)">Tallenna</button>
+  <span class="msg" id="msg"></span>
+  <span class="grow"></span>
+  <span class="muted" id="who"></span>
+</header>
+<div class="gate" id="gate" hidden>
+  <h2>Lähdekoodieditori</h2>
+  <p id="gateWhy" class="muted"></p>
+  <p><a href="/games/">Takaisin omiin peleihin</a></p>
+</div>
+<div class="split" id="split" hidden>
+  <div class="files">
+    <div id="flist"></div>
+    <button class="add" id="addFile" title="Uusi tekstitiedosto, esim. lib/tasot.ts">+ Uusi tiedosto</button>
+  </div>
+  <div class="code">
+    <div class="bar">
+      <span class="path" id="path"></span>
+      <span class="grow"></span>
+      <button id="delFile" hidden>Poista tiedosto</button>
+    </div>
+    <div class="host" id="host"></div>
+    <div class="view" id="view" hidden></div>
+  </div>
+  <div class="stage" id="stage">
+    <div class="tools">
+      <span id="gname"></span>
+      <span class="grow"></span>
+      <button id="reload">Käynnistä uudelleen</button>
+      <a class="btn" id="open" target="_blank" rel="noopener">Avaa omaan ikkunaan</a>
+    </div>
+    <iframe id="frame" title="Peli" allow="autoplay; fullscreen; clipboard-write"></iframe>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/jsx/jsx.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script>
+(function () {
+  function $(id) { return document.getElementById(id); }
+  function el(tag, text, cls) { var e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
+  function call(op, body) {
+    return fetch("/games/api/" + op, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.status); return j; }); });
+  }
+  function say(text, cls) { var m = $("msg"); m.textContent = text || ""; m.className = "msg" + (cls ? " " + cls : ""); }
+
+  var games = {}, gameId = "", files = [], cur = "";
+  // per path: { text (as saved), draft (as in the editor), binary }
+  var docs = {};
+  var textExt = /\.(tsx?|jsx?|css|json|md|txt|svg|csv|html)$/i;
+  var mimes = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", wav: "audio/wav", mp3: "audio/mpeg", ogg: "audio/ogg" };
+
+  // ---- the editor: CodeMirror when it loaded, else a plain text box
+  var cm = null, ta = null, settingText = false;
+  function modeOf(p) {
+    if (/\.css$/i.test(p)) return "css";
+    if (/\.json$/i.test(p)) return { name: "javascript", json: true };
+    if (/\.(tsx|jsx)$/i.test(p)) return { name: "jsx", base: { name: "javascript", typescript: true } };
+    if (/\.(ts|js)$/i.test(p)) return { name: "javascript", typescript: true };
+    return null;
+  }
+  function makeEditor() {
+    var host = $("host");
+    if (window.CodeMirror) {
+      cm = CodeMirror(host, { lineNumbers: true, indentUnit: 2, tabSize: 2, matchBrackets: true, autoCloseBrackets: true, lineWrapping: false,
+        extraKeys: { Tab: function (c) { c.somethingSelected() ? c.indentSelection("add") : c.replaceSelection("  "); } } });
+      cm.on("change", function () { if (!settingText) edited(cm.getValue()); });
+    } else {
+      ta = el("textarea"); ta.spellcheck = false; host.appendChild(ta);
+      ta.addEventListener("input", function () { edited(ta.value); });
+      ta.addEventListener("keydown", function (e) {
+        if (e.key === "Tab") { e.preventDefault(); var s = ta.selectionStart; ta.setRangeText("  ", s, ta.selectionEnd, "end"); edited(ta.value); }
+      });
+    }
+  }
+  function setText(p, text) {
+    settingText = true;
+    if (cm) { cm.setOption("mode", modeOf(p)); cm.setValue(text); cm.clearHistory(); cm.refresh(); }
+    else ta.value = text;
+    settingText = false;
+  }
+  function edited(text) {
+    if (!cur || !docs[cur]) return;
+    docs[cur].draft = text;
+    drawFiles(); dirtyState();
+  }
+  function dirty(p) { var d = docs[p]; return d && !d.binary && d.draft !== d.text; }
+  function anyDirty() { return Object.keys(docs).some(dirty); }
+  function dirtyState() {
+    $("save").disabled = !anyDirty();
+    if (anyDirty()) say("Tallentamattomia muutoksia", "");
+  }
+  document.addEventListener("keydown", function (e) { if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); } });
+  window.addEventListener("beforeunload", function (e) { if (anyDirty()) { e.preventDefault(); e.returnValue = ""; } });
+
+  // ---- the game on the right
+  function tokenOf(url) { var m = /\/games\/p\/([^/?#]+)/.exec(url || ""); return m ? m[1] : ""; }
+  function play(flash) {
+    var g = games[gameId], token = g && tokenOf(g.preview_url);
+    if (!token) return;
+    $("frame").src = "/games/engine/?pack=" + encodeURIComponent("/games/p/" + token + "/game.rgpk?menu=0") + "&game=" + encodeURIComponent(gameId) + "&mode=frame&t=" + Date.now();
+    $("open").href = "/games/p/" + token;
+    $("gname").textContent = g.name;
+    if (flash) { var st = $("stage"); st.classList.remove("flash"); void st.offsetWidth; st.classList.add("flash"); }
+  }
+  $("reload").onclick = function () { play(false); };
+
+  // ---- files
+  function drawFiles() {
+    var box = $("flist"); box.textContent = "";
+    files.forEach(function (f) {
+      var a = el("a", f.path); if (f.path === cur) a.className = "on"; if (dirty(f.path)) a.className += " dirty";
+      a.title = Math.max(1, Math.round(f.size / 1024)) + " kt";
+      a.onclick = function () { openFile(f.path); };
+      box.appendChild(a);
+    });
+  }
+  function openFile(p) {
+    cur = p; drawFiles();
+    $("path").textContent = p;
+    $("delFile").hidden = p === "game.json" || p === "game.tsx";
+    var d = docs[p];
+    if (d) { show(p, d); return; }
+    $("host").hidden = true; $("view").hidden = false; $("view").textContent = "Ladataan…";
+    call("file", { game_id: gameId, path: p }).then(function (r) {
+      d = docs[p] = r.text !== undefined ? { text: r.text, draft: r.text } : { binary: true, base64: r.base64 };
+      if (cur === p) show(p, d);
+    }).catch(function (e) { $("view").textContent = e.message; });
+  }
+  function show(p, d) {
+    if (!d.binary) {
+      $("view").hidden = true; $("host").hidden = false;
+      setText(p, d.draft);
+      if (cm) cm.focus(); else ta.focus();
+      return;
+    }
+    $("host").hidden = true; var v = $("view"); v.hidden = false; v.textContent = "";
+    var ext = p.split(".").pop().toLowerCase(), mime = mimes[ext] || "";
+    if (/^image/.test(mime)) { var im = el("img"); im.src = "data:" + mime + ";base64," + d.base64; v.appendChild(im); }
+    else if (/^audio/.test(mime)) { var au = el("audio"); au.controls = true; au.src = "data:" + mime + ";base64," + d.base64; v.appendChild(au); }
+    else v.appendChild(el("div", "Tätä tiedostoa ei voi muokata tekstinä.", "muted"));
+    if (d.base64 === undefined) v.appendChild(el("div", "Tiedosto on liian iso näytettäväksi tässä.", "muted"));
+  }
+  function loadGame(id, keepCur) {
+    gameId = id; docs = {}; files = [];
+    try { history.replaceState(null, "", "?game=" + encodeURIComponent(id)); } catch (e) { }
+    play(false);
+    return call("files", { game_id: id }).then(function (r) {
+      files = (r.files || []).slice().sort(function (a, b) { return order(a.path) < order(b.path) ? -1 : 1; });
+      drawFiles();
+      var first = keepCur && files.some(function (f) { return f.path === keepCur; }) ? keepCur : "game.tsx";
+      openFile(first);
+    });
+  }
+  function order(p) { return p === "game.tsx" ? "0" : p === "style.css" ? "1" : p === "game.json" ? "2" : "3" + p; }
+
+  // ---- saving: every changed file, one after another, then the game again
+  var saving = false;
+  function save() {
+    var paths = Object.keys(docs).filter(dirty);
+    if (!paths.length || saving) return;
+    saving = true;
+    $("save").disabled = true; say("Tallennetaan…");
+    var warn = [];
+    paths.reduce(function (p, path) {
+      return p.then(function () {
+        var text = docs[path].draft;
+        return call("write", { game_id: gameId, path: path, text: text }).then(function (r) {
+          docs[path].text = text;
+          (r.warnings || []).forEach(function (w) { warn.push(w); });
+        });
+      });
+    }, Promise.resolve()).then(function () {
+      return call("files", { game_id: gameId }).then(function (r) { files = (r.files || []).slice().sort(function (a, b) { return order(a.path) < order(b.path) ? -1 : 1; }); });
+    }).then(function () {
+      drawFiles();
+      say(warn.length ? "Tallennettu. Huom: " + warn.join(" ") : "Tallennettu", warn.length ? "bad" : "ok");
+      play(true);
+    }).catch(function (e) { say(e.message, "bad"); }).then(function () { saving = false; dirtyState(); });
+  }
+  $("save").onclick = save;
+
+  $("addFile").onclick = function () {
+    var p = prompt("Uuden tiedoston polku, esim. lib/tasot.ts tai data.json");
+    if (!p || !(p = p.trim())) return;
+    if (!textExt.test(p)) { say("Uusi tiedosto voi olla tekstiä: .ts .tsx .css .json .md .txt .svg", "bad"); return; }
+    if (files.some(function (f) { return f.path === p; })) { openFile(p); return; }
+    files.push({ path: p, size: 0 });
+    docs[p] = { text: null, draft: "" };
+    openFile(p); dirtyState();
+  };
+  $("delFile").onclick = function () {
+    if (!cur || !confirm("Poistetaanko " + cur + " pelistä?")) return;
+    var p = cur;
+    if (docs[p] && docs[p].text === null) { files = files.filter(function (f) { return f.path !== p; }); delete docs[p]; openFile("game.tsx"); return; }
+    call("delete_file", { game_id: gameId, path: p }).then(function () {
+      delete docs[p];
+      files = files.filter(function (f) { return f.path !== p; });
+      openFile("game.tsx"); say("Poistettu: " + p, "ok"); play(true);
+    }).catch(function (e) { say(e.message, "bad"); });
+  };
+
+  var sel = $("game");
+  sel.onchange = function () {
+    if (anyDirty() && !confirm("Tallentamattomat muutokset häviävät. Vaihdetaanko peliä?")) { sel.value = gameId; return; }
+    loadGame(sel.value);
+  };
+
+  call("me").then(function (me) {
+    $("who").textContent = me.name || me.email || "";
+    if (!me.invited) { $("gate").hidden = false; $("gateWhy").textContent = me.why || ""; return; }
+    var list = me.games || [];
+    if (!list.length) { $("gate").hidden = false; $("gateWhy").textContent = "Sinulla ei ole vielä pelejä. Tee peli Games-sivulla esimerkistä tai tekoälyavustajalla, niin voit muokata sen koodia täällä."; return; }
+    list.forEach(function (g) { games[g.game_id] = g; var o = el("option", g.name); o.value = g.game_id; sel.appendChild(o); });
+    $("split").hidden = false;
+    makeEditor();
+    var want = new URLSearchParams(location.search).get("game") || "";
+    sel.value = games[want] ? want : list[0].game_id;
+    loadGame(sel.value).catch(function (e) { say(e.message, "bad"); });
+  }).catch(function (e) { $("gate").hidden = false; $("gateWhy").textContent = e.message; });
+})();
+</script>
+</body>
+</html>
