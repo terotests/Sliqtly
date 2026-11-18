@@ -73,6 +73,9 @@ Every `div` is a flex column by default. Supported: `width`, `height` (px or %),
 `letter-spacing`, `overflow: hidden`. Inline styles: `style={{ left: x, top: y, width: 40 }}`
 (numbers are px). Compound selectors `.a.b` work; the later rule wins (no specificity).
 Emoji draw in colour and make good game pieces (🐰 ⭐ 🍎 🚀).
+Text has no line breaks: white space collapses as in HTML, and `\n` written in JSX text or as
+`\\n` in a string shows as the characters themselves. Put each line (or list item) in its own
+`<div>`; write_files warns when a file would show a literal `\n`.
 
 ## rg.* API
 
