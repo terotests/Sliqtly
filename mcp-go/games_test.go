@@ -199,9 +199,9 @@ func TestGamesFolderAndPlay(t *testing.T) {
 	if code != 200 || !strings.Contains(files[id+"/game.json"], `"Pupu"`) || !strings.Contains(files[id+"/game.tsx"], "function view") {
 		t.Fatalf("pack %d %v", code, files)
 	}
-	// not signed in: no menu (the engine then draws no close button)
-	if _, ok := files["launcher/game.tsx"]; ok {
-		t.Fatal("a menu for a player who is not signed in")
+	// the launcher only starts the game again (no menu)
+	if l := files["launcher/game.tsx"]; !strings.Contains(l, "rg.launch(") || strings.Contains(l, "MINE") {
+		t.Fatalf("launcher %.300s", l)
 	}
 
 	// write code and a picture; read them back
@@ -903,7 +903,8 @@ func TestGamesEditorPage(t *testing.T) {
 	}
 }
 
-// a signed-in player's menu lists their games; ?lazy=1 leaves the .wav files
+// every pack (but ?menu=0) carries the launcher that restarts the game;
+// ?lazy=1 leaves the .wav files
 // to b/<sha>
 func TestGamesPackMenuAndLazy(t *testing.T) {
 	env, db, _ := gamesEnv(t)
@@ -935,14 +936,14 @@ func TestGamesPackMenuAndLazy(t *testing.T) {
 		return gamesServe(env, r)
 	}
 
-	// signed in: the menu with both games, this one first
+	// signed in or not, the same public pack: the launcher starts the game
+	// again, it lists no games
 	w := get("/games/p/"+preview+"/game.rgpk", "u1", "")
 	files := gamesUnpack(t, w.Body.Bytes())
 	menu := files["launcher/game.tsx"]
-	if w.Code != 200 || !strings.Contains(menu, `"name":"Eka"`) || !strings.Contains(menu, `"name":"Toka"`) ||
-		strings.Index(menu, "Eka") > strings.Index(menu, "Toka") || !strings.Contains(menu, `"here":true`) ||
-		!strings.Contains(menu, gamesTokenOf(t, b["preview_url"])) || !strings.HasPrefix(w.Header().Get("Cache-Control"), "private") {
-		t.Fatalf("menu %d %s %.300s", w.Code, w.Header().Get("Cache-Control"), menu)
+	if w.Code != 200 || !strings.Contains(menu, "rg.launch(") || strings.Contains(menu, "Toka") ||
+		strings.Contains(menu, gamesTokenOf(t, b["preview_url"])) || strings.HasPrefix(w.Header().Get("Cache-Control"), "private") {
+		t.Fatalf("launcher %d %s %.300s", w.Code, w.Header().Get("Cache-Control"), menu)
 	}
 	if files[id+"/voice/hei.wav"] != string(wav) {
 		t.Fatal("the whole pack lacks the clip")
@@ -951,13 +952,13 @@ func TestGamesPackMenuAndLazy(t *testing.T) {
 	if w := get("/games/p/"+preview+"/game.rgpk", "u1", etag); w.Code != 304 {
 		t.Fatalf("same pack again: %d", w.Code)
 	}
-	// another account's pack is another
-	if w := get("/games/p/"+preview+"/game.rgpk", "", etag); w.Code != 200 {
-		t.Fatalf("signed out with the signed-in etag: %d", w.Code)
+	if w := get("/games/p/"+preview+"/game.rgpk", "", etag); w.Code != 304 {
+		t.Fatalf("signed out, same pack: %d", w.Code)
 	}
-	// ?menu=0: none even when signed in (the editor's frame)
-	if f := gamesUnpack(t, get("/games/p/"+preview+"/game.rgpk?menu=0", "u1", "").Body.Bytes()); f["launcher/game.tsx"] != "" {
-		t.Fatal("menu=0 has a menu")
+	// ?menu=0: no launcher (the editor's frame), and another tag
+	w = get("/games/p/"+preview+"/game.rgpk?menu=0", "u1", "")
+	if f := gamesUnpack(t, w.Body.Bytes()); f["launcher/game.tsx"] != "" || w.Header().Get("ETag") == etag {
+		t.Fatal("menu=0 has a launcher")
 	}
 
 	// lazy: the clip left out, listed with its sha, and served from b/<sha>
