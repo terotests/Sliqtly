@@ -526,7 +526,9 @@ func (s *gamesService) change(ctx context.Context, g *gamesGame, writes []gamesW
 		removed = append(removed, p)
 	}
 	written := []string{}
+	warnings := []string{}
 	for _, w := range writes {
+		warnings = append(warnings, gamesTextWarnings(w.path, w.data)...)
 		sum := sha256.Sum256(w.data)
 		sha := hex.EncodeToString(sum[:])
 		if f, ok := files[w.path]; !ok || f.Sha != sha {
@@ -571,6 +573,9 @@ func (s *gamesService) change(ctx context.Context, g *gamesGame, writes []gamesW
 	}
 	if len(removed) > 0 {
 		out["deleted"] = removed
+	}
+	if len(warnings) > 0 {
+		out["warnings"] = warnings
 	}
 	return out, nil
 }
