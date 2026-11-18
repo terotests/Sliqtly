@@ -1104,6 +1104,25 @@ func TestGamesOpen(t *testing.T) {
 	if me.(map[string]any)["agent"] == true {
 		t.Fatal("the assistant for anyone")
 	}
+	// anyone can make a game and write its files
+	gid := gamesMustTool(t, env, anyone, "create_game", map[string]any{"name": "Shakki"})["game_id"].(string)
+	gamesMustTool(t, env, anyone, "write_files", map[string]any{"game_id": gid, "files": []any{map[string]any{"path": "style.css", "text": ".a { color: red; }"}}})
+	// the admin page lists the address, with its game and the open numbers
+	users, _ := env.games.adminCall(ctx, "users", nil)
+	var row map[string]any
+	for _, u := range users.(map[string]any)["users"].([]any) {
+		if u.(map[string]any)["email"] == "anyone@example.com" {
+			row = u.(map[string]any)
+		}
+	}
+	if row == nil || row["open"] != true || row["games"] != 1 || row["max_games"] != gamesOpenGames || row["tts_month"] != int64(gamesTTSOpenMonth) {
+		t.Fatalf("admin row %v", row)
+	}
+	// inviting it gives it the admin's numbers
+	env.games.adminCall(ctx, "invite", map[string]any{"email": "anyone@example.com", "tts_month": float64(5), "max_games": float64(3)})
+	if u, _ := env.games.user(ctx, gamesWho{uid: "u9", email: "anyone@example.com"}); u.open || u.maxGames != 3 || u.ttsMonth != 5 {
+		t.Fatalf("invited %+v", u)
+	}
 	// an address no provider vouches for is still out
 	if _, err := env.games.user(ctx, gamesWho{uid: "u10"}); err == nil {
 		t.Fatal("no verified address")
@@ -1137,6 +1156,18 @@ func TestGamesExamples(t *testing.T) {
 				t.Fatalf("%s/%s uses the engine's own clips or menu", x.Name, f.path)
 			}
 		}
+	}
+	// an example with folders: chess with its rules in lib/ and pictures in img/
+	ch := gamesMustTool(t, env, admin, "create_game", map[string]any{"name": "Oma shakki", "example": "shakki"})
+	cg, _ := env.games.game(ctx, gamesWho{uid: "u-admin"}, ch["game_id"].(string))
+	if f, err := env.games.readFile(ctx, cg, map[string]any{"path": "lib/chess.ts"}); err != nil || !strings.Contains(f.(map[string]any)["text"].(string), "export") {
+		t.Fatalf("chess rules: %v", err)
+	}
+	if f, err := env.games.readFile(ctx, cg, map[string]any{"path": "img/wk.png"}); err != nil || f.(map[string]any)["base64"] == "" {
+		t.Fatalf("chess picture: %v", err)
+	}
+	if g := gamesMustTool(t, env, admin, "games_guide", map[string]any{"topic": "example:shakki"})["text"].(string); !strings.Contains(g, "## lib/chess.ts") || !strings.Contains(g, "(a picture,") || strings.Contains(g, "\x89PNG") {
+		t.Fatal("chess example text")
 	}
 	// create_game from an example: its files, the new name in game.json
 	out := gamesMustTool(t, env, admin, "create_game", map[string]any{"name": "Oma muistipeli", "example": "muistipeli"})

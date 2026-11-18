@@ -1,0 +1,71 @@
+.screen { width: 100%; height: 100%; background: linear-gradient(180deg, #386641, #1f3b2a); align-items: center; }
+.menu { justify-content: flex-start; padding-top: 50px; }
+.title { font-size: 48px; font-weight: 700; color: #f2e8cf; margin-bottom: 10px; }
+.subtitle { font-size: 34px; font-weight: 700; color: #f2e8cf; margin-bottom: 24px; }
+.hero { flex-direction: row; align-items: flex-end; margin-bottom: 26px; }
+.heroimg { width: 80px; height: 80px; }
+.heroimg.big { width: 112px; height: 112px; }
+.btn {
+  width: 270px; height: 62px; border-radius: 31px; background-color: #f4a259; margin-top: 14px;
+  color: #ffffff; font-size: 21px; font-weight: 700; align-items: center; justify-content: center;
+  shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 5px; shadow-radius: 0px;
+}
+.alt { background-color: #4cc9f0; }
+.cont { background-color: #06d6a0; }
+.back { background-color: #52796f; font-size: 17px; height: 50px; margin-top: 26px; }
+.easy { background-color: #06d6a0; }
+.medium { background-color: #f4a259; }
+.hard { background-color: #ef476f; }
+.small { width: 200px; height: 50px; font-size: 17px; }
+.sidepick { flex-direction: row; align-items: center; margin-top: 24px; }
+.sidelabel { color: #f2e8cf; font-size: 18px; margin-right: 10px; }
+.side { width: 64px; height: 64px; border-radius: 16px; margin-left: 8px; background-color: #52796f; align-items: center; justify-content: center; }
+.side.on { background-color: #ffd166; }
+.sideimg { width: 54px; height: 54px; }
+
+.player { flex-direction: row; align-items: center; width: 348px; height: 46px; margin-top: 8px; padding-left: 8px; padding-right: 8px; border-radius: 14px; background-color: rgba(0,0,0,0.18); }
+.player.top { width: 292px; align-self: flex-start; margin-left: 6px; }
+.player.active { background-color: #ffd166; }
+.badge { width: 36px; height: 36px; }
+.pname { font-size: 18px; font-weight: 700; color: #f2e8cf; margin-left: 4px; margin-right: 6px; }
+.pname.on { color: #3d2c12; }
+.taken { flex-direction: row; flex-wrap: wrap; width: 200px; height: 40px; align-items: center; }
+.mini { width: 22px; height: 22px; margin-right: -4px; }
+
+.frame { width: 348px; height: 348px; margin-top: 8px; border-radius: 10px; background-color: #6b4423; padding: 6px; }
+.board { width: 336px; height: 336px; }
+.sq { position: absolute; width: 42px; height: 42px; align-items: center; justify-content: center; }
+.light { background-color: #f2e8cf; }
+.dark { background-color: #6a994e; }
+.lastl { background-color: #f6e58d; }
+.lastd { background-color: #a7c957; }
+.sel { background-color: #ffd166; }
+.hint { background-color: #4cc9f0; }
+.piece { position: absolute; left: 0px; top: 0px; width: 42px; height: 42px; }
+.flying { width: 42px; height: 42px; }
+.dot { width: 14px; height: 14px; border-radius: 7px; background-color: rgba(31,59,42,0.45); }
+.ring { position: absolute; left: 1px; top: 1px; width: 40px; height: 40px; border-radius: 20px; border-width: 4px; border-color: rgba(239,71,111,0.8); }
+.danger { position: absolute; left: 2px; top: 2px; width: 38px; height: 38px; border-radius: 19px; background-color: rgba(239,71,111,0.55); }
+.danger.mate { background-color: rgba(239,71,111,0.9); }
+.coord { position: absolute; font-size: 9px; font-weight: 700; }
+.rank { left: 2px; top: 1px; }
+.file { right: 3px; bottom: 0px; }
+.cd { color: #6a994e; }
+.cl { color: #f2e8cf; }
+
+.status { margin-top: 8px; font-size: 19px; font-weight: 700; color: #f2e8cf; padding: 6px; padding-left: 16px; padding-right: 16px; border-radius: 18px; }
+.status.check { background-color: #ef476f; color: #ffffff; }
+.status.done { background-color: #ffd166; color: #3d2c12; }
+.tools { flex-direction: row; margin-top: 8px; }
+.tool { height: 44px; padding-left: 14px; padding-right: 14px; margin-left: 5px; margin-right: 5px; border-radius: 22px; background-color: #52796f; color: #ffffff; font-size: 16px; font-weight: 700; align-items: center; justify-content: center; }
+.tool.off { background-color: #354f52; color: #84a98c; }
+.newgame { background-color: #06d6a0; margin-top: 8px; }
+
+.veil { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: rgba(0,0,0,0.45); align-items: center; justify-content: center; }
+.panel { width: 320px; padding: 14px; border-radius: 24px; background-color: #f2e8cf; align-items: center; }
+.ptitle { text-align: center; font-size: 21px; font-weight: 700; color: #3d2c12; margin-bottom: 8px; }
+.prow { flex-direction: row; }
+.pick { width: 62px; height: 62px; margin: 3px; border-radius: 16px; background-color: #a7c957; align-items: center; justify-content: center; }
+.pickimg { width: 56px; height: 56px; }
+.bigicon { font-size: 56px; margin-bottom: 4px; }
+.again { background-color: #06d6a0; width: 220px; }

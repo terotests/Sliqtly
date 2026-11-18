@@ -538,9 +538,11 @@ func (s *gamesService) adminCall(ctx context.Context, op string, a map[string]an
 		if err != nil {
 			return nil, err
 		}
-		set := Doc{"email": email, "tts_month": tts, "max_games": maxGames, "note": note, "listed": true}
-		if d == nil {
+		set := Doc{"email": email, "tts_month": tts, "max_games": maxGames, "note": note, "listed": true, "open": false}
+		if d == nil || d["listed"] != true {
 			set["invited"] = s.now().UnixMilli()
+		}
+		if d == nil {
 			if err := s.db.Set(ctx, gamesUsersCol, email, set); err != nil {
 				return nil, err
 			}
@@ -563,15 +565,29 @@ func (s *gamesService) adminCall(ctx context.Context, op string, a map[string]an
 }
 
 func (s *gamesService) adminUsers(ctx context.Context) (any, error) {
-	// every invited address: all of them have listed: true
+	// every invited address (listed: true) and every address that signed in
+	// without an invitation (open: true), which has the open numbers
 	docs, ids, err := s.db.WhereEq(ctx, gamesUsersCol, "listed", true)
+	if err != nil {
+		return nil, err
+	}
+	odocs, oids, err := s.db.WhereEq(ctx, gamesUsersCol, "open", true)
+	if err != nil {
+		return nil, err
+	}
+	c, err := s.ttsConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
 	month := gamesMonth(s.now())
 	l := []any{}
-	for i, d := range docs {
-		row := map[string]any{"email": ids[i], "tts_month": docInt(d["tts_month"]), "max_games": gamesUserMax(d), "note": docStr(d, "note"), "name": docStr(d, "name")}
+	for i, d := range append(docs, odocs...) {
+		var row map[string]any
+		if i < len(docs) {
+			row = map[string]any{"email": ids[i], "tts_month": docInt(d["tts_month"]), "max_games": gamesUserMax(d), "note": docStr(d, "note"), "name": docStr(d, "name")}
+		} else {
+			row = map[string]any{"email": oids[i-len(docs)], "tts_month": c.OpenMonth, "max_games": gamesOpenGames, "name": docStr(d, "name"), "open": true}
+		}
 		if uid := docStr(d, "uid"); uid != "" {
 			if u, err := s.db.Get(ctx, gamesTTSCol, uid); err == nil && u != nil {
 				row["tts_used"] = docInt(u[month])

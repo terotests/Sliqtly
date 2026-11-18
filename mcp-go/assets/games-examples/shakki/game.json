@@ -1,0 +1,18 @@
+{
+  "name": "Shakki",
+  "description": "Shakkia kaverin tai puhelimen kanssa",
+  "icon": "♞",
+  "color": "#6a994e",
+  "players": "1-2",
+  "width": 360,
+  "i18n": {
+    "en": {
+      "name": "Chess",
+      "description": "Chess with a friend or the phone"
+    },
+    "es": {
+      "name": "Ajedrez",
+      "description": "Ajedrez con un amigo o el teléfono"
+    }
+  }
+}

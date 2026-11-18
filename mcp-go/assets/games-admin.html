@@ -96,8 +96,9 @@
       tr.appendChild(el("td", u.name || ""));
       var g = el("td", (u.games === undefined ? "–" : String(u.games)) + " / " + (u.max_games === undefined ? 30 : u.max_games)); g.className = "num"; tr.appendChild(g);
       var t = el("td", fmt(u.tts_used) + " / " + (u.tts_month ? fmt(u.tts_month) : "ei puhetta")); t.className = "num"; tr.appendChild(t);
-      tr.appendChild(el("td", u.note || ""));
+      tr.appendChild(el("td", u.open ? "Avoin pääsy (ei kutsua). Muokkaa antaa omat rajat." : (u.note || "")));
       var td = el("td"), edit = el("button", "Muokkaa"), rm = el("button", "Poista");
+      if (u.open) rm.style.display = "none";
       edit.className = "link"; edit.style.color = "var(--accent)"; rm.className = "link";
       edit.onclick = function () {
         var f = document.getElementById("invite");
@@ -110,7 +111,7 @@
       td.appendChild(edit); td.appendChild(rm); tr.appendChild(td);
       rows.appendChild(tr);
     });
-    if (!(d.users || []).length) { var tr = el("tr"), td = el("td", "Ei vielä kutsuttuja."); td.colSpan = 6; tr.appendChild(td); rows.appendChild(tr); }
+    if (!(d.users || []).length) { var tr = el("tr"), td = el("td", "Ei vielä käyttäjiä."); td.colSpan = 6; tr.appendChild(td); rows.appendChild(tr); }
   }
   document.getElementById("invite").addEventListener("submit", function (e) {
     e.preventDefault();
