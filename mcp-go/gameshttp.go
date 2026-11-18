@@ -49,8 +49,8 @@ const (
 //go:embed assets/games-guide.md
 var gamesGuide string
 
-// the menu a pack carries (the engine opens /games/launcher when a game is
-// closed): the game to play again and how to make one through the MCP
+// the launcher a pack carries (the engine opens /games/launcher when a game is
+// closed): it starts the game again at its first page
 //
 //go:embed assets/games-launcher.tsx
 var gamesLauncherTSX []byte

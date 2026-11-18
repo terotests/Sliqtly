@@ -92,7 +92,7 @@ Text has no line breaks: white space collapses as in HTML, and `\n` written in J
 | `rg.box(id)` | an element's laid-out `{x,y,w,h}` from the last frame (give the element an `id`) |
 | `rg.asset(path)` | a path in the game's folder, for `<img src>` |
 | `rg.t(fi, en, es)`, `rg.lang` | the player's language |
-| `rg.closeButton = "left" \| "none"` | the engine draws ✕ (back to the menu) top right |
+| `rg.closeButton = "left" \| "none"` | the engine draws ✕ top right; it starts the game again at its first page |
 | `rg.exit()` | back to the menu |
 | `<scene3d>`, `THREE` | 3D with three.js's names, as React Three Fiber (below) |
 | `rg.raycast(x, y)` | the 3D object under a point: `{ id, name, distance, point: [x,y,z], normal }` or null |

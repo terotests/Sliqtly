@@ -11,17 +11,14 @@
 // first time the game says it. A blob's address is its content, so it is
 // cached for good.
 //
-// The menu (/games/launcher, opened by the close button) is built for each
-// request: a signed-in player gets the game again and a list of their own
-// games; without a sign-in (or with ?menu=0) the pack has no menu, and the
-// engine then draws no close button.
+// The close button opens /games/launcher, which starts the game again at its
+// first page (no menu in between). With ?menu=0 (the editor's frame) the pack
+// has no launcher, and the engine then draws no close button.
 
 package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -183,53 +180,9 @@ func (s *gamesService) pack(ctx context.Context, g *gamesGame, o gamesPackOpts) 
 	return append(out, part.body...), nil
 }
 
-// the menu's files with the player's games (mine: [{name, url, here}])
-func gamesLauncher(mine []map[string]any) []gamesStarterFile {
-	if mine == nil {
-		mine = []map[string]any{}
-	}
-	j, _ := json.Marshal(mine)
-	tsx := append([]byte("const MINE: any[] = "+string(j)+";\n"), gamesLauncherTSX...)
-	return []gamesStarterFile{{"game.json", gamesLauncherJSON}, {"game.tsx", tsx}, {"style.css", gamesLauncherCSS}}
-}
-
-// the signed-in player's own games for the menu, newest first; here marks
-// the game the link plays
-func (s *gamesService) mine(ctx context.Context, uid, here string) ([]map[string]any, error) {
-	docs, ids, err := s.db.WhereEq(ctx, gamesCol, "owner", uid)
-	if err != nil {
-		return nil, err
-	}
-	type row struct {
-		m       map[string]any
-		updated int64
-	}
-	var rows []row
-	for i, d := range docs {
-		tok := docStr(d, "preview")
-		if tok == "" || d["hidden"] == true {
-			continue
-		}
-		rows = append(rows, row{map[string]any{"name": docStr(d, "name"), "url": gamesPath + "/p/" + tok, "here": ids[i] == here}, docInt(d["updated"])})
-	}
-	// newest first, the one played on top
-	for i := 1; i < len(rows); i++ {
-		for j := i; j > 0 && rows[j].updated > rows[j-1].updated; j-- {
-			rows[j], rows[j-1] = rows[j-1], rows[j]
-		}
-	}
-	out := []map[string]any{}
-	for _, r := range rows {
-		if r.m["here"] == true {
-			out = append([]map[string]any{r.m}, out...)
-		} else {
-			out = append(out, r.m)
-		}
-	}
-	if len(out) > 60 {
-		out = out[:60]
-	}
-	return out, nil
+// the launcher's files: it starts the game again
+func gamesLauncher() []gamesStarterFile {
+	return []gamesStarterFile{{"game.json", gamesLauncherJSON}, {"game.tsx", gamesLauncherTSX}, {"style.css", gamesLauncherCSS}}
 }
 
 // byToken, remembered a few seconds
@@ -262,28 +215,17 @@ func serveGamesPack(env *Env, w http.ResponseWriter, r *http.Request, g *gamesGa
 	if o.lazy {
 		tag += "-l"
 	}
-	private := false
-	if q.Get("menu") != "0" && env.EditorGate != nil {
-		if t := env.EditorGate.user(r); t != nil {
-			mine, err := env.games.mine(r.Context(), t.UID, g.id)
-			if err != nil {
-				gamesPackFail(w, g, err)
-				return
-			}
-			o.launcher = gamesLauncher(mine)
-			h := sha256.Sum256(append([]byte(t.UID+"\n"), o.launcher[1].data...))
-			tag += "-" + hex.EncodeToString(h[:8])
-			private = true
-		}
+	// the launcher's version is in the tag, so a browser holding a pack with
+	// the old menu (or none) fetches the new one
+	if q.Get("menu") != "0" {
+		o.launcher = gamesLauncher()
+		tag += "-r1"
+	} else {
+		tag += "-m0"
 	}
 	etag := `"` + tag + `"`
-	if private {
-		w.Header().Set("Cache-Control", "private, no-cache")
-		w.Header().Set("Vary", "Cookie")
-	} else {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Cache-Control", "no-cache")
-	}
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("ETag", etag)
 	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(304)
