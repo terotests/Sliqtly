@@ -10,6 +10,8 @@
 ;
 ;   Home, ⏮          the first slide, from its start (its builds to come)
 ;   End               the last slide, shown whole
+;   ← ↑ (back)        the build step before on this slide, shown at rest;
+;                     with none shown, the slide before, shown whole
 ;   PageDown/PageUp   the next / previous slide, shown whole: no build steps
 ;                     and no transition on the way
 ;   a number + Enter  that slide, shown whole (the counter "3 / 12" takes
@@ -109,6 +111,37 @@ class PresNav {
     sfn pagePrev:PresNavAt (deck:PresDeck cur:int ended:boolean) {
         if ended {
             return (PresNav.whole(deck cur))
+        }
+        if (cur <= 0) {
+            return (PresNav.first(deck))
+        }
+        return (PresNav.whole(deck (cur - 1)))
+    }
+
+    ; ← / ↑: one build step back on slide `cur` with `step` builds shown,
+    ; held where that step would start (everything before it shown). With no
+    ; build shown, the slide before, whole: going back never lands on a
+    ; slide with its builds hidden. From the end, the last slide as it was;
+    ; on the first slide with no build shown, its start.
+    sfn back:PresNavAt (deck:PresDeck cur:int step:int ended:boolean) {
+        if ended {
+            return (PresNav.whole(deck cur))
+        }
+        def n:int (deck.slideCount())
+        if ((n == 0) || (cur < 0) || (cur >= n)) {
+            return (PresNav.first(deck))
+        }
+        if (step > 0) {
+            def s:PresSlide (deck.slideAt(cur))
+            def k:int (step - 1)
+            if (k > s.steps) {
+                k = s.steps
+            }
+            def at (new PresNavAt())
+            at.slide = cur
+            at.step = k
+            at.clock = (PresTimeline.holdAt(deck cur k))
+            return at
         }
         if (cur <= 0) {
             return (PresNav.first(deck))

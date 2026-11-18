@@ -124,11 +124,12 @@ test("a jump or an address shows the slide as it has come in, not the one before
   const next = new RecNav(rec);
   next.nextSlide();
   assert.deepEqual([next.slide, next.t], [1, 2]);
-  // back is a jump too
+  // back is a jump too: the slide before lands whole, its step shown
   next.prevSlide();
+  assert.deepEqual([next.slide, next.t, next.playing], [0, 2, false]);
   next.go(1, false);
   next.prevSlide();
-  assert.deepEqual([next.slide, next.t], [0, 0]);
+  assert.deepEqual([next.slide, next.t], [0, 2]);
 });
 
 test("Space while it moves lands it where it stops", () => {
@@ -146,9 +147,35 @@ test("← → go from slide to slide; past the last one is its end", () => {
   nav.nextSlide();
   assert.deepEqual([nav.slide, nav.t, nav.playing], [1, 3, false]);
   nav.prevSlide();
-  assert.deepEqual([nav.slide, nav.t], [0, 0]);
+  assert.deepEqual([nav.slide, nav.t, nav.playing], [0, 2, false]);
+  assert.equal(nav.rec.list(nav.frame()).cmds.length, 2);
   nav.prevSlide();
   assert.deepEqual([nav.slide, nav.t], [0, 0]);
+});
+
+test("← takes a build step back, then shows the slide before whole", () => {
+  const nav = new RecNav(new Recording(record()));
+  // the first slide whole: its step shown
+  nav.tick(5);
+  nav.next();
+  nav.tick(5);
+  assert.deepEqual([nav.slide, nav.t], [0, 2]);
+  assert.equal(nav.rec.list(nav.frame()).cmds.length, 2);
+  // ←: held where the step starts again, as presenting forward stops there
+  nav.back();
+  assert.deepEqual([nav.slide, nav.t, nav.playing], [0, 1, false]);
+  // ← with no step shown on the first slide: its start
+  nav.back();
+  assert.deepEqual([nav.slide, nav.t], [0, 0]);
+  // from the second slide: the first one whole, not with its step hidden
+  nav.nextSlide();
+  nav.tick(5);
+  nav.back();
+  assert.deepEqual([nav.slide, nav.t, nav.playing], [0, 2, false]);
+  assert.equal(nav.rec.list(nav.frame()).cmds.length, 2);
+  // Space from there goes on to the second slide
+  nav.next();
+  assert.equal(nav.slide, 1);
 });
 
 test("autoplay plays through the steps and the slides to the end", () => {

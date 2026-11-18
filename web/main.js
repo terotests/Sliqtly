@@ -7433,7 +7433,7 @@ async function exportRecWeb(days, look = "2d") {
   if (look === "3d") stream.flight = await recordFlight();
   const bytes = await packStream(stream);
   await publishForWeb(bytes, ".sliqrec", STREAM_TYPE,
-    t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs run on their slides; scripts and 3-D worlds show as recorded. A new export gets a new link."), days);
+    t("A light page that plays the presentation as recorded: → goes to the next slide, ← a step back, Space through the steps, A plays it all. Programs run on their slides; scripts and 3-D worlds show as recorded. A new export gets a new link."), days);
 }
 // Export ▸ Cloud video: the presentation as a video (makeVideo) at the same
 // kind of address as Cloud HTML, /r/{viewing link}/{hash}, where the
@@ -8700,8 +8700,8 @@ function endAction(fn) {
   if (!viewer && !isCoarse()) keys.focus({ preventScroll: true });
 }
 document.getElementById("endRestart").addEventListener("click", () => endAction(() => app.restart()));
-// the first step back only leaves the end; the second is the slide before
-document.getElementById("endPrev").addEventListener("click", () => endAction(() => { app.prev(); app.prev(); }));
+// the first step back only leaves the end; then the slide before, whole
+document.getElementById("endPrev").addEventListener("click", () => endAction(() => { app.prev(); app.pagePrev(); }));
 document.getElementById("endExit").addEventListener("click", () => endAction(() => {
   if (!viewer) return app.endPresent();
   app.prev();
