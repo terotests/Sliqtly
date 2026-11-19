@@ -193,6 +193,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (rel === "/main/admin") rel = "/main/admin.html";
+  if (rel === "/slides") rel = "/slides.html";
   if (rel === "/" || rel.startsWith("/s/")) rel = "/index.html";
   if (rel.startsWith("/r/")) rel = "/play.html";
   const file = path.join(viewDir, rel);
@@ -858,22 +859,38 @@ try {
   if (!(await page.evaluate(() => window.__pageStarted))) fail("a missing presentation does not count as started");
   await page.close();
 
-  // the front page: no editor; the MCP part, the way to the assistants'
-  // page and the feature list; no presentation's screen over it
+  // the front page: no editor; two tiles, Slides and Games, each a
+  // picture that loaded; no presentation's screen over it
   page = await open("/");
   await page.waitForTimeout(500);
-  const home = await page.evaluate(() => ({
-    connect: !!document.querySelector('.home a[href="/connect.html"]'),
-    mcp: !!document.getElementById("mcp"),
-    features: document.querySelectorAll("#features .features > div").length > 0,
+  const home = await page.evaluate(async () => ({
+    tiles: [...document.querySelectorAll(".home a.tile")].map((a) => a.getAttribute("href")),
+    pics: await Promise.all([...document.querySelectorAll(".home .tile .pic")].map(async (el) => {
+      const m = /url\("?([^")]+)"?\)/.exec(getComputedStyle(el).backgroundImage);
+      return !!m && (await fetch(m[1])).ok;
+    })),
     intro: getComputedStyle(document.getElementById("brandIntro")).display,
-    wide: document.documentElement.scrollWidth > window.innerWidth,
   }));
-  if (!home.connect || !home.mcp || !home.features) fail(`the front page lacks a part: ${JSON.stringify(home)}`);
+  if (home.tiles.join() !== "/slides,/games" || home.pics.length !== 2 || !home.pics.every(Boolean)) fail(`the front page lacks a tile or its picture: ${JSON.stringify(home)}`);
   if (home.intro !== "none") fail("the presentation's screen covers the front page");
   await page.setViewportSize({ width: 360, height: 740 });
   await page.waitForTimeout(200);
   if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) fail("the front page is wider than a phone");
+  await page.close();
+
+  // Sliqtly Slides' page (/slides): the MCP part, the way to the
+  // assistants' page and the feature list
+  page = await open("/slides");
+  await page.waitForTimeout(300);
+  const slidesPage = await page.evaluate(() => ({
+    connect: !!document.querySelector('.home a[href="/connect.html"]'),
+    mcp: !!document.getElementById("mcp"),
+    features: document.querySelectorAll("#features .features > div").length > 0,
+  }));
+  if (!slidesPage.connect || !slidesPage.mcp || !slidesPage.features) fail(`/slides lacks a part: ${JSON.stringify(slidesPage)}`);
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.waitForTimeout(200);
+  if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) fail("/slides is wider than a phone");
   await page.close();
 
   // the owner's dashboard: signed out it asks for sign-in and shows no
@@ -922,4 +939,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf and a .glb, from a ranger:three file and in the assistant's preview), the light player (/r/) played, a video there, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
+log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf and a .glb, from a ranger:three file and in the assistant's preview), the light player (/r/) played, a video there, keys, a pinch and a swipe, links, Export, 404, the front page, /slides and the dashboard`);
