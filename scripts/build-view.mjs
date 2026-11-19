@@ -9,7 +9,9 @@
  * what is copied here is all the site sends. The editor's build (npm run
  * build, web/dist) is still what the local server and the checks use.
  *
- *   index.html   web/view.html: the viewer, and the front page
+ *   index.html   web/view.html: the viewer, and the front page (two tiles,
+ *                Slides and Games, their pictures in home/ from web/home/)
+ *   slides.html  /slides: Sliqtly Slides' own page (web/slides.html)
  *   view.js …    web/view.js, viewlink.js, viewload.js, slidetext.js, textmenu.js, press.js, viewauth.js (an owner's sign-in),
  *                picture.js and what it imports, brand.js
  *   play.html    /r/{id}/{hash}: a presentation exported as recorded (the
@@ -50,7 +52,7 @@ export const viewDir = path.join(webDir, "dist-view");
 // everything the viewer's modules may import, and nothing more: a module
 // that imports anything else fails the build (below)
 const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewload.js", "viewload.js"], ["slidetext.js", "slidetext.js"], ["textmenu.js", "textmenu.js"], ["press.js", "press.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"], ["admin.js", "admin.js"], ["viewplay.js", "viewplay.js"], ["apps.js", "apps.js"], ["apps-runtime.js", "apps-runtime.js"], ["sound.js", "sound.js"], ["script-runtime.js", "script-runtime.js"], ["sprite-runtime.js", "sprite-runtime.js"], ["presenter-runtime.js", "presenter-runtime.js"], ["cerxes-worker.js", "cerxes-worker.js"], ["fxdeck.js", "fxdeck.js"], ["play.js", "play.js"], ["playlink.js", "playlink.js"], ["recstream.js", "recstream.js"], ["three3d.js", "three3d.js"], ["sitescript.js", "sitescript.js"], ["flight3d.js", "flight3d.js"], ["playflight.js", "playflight.js"]];
-const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"], ["admin.html", "main/admin.html"], ["play.html", "play.html"], ["alt/1.html", "web/1.html"], ["alt/2.html", "web/2.html"], ["alt/3.html", "web/3.html"], ["alt/use-cases.html", "web/use-cases.html"]];
+const PAGES = [["view.html", "index.html"], ["slides.html", "slides.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"], ["admin.html", "main/admin.html"], ["play.html", "play.html"], ["alt/1.html", "web/1.html"], ["alt/2.html", "web/2.html"], ["alt/3.html", "web/3.html"], ["alt/use-cases.html", "web/use-cases.html"]];
 
 function files(dir) {
   return fs.readdirSync(dir, { recursive: true })
@@ -72,6 +74,7 @@ export function buildView({ ranger } = {}) {
   // the Personal package's license, linked from the front page
   copy(path.join(root, "mcp-go/packaging/personal/LICENSE"), "personal-license.txt");
   copy(path.join(webDir, "examples/sliqtly-example.pdf"), "examples/sliqtly-example.pdf");
+  for (const f of files(path.join(webDir, "home"))) copy(path.join(webDir, "home", f), "home/" + f);
   for (const f of files(path.join(webDir, "alt/use-cases"))) copy(path.join(webDir, "alt/use-cases", f), "web/use-cases/" + f);
   copyFaces(ranger, viewDir);
 
