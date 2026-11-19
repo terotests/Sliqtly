@@ -3,7 +3,8 @@
 RangerGames is an engine for children's phone games. A game is a folder; the engine runs its
 `game.tsx` (TypeScript with JSX, no React: a fresh element tree every frame), lays the tree out
 with CSS (flexbox) and draws it on a canvas, on the web and natively on Android. The screen is a
-phone held upright, about 360 × 640 to 720 points.
+phone held upright, about 360 × 640 to 720 points, unless game.json says the game is also made
+for tablets or desktops (`"screens"`, below).
 
 ## Layout that holds (read this first)
 
@@ -34,13 +35,31 @@ than one renderer. These patterns come out the same everywhere:
 
 | File | What |
 | --- | --- |
-| `game.json` | `{ "name": "Hyppypeli", "description": "…", "icon": "🐰", "color": "#3a86ff", "players": "1", "width": 360 }`; optional `"speech": false`, `"i18n": { "en": { "name": "…", "description": "…" } }` |
+| `game.json` | `{ "name": "Hyppypeli", "description": "…", "icon": "🐰", "color": "#3a86ff", "players": "1", "width": 360 }`; optional `"speech": false`, `"i18n": { "en": { "name": "…", "description": "…" } }`, `"screens"` (below) |
 | `game.tsx` | the game |
 | `style.css` | the classes the tree uses |
 | `lib/*.ts` | more code: `import { rules } from "lib/rules";` (path from the folder, no extension) |
 | `img/*.png`, `.jpg`, `.webp`, `.gif` | pictures: `<img src={rg.asset("img/cat.png")} />` |
 | `sounds/*.wav`, `.mp3`, `.ogg` | sounds: `rg.sound("sounds/hop.wav")` |
 | `models/*.glb` | 3D models (glTF binary): `new GLTFLoader().loadSync("models/knight.glb")` |
+
+### Screens: phone, tablet, desktop
+
+`"screens"` in game.json lists the screens the game is laid out for: `"mobile"` (upright phone,
+the default), `"tablet"` (up to 4:3 lying sideways) and `"desktop"` (any width). On a desktop
+browser the game gets the widest of them: `["mobile"]` keeps the phone-shaped column in the
+middle, `["mobile", "tablet", "desktop"]` fills the window. On a phone or tablet the game always
+fills the screen; full screen turns it upright for a phone-only game, sideways for one without
+`"mobile"`, and leaves it free when both are listed.
+
+The screen can change while the game runs (the window is resized, the tablet turned), so a game
+made for several screens reads `width` and `height` in `view()` every frame rather than once:
+
+- `"width": 0` (or no width) gives the game the screen's own size in CSS pixels; lay it out from
+  `width` and `height`, e.g. a side column when `width > height`.
+- A fixed `"width"` scales the game to the screen's width and gives it the height the shape
+  leaves; on a screen wider than that allows it gets `"minHeight"` (default 640) and bars at the
+  sides. For a landscape game use a wide width (1280) with `"minHeight": 720`.
 
 Write files with `write_files`; open the `preview_url` to play the newest version (it reloads the
 files every time it opens).
