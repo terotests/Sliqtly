@@ -105,9 +105,10 @@ var gamesTools = []roomTool{
 		desc: "Adds or replaces files in the game's folder (a virtual directory kept in the cloud): code and data as text, pictures (.png .jpg .webp .gif), sounds (.wav .mp3 .ogg) and 3D models (.glb, or .gltf + .bin) as base64. Up to 60 files a call, 8 MB a file, 100 MB and 1000 files a game. The preview_url plays the new files at once.",
 		props: map[string]any{"game_id": gamesGameID, "files": map[string]any{"type": "array", "description": "The files",
 			"items": map[string]any{"type": "object", "properties": map[string]any{
-				"path":   strProp("Path in the folder: game.json, game.tsx, style.css, lib/rules.ts, img/cat.png, sounds/hop.wav, models/knight.glb"),
-				"text":   strProp("The file as text (code, CSS, JSON)"),
-				"base64": strProp("The file's bytes as base64 (pictures, sounds)"),
+				"path":    strProp("Path in the folder: game.json, game.tsx, style.css, lib/rules.ts, img/cat.png, sounds/hop.wav, models/knight.glb"),
+				"text":    strProp("The file as text (code, CSS, JSON)"),
+				"base64":  strProp("The file's bytes as base64 (pictures, sounds)"),
+				"library": strProp("Instead of base64: a picture of the RangerGames library to copy, e.g. textures/planets/earth.jpg (maps of the Sun, the planets and the Moon; games_guide topic 3d lists them)"),
 			}, "required": []string{"path"}}}},
 		required: []string{"game_id", "files"}},
 	{name: "delete_files", title: "Delete files", destructive: true,
