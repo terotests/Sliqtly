@@ -166,7 +166,7 @@ test("Warden's server paths are rewritten to the server", () => {
 });
 
 // the front page is two tiles, Sliqtly Slides and Sliqtly Games; Slides'
-// own page (the old front page) is /slides
+// own page, its use cases, is /slides
 test("the front page: a Slides tile to /slides and a Games tile to /games, their pictures built", () => {
   const html = fs.readFileSync(path.join(web, "view.html"), "utf8");
   const tiles = [...html.matchAll(/<a class="tile" href="([^"]+)"/g)].map((m) => m[1]);
@@ -181,5 +181,9 @@ test("the front page: a Slides tile to /slides and a Games tile to /games, their
   const src = fs.readFileSync(path.join(root, "scripts", "build-view.mjs"), "utf8");
   assert.ok(src.includes('["slides.html", "slides.html"]'));
   const slides = fs.readFileSync(path.join(web, "slides.html"), "utf8");
-  for (const id of ['id="mcp"', 'id="features"', 'id="local"', 'href="/connect.html"']) assert.ok(slides.includes(id), id);
+  assert.ok(slides.includes('href="/connect.html"'));
+  // the use cases' pictures are in the folder the build copies
+  const cases = [...slides.matchAll(/src="\/home\/(uc\/[^"]+)"/g)].map((m) => m[1]);
+  assert.ok(cases.length >= 6, cases.join());
+  for (const f of cases) assert.ok(fs.existsSync(path.join(web, "home", f)), f);
 });

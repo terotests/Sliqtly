@@ -878,16 +878,20 @@ try {
   if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) fail("the front page is wider than a phone");
   await page.close();
 
-  // Sliqtly Slides' page (/slides): the MCP part, the way to the
-  // assistants' page and the feature list
+  // Sliqtly Slides' page (/slides): the way to the assistants' page and
+  // the use cases, each with its slide's picture
   page = await open("/slides");
   await page.waitForTimeout(300);
-  const slidesPage = await page.evaluate(() => ({
-    connect: !!document.querySelector('.home a[href="/connect.html"]'),
-    mcp: !!document.getElementById("mcp"),
-    features: document.querySelectorAll("#features .features > div").length > 0,
-  }));
-  if (!slidesPage.connect || !slidesPage.mcp || !slidesPage.features) fail(`/slides lacks a part: ${JSON.stringify(slidesPage)}`);
+  const slidesPage = await page.evaluate(async () => {
+    const pics = [...document.querySelectorAll(".case img")];
+    for (const i of pics) { i.loading = "eager"; await i.decode().catch(() => {}); }
+    return {
+      connect: !!document.querySelector('a[href="/connect.html"]'),
+      cases: pics.length,
+      loaded: pics.every((i) => i.naturalWidth > 0),
+    };
+  });
+  if (!slidesPage.connect || slidesPage.cases < 6 || !slidesPage.loaded) fail(`/slides lacks a part: ${JSON.stringify(slidesPage)}`);
   await page.setViewportSize({ width: 360, height: 740 });
   await page.waitForTimeout(200);
   if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) fail("/slides is wider than a phone");
