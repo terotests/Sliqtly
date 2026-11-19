@@ -734,6 +734,8 @@ func (p *painter) paint(doc *dlDoc) {
 			p.path(c)
 		case 7:
 			p.stroke(c)
+		case 8:
+			p.sphere(c)
 		}
 	}
 	p.clips = p.clips[:base]
