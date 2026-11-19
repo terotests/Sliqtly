@@ -18,6 +18,8 @@
 //	                    (/games/main/admin), with their speech allowance
 //	                    (tts_month, characters a month; 0: none)
 //	games_tts/{uid}     characters of speech made, by month ("2026-11")
+//	games_history/{id}  earlier versions of its text files, a week
+//	                    (gameshistory.go)
 //
 // Only the server reads and writes these (no rules let a page in). A game is
 // played as one pack (RGPK1, the engine's crates/rg_core/src/vfs.rs) from
@@ -555,12 +557,17 @@ func (s *gamesService) change(ctx context.Context, g *gamesGame, writes []gamesW
 		old[f.Sha] = true
 	}
 	removed := []string{}
+	// the versions this change replaces or takes away (gameshistory.go)
+	replaced := []gamesVersion{}
 	for _, p := range remove {
 		if _, ok := files[p]; !ok {
 			return nil, roomErr{"No file " + p + " in the game."}
 		}
 		if p == "game.json" || p == "game.tsx" {
 			return nil, roomErr{p + " is the game itself; write it instead of deleting it."}
+		}
+		if f := files[p]; gamesKeepsVersion(f) {
+			replaced = append(replaced, gamesVersion{f.Path, f.Sha, f.Size, s.now().UnixMilli(), "delete"})
 		}
 		delete(files, p)
 		removed = append(removed, p)
@@ -572,6 +579,9 @@ func (s *gamesService) change(ctx context.Context, g *gamesGame, writes []gamesW
 		sum := sha256.Sum256(w.data)
 		sha := hex.EncodeToString(sum[:])
 		if f, ok := files[w.path]; !ok || f.Sha != sha {
+			if ok && gamesKeepsVersion(f) {
+				replaced = append(replaced, gamesVersion{f.Path, f.Sha, f.Size, s.now().UnixMilli(), "write"})
+			}
 			if !old[sha] {
 				if err := s.bucket.Save(ctx, s.blobPath(g.id, sha), "application/octet-stream", w.data, nil); err != nil {
 					return nil, err
@@ -599,10 +609,18 @@ func (s *gamesService) change(ctx context.Context, g *gamesGame, writes []gamesW
 	if err := s.save(ctx, g, Doc{"files": gamesFilesDoc(l)}); err != nil {
 		return nil, err
 	}
-	// blobs no file names any more
-	if s.removePrefix != nil {
+	// blobs no file and no kept version names any more
+	kept, dropped := s.recordHistory(ctx, g.id, replaced)
+	if s.removePrefix != nil && kept != nil {
+		gone := map[string]bool{}
 		for sha := range old {
-			if !keep[sha] {
+			gone[sha] = true
+		}
+		for _, sha := range dropped {
+			gone[sha] = true
+		}
+		for sha := range gone {
+			if !keep[sha] && !kept[sha] {
 				s.removePrefix(ctx, s.blobPath(g.id, sha))
 			}
 		}
@@ -628,6 +646,7 @@ func (s *gamesService) deleteGame(ctx context.Context, g *gamesGame, a map[strin
 		return nil, err
 	}
 	s.db.Delete(ctx, gamesSnapsCol, g.id)
+	s.db.Delete(ctx, gamesHistoryCol, g.id)
 	if s.removePrefix != nil {
 		s.removePrefix(ctx, "games/"+g.id+"/")
 	}
@@ -827,6 +846,10 @@ func (s *gamesService) call(ctx context.Context, who gamesWho, op string, a map[
 			return nil, err
 		}
 		return s.json(g, false), nil
+	case "file_history":
+		return s.fileHistory(ctx, g, a)
+	case "restore_file":
+		return s.restoreFile(ctx, g, a)
 	case "publish_game":
 		return s.publish(ctx, g, a)
 	case "delete_game":

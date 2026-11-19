@@ -225,14 +225,14 @@ func TestGamesFolderAndPlay(t *testing.T) {
 	if gamesUnpack(t, pack)[id+"/img/pupu.png"] != string(png) {
 		t.Fatal("picture not in the pack")
 	}
-	// the old game.tsx blob is gone, the new one kept
+	// the old game.tsx blob stays a week as a kept version (gameshistory.go)
 	blobs := 0
 	for p := range bucket.saved {
 		if strings.HasPrefix(p, "games/"+id+"/blobs/") {
 			blobs++
 		}
 	}
-	if blobs != 4 {
+	if blobs != 5 {
 		t.Fatalf("%d blobs", blobs)
 	}
 
@@ -1268,5 +1268,72 @@ func TestGamesSource(t *testing.T) {
 	}
 	if !strings.Contains(gamesSourceHTML, `call("write"`) {
 		t.Fatal("the page")
+	}
+}
+
+// earlier versions of text files: kept on write and delete, listed, read,
+// restored; gone after a week with their blobs
+func TestGamesFileHistory(t *testing.T) {
+	env, db, bucket := gamesEnv(t)
+	at := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	env.games.now = func() time.Time { return at }
+	tok := gamesToken(db, "admin", "admin@example.com", gamesBase+gamesMcpPath)
+	gid := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Varmuus"})["game_id"].(string)
+	write := func(p, text string) {
+		gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": gid, "files": []any{map[string]any{"path": p, "text": text}}})
+	}
+	write("game.tsx", "function view() { return <div>v1</div>; }")
+	at = at.Add(time.Minute)
+	write("game.tsx", "function view() { return <div>v2</div>; }")
+	write("notes.json", "{}")
+	gamesMustTool(t, env, tok, "delete_files", map[string]any{"game_id": gid, "paths": []any{"notes.json"}})
+	h := gamesMustTool(t, env, tok, "file_history", map[string]any{"game_id": gid, "path": "game.tsx"})
+	vs := h["versions"].([]any)
+	// the starter's game.tsx and v1, newest first
+	if len(vs) != 2 {
+		t.Fatalf("versions %v", vs)
+	}
+	v1 := vs[0].(map[string]any)["version"].(string)
+	one := gamesMustTool(t, env, tok, "file_history", map[string]any{"game_id": gid, "version": v1})
+	if one["text"] != "function view() { return <div>v1</div>; }" {
+		t.Fatalf("version text %v", one)
+	}
+	all := gamesMustTool(t, env, tok, "file_history", map[string]any{"game_id": gid})["versions"].([]any)
+	if all[0].(map[string]any)["path"] != "notes.json" || all[0].(map[string]any)["then"] != "deleted" {
+		t.Fatalf("delete kept %v", all)
+	}
+	// restore v1: the file is v1 again and v2 is kept
+	gamesMustTool(t, env, tok, "restore_file", map[string]any{"game_id": gid, "version": v1})
+	if f := gamesMustTool(t, env, tok, "read_file", map[string]any{"game_id": gid, "path": "game.tsx"}); f["text"] != "function view() { return <div>v1</div>; }" {
+		t.Fatalf("restored %v", f)
+	}
+	if vs := gamesMustTool(t, env, tok, "file_history", map[string]any{"game_id": gid, "path": "game.tsx"})["versions"].([]any); len(vs) != 3 {
+		t.Fatalf("after restore %v", vs)
+	}
+	// a week later the old versions and their blobs go
+	blobs := func() int {
+		n := 0
+		for k := range bucket.saved {
+			if strings.HasPrefix(k, "games/"+gid+"/blobs/") {
+				n++
+			}
+		}
+		return n
+	}
+	before := blobs()
+	at = at.Add(8 * 24 * time.Hour)
+	write("style.css", ".a { color: red; }")
+	h = gamesMustTool(t, env, tok, "file_history", map[string]any{"game_id": gid})
+	if len(h["versions"].([]any)) != 1 { // the starter's style.css just replaced
+		t.Fatalf("after a week %v", h["versions"])
+	}
+	if blobs() >= before {
+		t.Fatalf("blobs %d, were %d", blobs(), before)
+	}
+	// pictures are not kept
+	gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": gid, "files": []any{map[string]any{"path": "img/a.png", "base64": "iVBORw0KGgo="}}})
+	gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": gid, "files": []any{map[string]any{"path": "img/a.png", "base64": "iVBORw0KGgoA"}}})
+	if len(gamesMustTool(t, env, tok, "file_history", map[string]any{"game_id": gid})["versions"].([]any)) != 1 {
+		t.Fatal("a picture kept")
 	}
 }
