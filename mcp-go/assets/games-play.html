@@ -62,7 +62,8 @@
     }
     // The game takes the whole window like the installed app, and goes full
     // screen at the first touch or click; a wide desktop window gets it in
-    // a phone-shaped column. ?mode=frame shows it in a phone-sized frame
+    // a phone-shaped column, or wider for a game whose game.json lists
+    // "tablet" or "desktop" in "screens". ?mode=frame shows it in a phone-sized frame
     // (Huawei P20: 360 × 720) instead.
     // a game's own page (peli/<id>/, made by build-web.sh) sets RG_PAGE: that
     // game, full window, whatever the device
@@ -70,10 +71,33 @@
     var params = new URLSearchParams(location.search), mode = params.get("mode") || page.mode;
     var embedded = window.top !== window;
     var coarse = window.matchMedia && matchMedia("(pointer: coarse)").matches;
-    // full window everywhere (a wide desktop window gets a phone-shaped
-    // column); ?mode=frame shows the phone frame
+    // full window everywhere (a wide desktop window gets a column of the
+    // game's widest screen); ?mode=frame shows the phone frame
     var framed = mode === "frame";
     var PW = 360, PH = 720;
+    // the screens a game is made for, from its game.json ("screens":
+    // ["mobile", "tablet", "desktop"], default ["mobile"]): on a desktop's
+    // wide window the game gets the widest shape it supports, and follows
+    // the window as it is resized (the engine lays the game out again at
+    // every size; a game that supports wider screens reads width and height)
+    var SHAPES = { mobile: PW / PH, tablet: 4 / 3, desktop: Infinity };
+    var screens = null, widest = SHAPES.mobile;
+    function gameScreens() {
+      if (screens || !window.rgHost || !rgHost.x) return;
+      var id = params.get("game") || page.game || "";
+      screens = ["mobile"];
+      try {
+        var b = id && rgHost.readFile("/games/" + id + "/game.json");
+        var j = b ? JSON.parse(new TextDecoder().decode(b)) : null;
+        var s = j && j.screens;
+        if (typeof s === "string") s = [s];
+        if (Array.isArray(s)) {
+          s = s.filter(function (v) { return Object.prototype.hasOwnProperty.call(SHAPES, v); });
+          if (s.length) screens = s;
+        }
+      } catch (e) { }
+      widest = Math.max.apply(null, screens.map(function (v) { return SHAPES[v]; }));
+    }
     var device = document.getElementById("device"), game = document.getElementById("game");
     if (framed) document.body.classList.add("framed");
     else if (!embedded) document.body.classList.add("phone");
@@ -84,12 +108,13 @@
         device.style.marginLeft = device.style.marginTop = "";
         if (!embedded) { W = device.clientWidth || W; H = device.clientHeight || H; }
         game.style.transform = "";
-        // full window on a desktop's wide window: the game is a phone's,
-        // upright, so it takes the window's height and keeps the phone's
-        // shape in the middle instead of stretching across a landscape screen
+        // full window on a desktop's wide window: a phone game is upright, so
+        // it takes the window's height and keeps the phone's shape in the
+        // middle; a game made for tablets or desktops gets up to their shape
+        gameScreens();
         var left = 0;
-        if (!coarse && !embedded && W > H * PW / PH) {
-          var cw = Math.round(H * PW / PH);
+        if (!coarse && !embedded && W > H * widest) {
+          var cw = Math.round(H * widest);
           left = Math.round((W - cw) / 2);
           W = cw;
         }
@@ -116,7 +141,12 @@
         if (standalone || !req || document.fullscreenElement || document.webkitFullscreenElement) return;
         try {
           var p = req.call(d, { navigationUI: "hide" });
-          var lock = function () { try { screen.orientation.lock("portrait").catch(function () { }); } catch (e) { } };
+          // a phone-only game stays upright, a game without a phone layout
+          // lies sideways, one that has both turns with the device
+          gameScreens();
+          var turn = !screens || (screens.length === 1 && screens[0] === "mobile") ? "portrait" :
+            screens.indexOf("mobile") < 0 ? "landscape" : "";
+          var lock = function () { try { if (turn) screen.orientation.lock(turn).catch(function () { }); } catch (e) { } };
           if (p && p.then) p.then(lock).catch(function () { }); else lock();
         } catch (e) { }
       };

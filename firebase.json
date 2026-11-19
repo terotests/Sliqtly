@@ -63,6 +63,15 @@
         ]
       },
       {
+        "source": "/@(slides|slides.html)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
         "source": "/index.html",
         "headers": [
           {
@@ -432,6 +441,10 @@
       {
         "source": "/r/**",
         "destination": "/play.html"
+      },
+      {
+        "source": "/slides",
+        "destination": "/slides.html"
       },
       {
         "source": "/web/1",

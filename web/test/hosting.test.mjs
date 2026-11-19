@@ -165,6 +165,25 @@ test("Warden's server paths are rewritten to the server", () => {
   }
 });
 
+// the front page is two tiles, Sliqtly Slides and Sliqtly Games; Slides'
+// own page (the old front page) is /slides
+test("the front page: a Slides tile to /slides and a Games tile to /games, their pictures built", () => {
+  const html = fs.readFileSync(path.join(web, "view.html"), "utf8");
+  const tiles = [...html.matchAll(/<a class="tile" href="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(tiles, ["/slides", "/games"]);
+  const pics = [...html.matchAll(/(?:src="\.|url\()\/home\/([^")]+)/g)].map((m) => m[1]);
+  assert.ok(pics.includes("slides.jpg") && pics.includes("games.jpg"), pics.join());
+  for (const f of pics) assert.ok(fs.existsSync(path.join(web, "home", f)), f);
+  // the big pictures are backgrounds: the preview inlines every <img>
+  assert.ok(!/<img\b[^>]*\.jpg/.test(html));
+  const rw = hosting().rewrites;
+  assert.equal(rw.find((r) => r.source === "/slides")?.destination, "/slides.html");
+  const src = fs.readFileSync(path.join(root, "scripts", "build-view.mjs"), "utf8");
+  assert.ok(src.includes('["slides.html", "slides.html"]'));
+  const slides = fs.readFileSync(path.join(web, "slides.html"), "utf8");
+  for (const id of ['id="mcp"', 'id="features"', 'id="local"', 'href="/connect.html"']) assert.ok(slides.includes(id), id);
+});
+
 // the sign-in page and the owner's dashboard act for a signed-in person:
 // another site must not show them in a frame and steal a click
 test("the sign-in page and the owner's dashboard cannot be framed by another site", () => {
