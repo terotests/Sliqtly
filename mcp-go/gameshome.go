@@ -242,6 +242,10 @@ func (s *gamesService) homeCall(ctx context.Context, who gamesWho, op string, a 
 			return nil, err
 		}
 		return s.change(ctx, g, ws, nil)
+	case "history":
+		return s.fileHistory(ctx, g, a)
+	case "restore":
+		return s.restoreFile(ctx, g, a)
 	case "delete_file":
 		p, err := gamesCheckPath(fmt.Sprint(a["path"]))
 		if err != nil {
