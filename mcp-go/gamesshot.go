@@ -252,6 +252,10 @@ func gamesOpen(ctx context.Context, wasm, pack []byte, gameID string, w, h float
 	if mod.ExportedFunction("rg_gl3d") != nil {
 		v.call("rg_gl3d", 1)
 	}
+	// planets with a map picture drawn from it (gamessphere.go)
+	if mod.ExportedFunction("rg_textures") != nil {
+		v.call("rg_textures", 1)
+	}
 	v.call("rg_seed", api.EncodeF64(12345))
 	v.call("rg_resize", api.EncodeF64(w), api.EncodeF64(h))
 	started, err := v.withText("rg_start", []byte(gameID))
@@ -479,6 +483,16 @@ func gamesDisplayList(nums []float32, strs []string) ([]dlCmd, []string) {
 			if rot != 0 && flags&128 == 0 {
 				cx, cy := x+w/2, y+h/2
 				c.Rox, c.Roy = &cx, &cy
+			}
+		case 8:
+			// a textured globe (gamessphere.go): the map and the 20 numbers
+			c.Src = str(s0)
+			if c.Src != "" && !seen[c.Src] {
+				seen[c.Src] = true
+				pics = append(pics, c.Src)
+			}
+			for j := e; j < next && j < e+20; j++ {
+				c.Pts = append(c.Pts, f(j))
 			}
 		case 6, 7:
 			if e < next {

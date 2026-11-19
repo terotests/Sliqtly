@@ -89,3 +89,11 @@ function tick(dt) { rg.three("set", { id: "ball", y: 0.5 + Math.abs(Math.sin(Dat
 Shapes: `box` `[w,h,d]`, `sphere` `[r]`, `cylinder` `[rTop, rBottom, h]`, `cone`, `plane`,
 `torus`, `star`, `prism`, `roof`, `dome`; each with `color`, `x y z`, `rx ry rz`, `sx sy sz`.
 
+
+Planets: `rg.three("planet", { id, x, y, z, r, regions, texture: "img/earth.jpg", ... })` draws a
+globe. With `texture` (an equirectangular map, 2:1, longitude −180…180 left to right) hosts that
+can draw textured spheres show the map and the regions are the fallback. Copy a map from the
+RangerGames library instead of sending base64: `write_files` with
+`{ path: "img/earth.jpg", library: "textures/planets/earth.jpg" }`. The library has
+`textures/planets/` `earth`, `mars`, `jupiter`, `mercury`, `venus`, `sun` (`.jpg`, 2048×1024, Solar System
+Scope, CC BY 4.0: credit "Solar System Scope" in the game).

@@ -196,7 +196,7 @@ func (s *gamesService) restoreFile(ctx context.Context, g *gamesGame, a map[stri
 	if err != nil {
 		return nil, err
 	}
-	out, err := s.change(ctx, g, []gamesWrite{{to, b}}, nil)
+	out, err := s.change(ctx, g, []gamesWrite{{path: to, data: b}}, nil)
 	if err != nil {
 		return nil, err
 	}

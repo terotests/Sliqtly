@@ -495,7 +495,15 @@ func (s *gamesService) readFile(ctx context.Context, g *gamesGame, a map[string]
 type gamesWrite struct {
 	path string
 	data []byte
+	// a file of the RangerGames library to copy (gamesLibraryFile), read by
+	// the caller: data is empty until then
+	library string
 }
+
+// the RangerGames build's shared library at its GitHub Pages: map pictures
+// of the planets and the like, which a game copies with write_files
+// {path, library} instead of sending megabytes of base64
+var gamesLibraryFile = regexp.MustCompile(`^textures/[a-z0-9_-]{1,40}(/[a-z0-9_-]{1,40}){0,3}\.(jpg|png|webp)$`)
 
 func gamesWrites(v any) ([]gamesWrite, error) {
 	list, _ := v.([]any)
@@ -524,6 +532,15 @@ func gamesWrites(v any) ([]gamesWrite, error) {
 				return nil, roomErr{p + ": a picture or sound is given as base64, not text."}
 			}
 			data = []byte(t)
+		} else if lib, ok := m["library"].(string); ok {
+			if !gamesLibraryFile.MatchString(lib) {
+				return nil, roomErr{p + ": library is a picture under textures/ of the RangerGames library, like textures/planets/earth.jpg."}
+			}
+			if gamesExt(p) != gamesExt(lib) {
+				return nil, roomErr{p + ": give it the library file's extension (" + gamesExt(lib) + ")."}
+			}
+			out = append(out, gamesWrite{path: p, library: lib})
+			continue
 		} else if b, ok := m["base64"].(string); ok {
 			d, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b))
 			if err != nil {
@@ -541,9 +558,31 @@ func gamesWrites(v any) ([]gamesWrite, error) {
 				return nil, err
 			}
 		}
-		out = append(out, gamesWrite{p, data})
+		out = append(out, gamesWrite{path: p, data: data})
 	}
 	return out, nil
+}
+
+// reads the library files the writes name (from the RangerGames build's
+// home, as the engine is read)
+func (s *gamesService) fetchLibrary(ctx context.Context, w []gamesWrite) error {
+	for i := range w {
+		if w[i].library == "" {
+			continue
+		}
+		if s.engine == nil {
+			return roomErr{"this server has no RangerGames library"}
+		}
+		b, err := s.engine.get(ctx, s.engineSrc, w[i].library)
+		if err != nil {
+			return roomErr{w[i].library + ": not in the RangerGames library"}
+		}
+		if len(b) > gamesMaxFile {
+			return roomErr{fmt.Sprintf("%s: %d bytes, more than one file may be (%d).", w[i].library, len(b), gamesMaxFile)}
+		}
+		w[i].data = b
+	}
+	return nil
 }
 
 // sets files and takes paths away, within the game's limits
@@ -750,7 +789,7 @@ func (s *gamesService) speak(ctx context.Context, who gamesWho, u gamesUser, g *
 		}
 		return nil, err
 	}
-	out, err := s.change(ctx, g, []gamesWrite{{p, wav}}, nil)
+	out, err := s.change(ctx, g, []gamesWrite{{path: p, data: wav}}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -819,6 +858,9 @@ func (s *gamesService) call(ctx context.Context, who gamesWho, op string, a map[
 	case "write_files":
 		w, err := gamesWrites(a["files"])
 		if err != nil {
+			return nil, err
+		}
+		if err := s.fetchLibrary(ctx, w); err != nil {
 			return nil, err
 		}
 		return s.change(ctx, g, w, nil)
