@@ -273,6 +273,11 @@ func NewApp(env *Env) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, env.bodyMax())
+		if noForeignFrames(r.URL.Path) {
+			// pages that act for the signed-in person: another site must
+			// not show them in a frame and steal a click (clickjacking)
+			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/oauth/register" && env.Registrations(clientIP(r)) != "" {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -329,6 +334,23 @@ func NewApp(env *Env) http.Handler {
 		}
 		App_static_serve(h, r, w)
 	})
+}
+
+// The pages a person signs in to and acts on (the editor, Warden, Games'
+// home, editor and admin, the owner's dashboard): only this site may frame
+// them. A game's player (/games/p/, /games/x/, /games/engine/) and Warden's
+// calendar feeds stay as they are.
+func noForeignFrames(p string) bool {
+	under := func(root string) bool { return p == root || strings.HasPrefix(p, root+"/") }
+	switch {
+	case under(editorPath), strings.HasPrefix(p, "/main/admin"), under(gamesAdmin):
+		return true
+	case under(wardenPath):
+		return !strings.HasPrefix(p, wardenFeedPath) && !strings.HasPrefix(p, wardenPath+"/ics/")
+	case under(gamesPath):
+		return !strings.HasPrefix(p, gamesPath+"/p/") && !strings.HasPrefix(p, gamesPath+"/x/") && !strings.HasPrefix(p, gamesPath+"/engine")
+	}
+	return false
 }
 
 // Writes per caller: a sliding window, per instance. Enough to stop a loop,

@@ -50,8 +50,6 @@
   const q = new URLSearchParams(location.search);
   const request = q.get("request") || "";
   const $ = (id) => document.getElementById(id);
-  if (q.get("client")) $("client").textContent = q.get("client");
-  if (q.get("to")) { $("to").textContent = q.get("to"); $("dest").hidden = false; }
 
   function fail(text) {
     $("err").textContent = text;
@@ -61,6 +59,26 @@
   if (!/^[A-Za-z0-9]{24}$/.test(request)) {
     $("go").hidden = true;
     fail("This page opens from your assistant's sign-in. Start again from there.");
+    return;
+  }
+
+  // who asks and where the sign-in goes come from the server's record of
+  // the request, never from this page's address: whoever sends the link
+  // writes that
+  try {
+    const res = await fetch("/oauth/request?request=" + encodeURIComponent(request), { cache: "no-store" });
+    const info = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      $("go").hidden = true;
+      $("deny").hidden = true;
+      fail(info.error_description || "This sign-in could not be read. Start again from your assistant.");
+      return;
+    }
+    if (info.client) $("client").textContent = info.client;
+    if (info.to) { $("to").textContent = info.to; $("dest").hidden = false; }
+  } catch (e) {
+    $("go").hidden = true;
+    fail("This sign-in could not be read. Start again from your assistant.");
     return;
   }
 

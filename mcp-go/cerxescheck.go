@@ -95,12 +95,19 @@ func (e *cerxesEngine) start() error {
 		}
 		e.runtime = strings.Join(parts, "\n")
 		ctx := context.Background()
-		e.rt = wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig().WithCloseOnContextDone(true))
+		// a program's memory is held to cerxesMemPages: one that only
+		// allocates stops there, not at the instance's limit (which takes
+		// every request on it down)
+		e.rt = wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig().WithCloseOnContextDone(true).WithMemoryLimitPages(cerxesMemPages))
 		wasi_snapshot_preview1.MustInstantiate(ctx, e.rt)
 		e.compiled, e.err = e.rt.CompileModule(ctx, wasm)
 	})
 	return e.err
 }
+
+// 256 MB for a slide's program (run_script, a deck's ```app programs):
+// several run at once on an instance
+const cerxesMemPages = 4096
 
 // one engine instance's calls
 type cerxesRun struct {

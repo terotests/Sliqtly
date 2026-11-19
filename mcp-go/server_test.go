@@ -871,9 +871,29 @@ func TestOptionalSignIn(t *testing.T) {
 	// a loopback redirect may use another port
 	page := authorize(clientID, "http://127.0.0.1:6123/cb")
 	eq(t, page.Scheme+"://"+page.Host+page.Path, BASE+"/oauth.html")
-	eq(t, page.Query().Get("client"), "Claude")
-	eq(t, page.Query().Get("to"), "this computer")
+	// the page reads who asks and where the code goes from the server,
+	// never from its own address (which the link's sender writes)
+	eq(t, page.Query().Get("client"), "")
+	eq(t, page.Query().Get("to"), "")
 	request := page.Query().Get("request")
+	describe := func(rid string) (int, map[string]any) {
+		res, err := http.Get(root + "/oauth/request?request=" + url.QueryEscape(rid))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var m map[string]any
+		json.NewDecoder(res.Body).Decode(&m)
+		return res.StatusCode, m
+	}
+	st, info := describe(request)
+	eq(t, st, 200)
+	eq(t, info["client"], "Claude")
+	eq(t, info["to"], "this computer")
+	st, _ = describe("x")
+	eq(t, st, 400)
+	st, _ = describe(strings.Repeat("a", 24))
+	eq(t, st, 400, "an unknown request")
 
 	wrong, _ := jsonPost("/oauth/approve", map[string]any{"request": request, "id_token": "nope"})
 	eq(t, wrong, 401)
@@ -989,8 +1009,9 @@ func TestOptionalSignIn(t *testing.T) {
 
 	// a client known by its metadata document URL
 	cimd := authorize("https://client.test/meta.json", "https://client.test/cb")
-	eq(t, cimd.Query().Get("client"), "Test Client")
-	eq(t, cimd.Query().Get("to"), "client.test")
+	_, cinfo := describe(cimd.Query().Get("request"))
+	eq(t, cinfo["client"], "Test Client")
+	eq(t, cinfo["to"], "client.test")
 	q := url.Values{"response_type": {"code"}, "client_id": {"https://client.test/meta.json"}, "redirect_uri": {"https://evil.test/cb"}, "code_challenge": {challenge}, "code_challenge_method": {"S256"}}
 	wr, _ := noRedirect.Get(root + "/oauth/authorize?" + q.Encode())
 	eq(t, wr.StatusCode, 400)

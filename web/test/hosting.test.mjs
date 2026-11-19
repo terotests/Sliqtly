@@ -164,3 +164,11 @@ test("Warden's server paths are rewritten to the server", () => {
     assert.ok(run.has(p), p);
   }
 });
+
+// the sign-in page and the owner's dashboard act for a signed-in person:
+// another site must not show them in a frame and steal a click
+test("the sign-in page and the owner's dashboard cannot be framed by another site", () => {
+  const h = hosting().headers.find((x) => x.source === "/@(oauth.html|main/**)");
+  assert.equal(h?.headers.find((k) => k.key === "X-Frame-Options")?.value, "DENY");
+  assert.equal(h?.headers.find((k) => k.key === "Content-Security-Policy")?.value, "frame-ancestors 'none'");
+});
