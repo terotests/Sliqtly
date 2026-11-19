@@ -409,6 +409,11 @@ class App {
                 App.sendJson(res 200 (JOut.text((OAuth.metadata((App.originOf(host req)))))))
                 return true
             }
+            if (path == "/oauth/request") {
+                def rq:MfJ (J.parse((http_query_json req)))
+                App.send(res (OAuth.describe(host (rq.str_("request")))))
+                return true
+            }
             if (path == "/oauth/authorize") {
                 def q:MfJ (J.parse((http_query_json req)))
                 App.send(res (OAuth.authorize(host q (App.originOf(host req)))))

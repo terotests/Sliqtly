@@ -354,8 +354,15 @@ class OAuth {
         if ((strlen (host_error host)) > 0) {
             return (HttpOut.fail())
         }
-        ; the page names where the code goes, since a registered name is the
-        ; client's own claim
+        ; the page reads the client's name and where the code goes from
+        ; GET /oauth/request (OAuth.describe), never from its own address,
+        ; which whoever sends the link writes
+        return (HttpOut.redirectTo((origin + "/oauth.html?request=" + rid)))
+    }
+
+    ; where the code goes, as the sign-in page names it: a registered name
+    ; is the client's own claim, the redirect's host is not
+    sfn destination:string (host:McpHost redirect:string) {
         def to:MfJ (J.parse((host_parse_url host redirect)))
         def where:string ((to.str_("scheme")) + " app")
         if (OAuth.loopback(to)) {
@@ -365,7 +372,26 @@ class OAuth {
                 where = (to.str_("host"))
             }
         }
-        return (HttpOut.redirectTo((origin + "/oauth.html?request=" + rid + "&client=" + (host_uri_encode host (c.str_("client_name"))) + "&to=" + (host_uri_encode host where))))
+        return where
+    }
+
+    ; GET /oauth/request?request=… → { client, to } of a sign-in request
+    ; that has not expired, for the sign-in page (web/oauth.html)
+    sfn describe:HttpOut (host:McpHost rid:string) {
+        if (((strlen rid) != 24) || ((Deck.allAlnum(rid)) == false)) {
+            return (HttpOut.bad("invalid_request" "This page opens from your assistant's sign-in. Start again from there."))
+        }
+        def r:MfJ (J.parse((host_get_doc host (OAuth.col("requests")) rid)))
+        if ((strlen (host_error host)) > 0) {
+            return (HttpOut.fail())
+        }
+        if (((r.isObj()) == false) || ((r.num_("exp" 0.0)) < (to_double (host_now_ms host)))) {
+            return (HttpOut.bad("invalid_request" "The sign-in request has expired. Start again from your assistant."))
+        }
+        def o:MfJ (MfJ.newObj())
+        o.putStr("client" (r.str_("client_name")))
+        o.putStr("to" (OAuth.destination(host (r.str_("redirect_uri")))))
+        return (HttpOut.of(200 o))
     }
 
     sfn back:HttpOut (host:McpHost redirect:string q:MfJ origin:string error:string description:string) {
@@ -552,6 +578,25 @@ class OAuth {
     }
 
     ; Authorization: Bearer …
+    ; whether a token asked for `resource` is this server's: none named
+    ; (a client that sends no resource), the site itself, /mcp or
+    ; /mcp/account. A token asked for Games (/games/mcp) or Warden
+    ; (/apps/warden/mcp) is theirs only: it reads and changes no deck.
+    sfn forDecks:boolean (host:McpHost resource:string) {
+        if ((strlen resource) == 0) {
+            return true
+        }
+        def u:MfJ (J.parse((host_parse_url host resource)))
+        if ((u.isObj()) == false) {
+            return false
+        }
+        def p:string (u.str_("path"))
+        while (((strlen p) > 1) && (endsWith p "/")) {
+            p = (substring p 0 ((strlen p) - 1))
+        }
+        return ((((p == "") || (p == "/")) || (p == "/mcp")) || (p == "/mcp/account"))
+    }
+
     sfn who:Who (host:McpHost header:string) {
         def w (new Who)
         def h:string (trim header)
@@ -571,6 +616,10 @@ class OAuth {
             return w
         }
         if ((((t.isObj()) == false) || ((t.str_("kind")) != "access")) || ((t.num_("exp" 0.0)) < (to_double (host_now_ms host)))) {
+            w.state = 2
+            return w
+        }
+        if ((OAuth.forDecks(host (t.str_("resource")))) == false) {
             w.state = 2
             return w
         }

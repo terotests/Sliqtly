@@ -183,3 +183,11 @@ test("the front page: a Slides tile to /slides and a Games tile to /games, their
   const slides = fs.readFileSync(path.join(web, "slides.html"), "utf8");
   for (const id of ['id="mcp"', 'id="features"', 'id="local"', 'href="/connect.html"']) assert.ok(slides.includes(id), id);
 });
+
+// the sign-in page and the owner's dashboard act for a signed-in person:
+// another site must not show them in a frame and steal a click
+test("the sign-in page and the owner's dashboard cannot be framed by another site", () => {
+  const h = hosting().headers.find((x) => x.source === "/@(oauth.html|main/**)");
+  assert.equal(h?.headers.find((k) => k.key === "X-Frame-Options")?.value, "DENY");
+  assert.equal(h?.headers.find((k) => k.key === "Content-Security-Policy")?.value, "frame-ancestors 'none'");
+});
