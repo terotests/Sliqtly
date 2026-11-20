@@ -23,6 +23,8 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,6 +54,10 @@ type gamesPackOpts struct {
 	lazy bool
 	// which part (?part=) plus one; 0: the whole pack
 	part int
+	// >0: the biggest pictures are left out until the files fit in this
+	// many bytes (the test runner's engine has 128 MB for the pack, the
+	// game's copy of it and everything else)
+	fit int64
 	// the menu's files; nil: no menu
 	launcher []gamesStarterFile
 }
@@ -166,8 +172,8 @@ func gamesPackSplit(g *gamesGame, lazy bool) ([][]gamesFile, map[string]string) 
 
 // the game's own part of a pack: its entries and how many; part -1 is all
 // of them, else one part of gamesPackSplit (the first carries .remote.json)
-func (s *gamesService) packPart(ctx context.Context, g *gamesGame, lazy bool, part int) (*gamesPackPart, error) {
-	key := g.id + "/" + docStr(g.doc, "rev") + "/" + strconv.FormatBool(lazy) + "/" + strconv.Itoa(part)
+func (s *gamesService) packPart(ctx context.Context, g *gamesGame, lazy bool, part int, fit int64) (*gamesPackPart, error) {
+	key := g.id + "/" + docStr(g.doc, "rev") + "/" + strconv.FormatBool(lazy) + "/" + strconv.Itoa(part) + "/" + strconv.FormatInt(fit, 10)
 	if rev := docStr(g.doc, "rev"); rev != "" {
 		if p := gamesPacks.get(key); p != nil {
 			return p, nil
@@ -186,6 +192,9 @@ func (s *gamesService) packPart(ctx context.Context, g *gamesGame, lazy bool, pa
 		}
 	} else {
 		return nil, errGamesNoPart
+	}
+	if fit > 0 && part < 0 {
+		read = gamesPackFit(read, fit)
 	}
 	data, err := s.readFiles(ctx, g.id, read)
 	if err != nil {
@@ -211,7 +220,7 @@ func (s *gamesService) packPart(ctx context.Context, g *gamesGame, lazy bool, pa
 }
 
 func (s *gamesService) pack(ctx context.Context, g *gamesGame, o gamesPackOpts) ([]byte, error) {
-	part, err := s.packPart(ctx, g, o.lazy, o.part-1)
+	part, err := s.packPart(ctx, g, o.lazy, o.part-1, o.fit)
 	if err != nil {
 		return nil, err
 	}
@@ -375,6 +384,45 @@ func (s *gamesService) streamPack(ctx context.Context, w http.ResponseWriter, g 
 		}
 	}
 	return nil
+}
+
+// files without the biggest pictures, until they are at most fit bytes
+func gamesPackFit(fs []gamesFile, fit int64) []gamesFile {
+	var size int64
+	var pics []int
+	for i, f := range fs {
+		size += f.Size
+		if gamesPicture(f.Path) {
+			pics = append(pics, i)
+		}
+	}
+	if size <= fit {
+		return fs
+	}
+	sort.Slice(pics, func(a, b int) bool { return fs[pics[a]].Size > fs[pics[b]].Size })
+	drop := map[int]bool{}
+	for _, i := range pics {
+		if size <= fit {
+			break
+		}
+		drop[i] = true
+		size -= fs[i].Size
+	}
+	out := make([]gamesFile, 0, len(fs)-len(drop))
+	for i, f := range fs {
+		if !drop[i] {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func gamesPicture(p string) bool {
+	switch strings.ToLower(path.Ext(p)) {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif":
+		return true
+	}
+	return false
 }
 
 var errGamesNoPart = errors.New("no such part of the pack")

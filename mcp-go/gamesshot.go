@@ -37,6 +37,10 @@ const (
 	gamesShotMaxFrames = 1200 // 20 s of game time
 	gamesShotTimeout   = 25 * time.Second
 	gamesShotMemPages  = 2048 // 128 MB for a game (the starter takes 5)
+	// the files a test run mounts (the engine copies them, so twice this
+	// and the game's own memory must fit in gamesShotMemPages): a bigger
+	// game runs without its biggest pictures
+	gamesRunnerFit = 36 << 20
 )
 
 // one engine compiled, kept while the build stays the same
@@ -564,7 +568,7 @@ func (s *gamesService) screenshot(ctx context.Context, g *gamesGame, a map[strin
 	if err != nil {
 		return nil, err
 	}
-	pack, err := s.pack(ctx, g, gamesPackOpts{launcher: gamesLauncher()})
+	pack, err := s.pack(ctx, g, gamesPackOpts{launcher: gamesLauncher(), fit: gamesRunnerFit})
 	if err != nil {
 		return nil, err
 	}

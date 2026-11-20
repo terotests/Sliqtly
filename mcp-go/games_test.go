@@ -1438,3 +1438,24 @@ func TestGamesFileHistory(t *testing.T) {
 		t.Fatal("a picture kept")
 	}
 }
+
+func TestGamesPackFit(t *testing.T) {
+	fs := []gamesFile{
+		{Path: "game.tsx", Size: 50},
+		{Path: "img/a.jpg", Size: 40},
+		{Path: "img/b.png", Size: 30},
+		{Path: "img/c.jpg", Size: 10},
+		{Path: "sound.mp3", Size: 60},
+	}
+	if got := gamesPackFit(fs, 1000); len(got) != len(fs) {
+		t.Fatalf("small game trimmed: %d files", len(got))
+	}
+	got := gamesPackFit(fs, 140)
+	var names []string
+	for _, f := range got {
+		names = append(names, f.Path)
+	}
+	if strings.Join(names, ",") != "game.tsx,img/c.jpg,sound.mp3" {
+		t.Fatalf("kept %v, want the biggest pictures dropped", names)
+	}
+}
