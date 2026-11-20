@@ -218,7 +218,11 @@ func (s *gamesService) homeCall(ctx context.Context, who gamesWho, op string, a 
 		}
 		return s.createGame(ctx, who, u, map[string]any{"name": a["name"], "copy_of": g.id})
 	case "publish":
-		return s.publish(ctx, g, a)
+		u, err := s.user(ctx, who)
+		if err != nil {
+			return nil, err
+		}
+		return s.publish(ctx, u, g, a)
 	case "hide":
 		on, _ := a["hidden"].(bool)
 		if err := s.save(ctx, g, Doc{"hidden": on}); err != nil {

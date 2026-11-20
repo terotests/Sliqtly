@@ -64,6 +64,15 @@
     </form>
     <div class="err" id="agentErr"></div>
   </section>
+  <section id="downloads">
+    <h2>Ladattavat pelit (puhelinsovellus)</h2>
+    <p class="sub">Hyväksytyt pelit näkyvät RangerGames-puhelinsovelluksessa kohdassa ⚙️ → Lataa pelejä, ja puhelin pelaa niitä ilman verkkoa. Hyväksyntä tallentaa pelin nykyiset tiedostot uutena versiona; myöhemmät muutokset menevät puhelimiin vasta uudella hyväksynnällä. Katalogi: <code id="catalog"></code></p>
+    <div class="wrap"><table>
+      <thead><tr><th>Peli</th><th>Tekijä</th><th>Tila</th><th>Koko</th><th></th></tr></thead>
+      <tbody id="dlRows"></tbody>
+    </table></div>
+    <div class="err" id="dlErr"></div>
+  </section>
   <section>
     <h2>Käyttäjät <small id="month" style="color:var(--muted);font-weight:400"></small></h2>
     <p class="sub" id="speech"></p>
@@ -143,6 +152,30 @@
     var f = e.target, te = document.getElementById("ttsErr"); te.textContent = "";
     call("tts_set", { open_month: Number(f.open.value || 0), cap_chars: Number(f.cap.value || 0) }).then(ttsShow).catch(function (x) { te.textContent = x.message; });
   });
+  function dlShow(d) {
+    document.getElementById("catalog").textContent = d.catalog || "";
+    var rows = document.getElementById("dlRows"), de = document.getElementById("dlErr");
+    rows.textContent = "";
+    (d.games || []).forEach(function (g) {
+      var tr = el("tr"), name = el("td"), a = el("a", g.name);
+      a.href = g.preview_url; a.target = "_blank"; a.rel = "noopener"; name.appendChild(a); tr.appendChild(name);
+      tr.appendChild(el("td", g.owner || ""));
+      var st = g.version ? "Hyväksytty v" + g.version + " (" + new Date(g.accepted).toLocaleDateString("fi-FI") + ")" : "";
+      if (g.asked) st = (st ? st + ", " : "") + "pyytää hyväksyntää";
+      else if (g.changed) st += ", muutettu hyväksynnän jälkeen";
+      if (g.hidden) st += ", piilotettu";
+      tr.appendChild(el("td", st));
+      var sz = el("td", (g.bytes / 1048576).toFixed(1).replace(".", ",") + " Mt"); sz.className = "num"; tr.appendChild(sz);
+      var td = el("td"), ok = el("button", g.version ? "Hyväksy uusi versio" : "Hyväksy"), rm = el("button", g.version ? "Poista listalta" : "Hylkää");
+      rm.className = "link";
+      ok.onclick = function () { de.textContent = ""; call("download_accept", { game_id: g.game_id }).then(dlShow).catch(function (e) { de.textContent = e.message; }); };
+      rm.onclick = function () { de.textContent = ""; call("download_withdraw", { game_id: g.game_id }).then(dlShow).catch(function (e) { de.textContent = e.message; }); };
+      td.appendChild(ok); td.appendChild(rm); tr.appendChild(td);
+      rows.appendChild(tr);
+    });
+    if (!(d.games || []).length) { var tr = el("tr"), td = el("td", "Ei pyyntöjä eikä hyväksyttyjä pelejä."); td.colSpan = 5; tr.appendChild(td); rows.appendChild(tr); }
+  }
+  call("downloads").then(dlShow).catch(function (e) { document.getElementById("dlErr").textContent = e.message; });
   call("tts").then(ttsShow).catch(function (e) { document.getElementById("ttsErr").textContent = e.message; });
   call("agent").then(agentShow).catch(function (e) { document.getElementById("agentErr").textContent = e.message; });
   call("users").then(show).catch(function (e) { err.textContent = e.message; });
