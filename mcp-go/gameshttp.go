@@ -13,6 +13,7 @@
 //	GET  /games/engine/…                the RangerGames web build, served
 //	                                    from this site (gamesengine.go)
 //	GET  /games/p/<token>/game.rgpk     the game as one pack, for the engine
+//	PUT  /games/u/<token>/<path>        a big file into a game (gamesupload.go)
 //	GET  /games/main/admin              the admin's page: who is invited
 //	                                    and their speech allowance (the
 //	                                    editor's cookie, SLIQTLY_ADMIN_EMAILS)
@@ -111,6 +112,10 @@ var gamesTools = []roomTool{
 				"library": strProp("Instead of base64: a picture of the RangerGames library to copy, e.g. textures/planets/earth.jpg (maps of the Sun, the planets and the Moon; games_guide topic 3d lists them), or a file of a RangerGames game, games/<game>/<path> such as games/marsiin/models/m-kibo.glb (any file of its pack in the RangerGames build)"),
 			}, "required": []string{"path"}}}},
 		required: []string{"game_id", "files"}},
+	{name: "upload_url", title: "Address for uploading big files",
+		desc:     "A secret address (30 minutes) that a computer sends the game's big files to straight, without base64: PUT each file to <url>/<path>, e.g. curl -T map.jpg <url>/img/map.jpg. For pictures, sounds and models too big to send as base64 here. Same checks and limits as write_files.",
+		props:    map[string]any{"game_id": gamesGameID},
+		required: []string{"game_id"}},
 	{name: "delete_files", title: "Delete files", destructive: true,
 		desc:     "Takes files out of the game's folder (not game.json or game.tsx).",
 		props:    map[string]any{"game_id": gamesGameID, "paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "The files' paths"}},
@@ -201,6 +206,8 @@ func serveGames(env *Env, w http.ResponseWriter, r *http.Request) bool {
 		serveGamesCatalog(env, w, r)
 	case strings.HasPrefix(p, gamesDownPath):
 		serveGamesDownload(env, w, r, strings.TrimPrefix(p, gamesDownPath))
+	case strings.HasPrefix(p, gamesUploadPath):
+		serveGamesUpload(env, w, r, strings.TrimPrefix(p, gamesUploadPath))
 	case strings.HasPrefix(p, gamesPath+"/x/"):
 		serveGamesExample(env, w, r, strings.TrimPrefix(p, gamesPath+"/x/"))
 	case p == gamesAdmin || strings.HasPrefix(p, gamesAdmin+"/"):

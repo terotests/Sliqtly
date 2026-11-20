@@ -954,6 +954,8 @@ func (s *gamesService) call(ctx context.Context, who gamesWho, op string, a map[
 			return nil, err
 		}
 		return s.change(ctx, g, w, nil)
+	case "upload_url":
+		return s.uploadURL(ctx, g)
 	case "delete_files":
 		list, _ := a["paths"].([]any)
 		if len(list) == 0 {
