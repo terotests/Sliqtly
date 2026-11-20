@@ -58,7 +58,7 @@ const (
 	gamesOpenGames  = 10        // per account that signed in without an invitation
 	gamesMaxFiles   = 1000      // per game
 	gamesMaxFile    = 8 << 20   // one file
-	gamesMaxTotal   = 100 << 20 // one game's files together
+	gamesMaxTotal   = 250 << 20 // one game's files together (big packs are streamed, gamespack.go)
 	gamesMaxPerCall = 60        // files in one write_files
 	gamesMaxRead    = 2 << 20   // read_file's answer, before base64
 	gamesMaxSpeech  = 1500      // characters in one speak
