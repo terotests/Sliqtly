@@ -27,6 +27,7 @@ Import "PresSharedList.rgr"
 Import "../evgui/src/CheckboxCtl.rgr"
 Import "../evgui/src/UiText.rgr"
 Import "../evgui/src/UiShapes.rgr"
+Import "../evgui/src/UiScroll.rgr"
 
 class PresToolbar {
     def host:UiHost (new UiHost())
@@ -163,6 +164,14 @@ class PresToolbar {
     def sharedIds:[string]
     def sharedDirs:[string]
     def roomsW:double 248.0
+    ; the side panel's list (Rooms' rooms, Files' rows) under its head, as
+    ; far as it is scrolled; the wheel and a finger move it (sideWheel)
+    def sideScroll:UiScroll (new UiScroll())
+    def sideScrollFiles:boolean false
+    ; the press now is a finger's (PresApp.setTouch): on the list it waits
+    ; to see whether it scrolls; `sideTapping` while a tap is pressed
+    def touch:boolean false
+    def sideTapping:boolean false
     def roomOpen:string "general"
     ; the open room's presentations are shut away, its name pressed again
     ; (web/rooms.js pressRoom): its (+) shows them again
@@ -1939,11 +1948,110 @@ class PresToolbar {
     }
 
     fn buildSide:void (root:EVGElement) {
+        ; Rooms and Files keep their own place in the list: the other one
+        ; opened starts at its top
+        if (sideScrollFiles != filesOpen) {
+            sideScroll.reset()
+            sideScrollFiles = filesOpen
+        }
         if filesOpen {
             this.buildFiles(root)
-            return
+        } {
+            this.buildRooms(root)
         }
-        this.buildRooms(root)
+        def pane:EVGElement (root.getChild(((root.getChildCount()) - 1)))
+        def keep:int 1
+        ; Rooms' search row (its field, or the button that opens it) stays
+        ; under the head (buildRooms)
+        if ((filesOpen == false) && ((titleEditing && (editFor == "search")) || ((strlen roomSearchLabel) > 0))) {
+            keep = 2
+        }
+        this.sideBody(pane keep)
+    }
+
+    ; The panel's rows after its first `keep` children (the head, the search)
+    ; go into a box that scrolls (EVG's overflow-y: auto clips it and writes
+    ; scrollHeight): many rooms, or a room with many folders and
+    ; presentations, run past the panel's bottom else, out of reach.
+    fn sideBody:void (pane:EVGElement keep:int) {
+        def kids:[EVGElement] pane.children
+        UiTree.clearChildren(pane)
+        def body:EVGElement (UiKit.div("tb-side-list"))
+        body.id = "tb-side-list"
+        def i:int 0
+        while (i < (array_length kids)) {
+            def k:EVGElement (itemAt kids i)
+            if (i < keep) {
+                pane.addChild(k)
+            } {
+                body.addChild(k)
+            }
+            i = (i + 1)
+        }
+        pane.addChild(body)
+        UiTree.inline(body "overflow-y" "auto")
+        body.scrollTop = sideScroll.top
+    }
+
+    ; The side panel's list as last laid out.
+    fn sideListEl@(optional):EVGElement () {
+        def none@(optional):EVGElement
+        if ((this.sideOpen()) == false) {
+            return none
+        }
+        if (null? host.lastPage) {
+            return none
+        }
+        return (host.findEl((unwrap host.lastPage) "tb-side-list"))
+    }
+
+    fn sideListHas:boolean (px:double py:double) {
+        def el@(optional):EVGElement (this.sideListEl())
+        if (null? el) {
+            return false
+        }
+        return (UiScroll.has((unwrap el) px py))
+    }
+
+    fn sidePanning:boolean () {
+        return sideScroll.panning
+    }
+
+    ; A finger moved on the list.
+    fn sidePanTo:void (py:double) {
+        def el@(optional):EVGElement (this.sideListEl())
+        if ((!null? el) && (sideScroll.panTo((unwrap el) py))) {
+            rev = (rev + 1)
+        }
+    }
+
+    ; The finger lifted: one that did not scroll is a tap, pressed now where
+    ; it went down. True when it pressed.
+    fn sidePanEnd:boolean () {
+        if ((sideScroll.endPan()) == false) {
+            return false
+        }
+        sideTapping = true
+        this.pressWith(sideScroll.downX sideScroll.downY sideScroll.clicks sideScroll.shift)
+        sideTapping = false
+        return true
+    }
+
+    ; The wheel over the side panel's list: it scrolls. True when the wheel
+    ; was over it (taken, even at an end, so the page under stays put).
+    fn sideWheel:boolean (px:double py:double dy:double) {
+        def el@(optional):EVGElement (this.sideListEl())
+        if (null? el) {
+            return false
+        }
+        def b:EVGElement (unwrap el)
+        if ((UiScroll.has(b px py)) == false) {
+            return false
+        }
+        if (sideScroll.scrollBy(b dy)) {
+            rev = (rev + 1)
+        }
+        return true
     }
 
     ; The shared Files: what everyone on this server can put on a slide
@@ -3202,6 +3310,12 @@ class PresToolbar {
 
     ; A press with the page's click count and shift, for the name field.
     fn pressWith:void (px:double py:double clicks:int shift:boolean) {
+        ; a finger on the side panel's list: a tap or a scroll, known when
+        ; it lifts or moves (sidePanTo, sidePanEnd)
+        if ((touch && (sideTapping == false)) && (this.sideListHas(px py))) {
+            sideScroll.beginPan(px py clicks shift)
+            return
+        }
         pressClicks = clicks
         pressShift = shift
         this.press(px py)

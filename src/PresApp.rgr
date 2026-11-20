@@ -5604,6 +5604,7 @@ class PresApp {
 
     fn setTouch:void (on:boolean) {
         touch = on
+        toolbar.touch = on
     }
 
     ; Ctrl or ⌘ held at the next press (a thumbnail clicked so is picked)
@@ -7186,6 +7187,12 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        ; a finger scrolling the side panel's list (Rooms, Files)
+        if (toolbar.sidePanning()) {
+            toolbar.sidePanTo(y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; a finger scrolling a dialog
         if (panels.dialogPanning()) {
             panels.dialogPanTo(y)
@@ -7401,6 +7408,13 @@ class PresApp {
         }
         panels.chatRelease()
         panels.textRelease()
+        ; a finger on the side panel's list that did not scroll is a tap
+        if (toolbar.sidePanning()) {
+            if (toolbar.sidePanEnd()) {
+                this.takeToolbar()
+            }
+            chromeRev = (chromeRev + 1)
+        }
         ; a finger on a dialog that did not scroll is a tap, pressed now
         if (panels.dialogPanning()) {
             if (panels.dialogPanEnd()) {
@@ -7610,6 +7624,11 @@ class PresApp {
             return true
         }
         if (top == "dialog") {
+            return true
+        }
+        ; the side panel's list (many rooms, folders, files) scrolls
+        if (((barH > 0.0) && (toolbar.has(x y))) && (toolbar.sideWheel(x y dy))) {
+            chromeRev = (chromeRev + 1)
             return true
         }
         if (panels.helpHas(x y)) {
