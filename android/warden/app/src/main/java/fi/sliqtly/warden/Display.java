@@ -7,7 +7,9 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -50,6 +52,9 @@ final class Display {
     interface Host {
         /** the setup page asks for the display again (a new address saved) */
         void reload();
+
+        /** whether the app may tell the page where the tablet is */
+        boolean located();
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -62,6 +67,16 @@ final class Display {
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
         s.setUserAgentString(s.getUserAgentString() + " WardenApp/1");
         s.setAllowFileAccess(false);
+        s.setGeolocationEnabled(true);
+        // the display's page may know the tablet's place (the nearest stops)
+        // when the app has the location permission
+        w.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback cb) {
+                Uri o = Uri.parse(origin);
+                cb.invoke(origin, "https".equals(o.getScheme()) && "sliqtly.com".equals(o.getHost()) && host.located(), false);
+            }
+        });
         final Handler h = new Handler(Looper.getMainLooper());
         w.setWebViewClient(new WebViewClient() {
             @Override

@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
@@ -41,7 +42,21 @@ public class MainActivity extends Activity implements Display.Host {
         web = Display.make(this, this, true);
         setContentView(web);
         take(getIntent());
+        if (!located()) {
+            requestPermissions(new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION, android.Manifest.permission.ACCESS_FINE_LOCATION}, 1);
+        }
         Display.load(this, web);
+    }
+
+    @Override
+    public boolean located() {
+        return checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        super.onRequestPermissionsResult(code, perms, res);
+        if (located()) Display.load(this, web);
     }
 
     @Override

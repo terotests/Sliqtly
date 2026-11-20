@@ -60,8 +60,12 @@ func TestWardenDisplay(t *testing.T) {
 		return []nysseDeparture{{Line: "30", To: "Pyynikintori", At: now.Add(4 * time.Minute), Live: true},
 			{Line: "8A", To: "Atala", At: now.Add(6 * time.Minute), Live: true}, {Line: "3", To: "Hervanta", At: now.Add(9 * time.Minute)}}, nil
 	}
+	wardenNearStops = func(_ context.Context, lat, lon float64, n int, max float64) ([]nysseStop, []float64, error) {
+		l, d := []nysseStop{{ID: "0835", Name: "Hervannan kampus A"}, {ID: "0836", Name: "Hervannan kampus B"}, {ID: "0840", Name: "Insinöörinkatu"}}, []float64{120, 140, 600}
+		return l[:min(n, 3)], d[:min(n, 3)], nil
+	}
 	defer func() {
-		wardenWeather, wardenFindStops, wardenStopLines, wardenDepartures = openMeteoWeather, nysseFindStops, nysseStopLines, nysseDepartures
+		wardenWeather, wardenFindStops, wardenStopLines, wardenDepartures, wardenNearStops = openMeteoWeather, nysseFindStops, nysseStopLines, nysseDepartures, nysseNearStops
 	}()
 
 	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Kotona"})
@@ -126,6 +130,19 @@ func TestWardenDisplay(t *testing.T) {
 	res, _ = editorDo(t, "POST", base+path+"/stops", "", "", `{"stops":[{"id":"0015","lines":["3; drop"]}]}`)
 	eq(t, res.StatusCode, 400, "a line is a line's number")
 
+	// the tablet's place: the stops nearest to it, and with none picked the
+	// display shows the two nearest
+	res, body = editorDo(t, "GET", base+path+"/stops?lat=61.4497&lon=23.8566", "", "", "")
+	eq(t, []any{res.StatusCode, strings.Count(body, `"m":`), strings.Contains(body, `"id":"0835","lines":["3","8A","30"],"m":120`)}, []any{200, 3, true}, "the nearest stops with their distance")
+	editorDo(t, "POST", base+path+"/stops", "", "", `{"stops":[]}`)
+	res, body = editorDo(t, "GET", base+path+"/data?lat=61.4497&lon=23.8566", "", "", "")
+	json.Unmarshal([]byte(body), &d)
+	eq(t, []any{len(d.Stops), d.Stops[0]["id"], d.Stops[0]["near"], d.Stops[0]["m"], d.Stops[1]["id"]}, []any{2, "0835", true, float64(120), "0836"}, "no stops picked: the two nearest")
+	_, body = editorDo(t, "GET", base+path+"/data", "", "", "")
+	d.Stops = nil
+	json.Unmarshal([]byte(body), &d)
+	eq(t, len(d.Stops), 0, "and none without the place")
+
 	// a new address: the old one stops working
 	code, _ = wardenCall(t, base, "anna", "home_display", map[string]any{"space_id": sid, "reset": true})
 	eq(t, code != 200, true, "only members, and only the owner resets")
@@ -135,4 +152,12 @@ func TestWardenDisplay(t *testing.T) {
 	eq(t, res.StatusCode, 404, "the old one is gone")
 	res, _ = editorDo(t, "GET", base+"/apps/warden/tv/short", "", "", "")
 	eq(t, res.StatusCode, 404, "a made-up address is nothing")
+}
+
+func TestNysseDistance(t *testing.T) {
+	// Keskustori to Hervannan kampus: about 7.4 km as the crow flies
+	d := nysseDistance(61.4975, 23.7615, 61.4470, 23.8535)
+	if d < 7200 || d > 7700 {
+		t.Errorf("distance %f", d)
+	}
 }

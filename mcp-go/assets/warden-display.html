@@ -130,9 +130,10 @@ h2 { margin: 0 0 10px; font-size: 15px; text-transform: uppercase; letter-spacin
 <div class="sheet" id="sheet" role="dialog" aria-label="Pysäkit">
   <div class="panel">
     <h3>Nyssen pysäkit</h3>
-    <div class="hint">Hae pysäkki nimellä, valitse se ja halutessasi vain tietyt linjat (ei valintaa = kaikki linjat). Enintään 6 pysäkkiä.</div>
+    <div class="hint">Hae pysäkki nimellä tai tabletin sijainnin mukaan (📍), valitse se ja halutessasi vain tietyt linjat (ei valintaa = kaikki linjat). Enintään 6 pysäkkiä.</div>
     <div class="chosen" id="chosen" style="margin-top:12px"></div>
-    <input type="search" id="q" placeholder="Pysäkin nimi, esim. Keskustori tai Hervannan kampus" autocomplete="off">
+    <div style="display:flex;gap:8px"><input type="search" id="q" placeholder="Pysäkin nimi, esim. Keskustori tai Hervannan kampus" autocomplete="off">
+    <button class="btn" id="nearby" style="white-space:nowrap">📍 Lähimmät</button></div>
     <div class="res" id="res"></div>
     <div class="err" id="err"></div>
     <div class="row">
@@ -249,10 +250,10 @@ function renderWeather(w) {
 function renderStops(stops) {
   let h = "<h2>Lähdöt</h2>";
   if (!stops.length) {
-    h += '<div class="hint">Valitse Nyssen pysäkit ja linjat ⚙-painikkeesta.</div>';
+    h += '<div class="hint">Valitse Nyssen pysäkit ja linjat ⚙-painikkeesta. Jos tabletti saa sijaintinsa, tässä näkyvät lähimmät pysäkit.</div>';
   }
   for (const s of stops) {
-    h += '<div class="stop"><div class="sname">' + esc(s.name || s.id) + (s.lines && s.lines.length ? ' <span class="hint">· ' + esc(s.lines.join(", ")) + "</span>" : "") + "</div>";
+    h += '<div class="stop"><div class="sname">' + (s.near ? "📍 " : "") + esc(s.name || s.id) + (s.near ? ' <span class="hint">· ' + s.m + " m</span>" : "") + (s.lines && s.lines.length ? ' <span class="hint">· ' + esc(s.lines.join(", ")) + "</span>" : "") + "</div>";
     if (s.error) h += '<div class="hint">Lähtöjä ei saatu juuri nyt.</div>';
     else if (!s.departures.length) h += '<div class="hint">Ei lähtöjä tiedossa juuri nyt.</div>';
     for (const d of s.departures.slice(0, 5)) {
@@ -265,9 +266,23 @@ function renderStops(stops) {
   $("stops").innerHTML = h;
 }
 
+// the tablet's place (its last known location, at most half an hour old):
+// with no stops picked, the display shows the two nearest
+let here = null;
+try { here = JSON.parse(localStorage.getItem("warden-tv-here") || "null"); } catch {}
+function locate(then) {
+  if (!navigator.geolocation) { if (then) then(null); return; }
+  navigator.geolocation.getCurrentPosition((p) => {
+    here = { lat: +p.coords.latitude.toFixed(4), lon: +p.coords.longitude.toFixed(4) };
+    try { localStorage.setItem("warden-tv-here", JSON.stringify(here)); } catch {}
+    if (then) then(here);
+  }, () => { if (then) then(null); }, { enableHighAccuracy: false, maximumAge: 30 * 60 * 1000, timeout: 20000 });
+}
+const hereQuery = () => (here ? "lat=" + here.lat + "&lon=" + here.lon : "");
+
 async function load() {
   try {
-    const r = await fetch(BASE + "/data", { cache: "no-store" });
+    const r = await fetch(BASE + "/data" + (here ? "?" + hereQuery() : ""), { cache: "no-store" });
     if (!r.ok) throw new Error(r.status);
     data = await r.json();
     // the server's wall clock in the space's time zone, as this device's
@@ -327,12 +342,24 @@ $("q").addEventListener("input", () => {
     $("res").innerHTML = '<div class="hint">Haetaan…</div>';
     try {
       const r = await fetch(BASE + "/stops?q=" + encodeURIComponent(q));
-      found = (await r.json()).stops || [];
-      $("res").innerHTML = found.length ? found.map((s, i) => '<div class="r"><div class="rn"><span>' + esc(s.name) + ' <span class="hint">' + esc(s.id) +
-        (s.lines && s.lines.length ? " · " + esc(s.lines.join(", ")) : "") + '</span></span><button class="btn" data-add="' + i + '">Lisää</button></div></div>').join("") : '<div class="hint">Ei löytynyt.</div>';
+      showFound((await r.json()).stops || []);
     } catch { $("res").innerHTML = '<div class="err">Haku ei onnistunut.</div>'; }
   }, 350);
 });
+function showFound(list) {
+  found = list;
+  $("res").innerHTML = found.length ? found.map((s, i) => '<div class="r"><div class="rn"><span>' + esc(s.name) + ' <span class="hint">' + esc(s.id) +
+    (s.m != null ? " · " + s.m + " m" : "") + (s.lines && s.lines.length ? " · " + esc(s.lines.join(", ")) : "") + '</span></span><button class="btn" data-add="' + i + '">Lisää</button></div></div>').join("") : '<div class="hint">Ei löytynyt.</div>';
+}
+$("nearby").onclick = () => {
+  $("res").innerHTML = '<div class="hint">Haetaan sijaintia…</div>';
+  locate(async (p) => {
+    if (!p) { $("res").innerHTML = '<div class="err">Sijaintia ei saatu. Salli sijainti tälle sivulle tai sovellukselle.</div>'; return; }
+    $("res").innerHTML = '<div class="hint">Haetaan lähimpiä pysäkkejä…</div>';
+    try { const r = await fetch(BASE + "/stops?" + hereQuery()); showFound((await r.json()).stops || []); }
+    catch { $("res").innerHTML = '<div class="err">Haku ei onnistunut.</div>'; }
+  });
+};
 $("res").addEventListener("click", (e) => {
   const b = e.target.closest("[data-add]"); if (!b) return;
   const s = found[+b.dataset.add];
@@ -341,7 +368,7 @@ $("res").addEventListener("click", (e) => {
   renderChosen();
 });
 $("gear").onclick = () => {
-  chosen = (data && data.stops || []).map((s) => ({ id: s.id, name: s.name, lines: (s.lines || []).slice(), all: [] }));
+  chosen = (data && data.stops || []).filter((s) => !s.near).map((s) => ({ id: s.id, name: s.name, lines: (s.lines || []).slice(), all: [] }));
   // the lines each chosen stop has, to pick from
   chosen.forEach(async (s) => {
     try { const r = await fetch(BASE + "/stops?q=" + encodeURIComponent(s.id)); const f = ((await r.json()).stops || []).find((x) => x.id === s.id); if (f) { s.all = f.lines || []; renderChosen(); } } catch {}
@@ -365,6 +392,8 @@ $("save").onclick = async () => {
 };
 
 tick(); load(); wake();
+locate(() => load());
+setInterval(() => locate(), 30 * 60 * 1000);
 setInterval(tick, 1000 * 5);
 setInterval(load, 30 * 1000);
 // a fresh page now and then, so a change to the display reaches the tablet

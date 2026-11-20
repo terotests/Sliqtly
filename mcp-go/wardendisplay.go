@@ -221,21 +221,34 @@ func serveWardenDisplay(env *Env, w http.ResponseWriter, r *http.Request, p stri
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		io.WriteString(w, wardenDisplayHTML)
 	case sub == "data" && r.Method == http.MethodGet:
-		out, err := env.warden.displayData(r.Context(), sp)
+		at := wardenLatLon(r)
+		out, err := env.warden.displayData(r.Context(), sp, at)
 		if err != nil {
 			editorJSON(w, 503, map[string]string{"error": "The space could not be reached"})
 			return
 		}
 		editorJSON(w, 200, out)
 	case sub == "stops" && r.Method == http.MethodGet:
-		found, err := wardenFindStops(r.Context(), r.URL.Query().Get("q"))
+		// by name, or the nearest to the tablet (?lat=&lon=)
+		var found []nysseStop
+		var dist []float64
+		var err error
+		if at := wardenLatLon(r); at != nil {
+			found, dist, err = wardenNearStops(r.Context(), at[0], at[1], 6, 1500)
+		} else {
+			found, err = wardenFindStops(r.Context(), r.URL.Query().Get("q"))
+		}
 		if err != nil {
 			editorJSON(w, 503, map[string]string{"error": "Nysse's stops could not be reached"})
 			return
 		}
 		l := []any{}
-		for _, f := range found {
-			l = append(l, map[string]any{"id": f.ID, "name": f.Name, "lines": anys(wardenStopLines(r.Context(), f.ID))})
+		for i, f := range found {
+			m := map[string]any{"id": f.ID, "name": f.Name, "lines": anys(wardenStopLines(r.Context(), f.ID))}
+			if i < len(dist) {
+				m["m"] = int(dist[i])
+			}
+			l = append(l, m)
 		}
 		editorJSON(w, 200, map[string]any{"stops": l})
 	case sub == "stops" && r.Method == http.MethodPost:
@@ -262,6 +275,17 @@ func serveWardenDisplay(env *Env, w http.ResponseWriter, r *http.Request, p stri
 
 // ------------------------------------------------------------------- data --
 
+// the tablet's place, ?lat=&lon= (from its last known location), or nil
+func wardenLatLon(r *http.Request) []float64 {
+	q := r.URL.Query()
+	lat, err1 := strconv.ParseFloat(q.Get("lat"), 64)
+	lon, err2 := strconv.ParseFloat(q.Get("lon"), 64)
+	if err1 != nil || err2 != nil || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+		return nil
+	}
+	return []float64{lat, lon}
+}
+
 func (sp *wardenSpace) loc() *time.Location {
 	tz := docStr(sp.doc, "tz")
 	if tz == "" {
@@ -275,7 +299,9 @@ func (sp *wardenSpace) loc() *time.Location {
 }
 
 // what the display shows: the days, the weather, the departures
-func (s *wardenService) displayData(ctx context.Context, sp *wardenSpace) (map[string]any, error) {
+// at: the tablet's place when it is known: with no stops picked, the
+// departures of the two stops nearest to it
+func (s *wardenService) displayData(ctx context.Context, sp *wardenSpace, at []float64) (map[string]any, error) {
 	loc := sp.loc()
 	now := s.now().In(loc)
 	docs, _, err := s.events(ctx, sp)
@@ -314,13 +340,26 @@ func (s *wardenService) displayData(ctx context.Context, sp *wardenSpace) (map[s
 		out["weather"] = wx
 	}
 	stops := []any{}
-	for _, st := range wardenDisplayStops(sp.doc) {
+	picked := wardenDisplayStops(sp.doc)
+	near := map[string]int{}
+	if len(picked) == 0 && at != nil {
+		if found, dist, err := wardenNearStops(ctx, at[0], at[1], 2, 800); err == nil {
+			for i, f := range found {
+				picked = append(picked, map[string]any{"id": f.ID, "name": f.Name, "lines": []any{}})
+				near[f.ID] = int(dist[i])
+			}
+		}
+	}
+	for _, st := range picked {
 		id := st["id"].(string)
 		lines := []string{}
 		for _, l := range st["lines"].([]any) {
 			lines = append(lines, l.(string))
 		}
 		row := map[string]any{"id": id, "name": st["name"], "lines": st["lines"]}
+		if m, ok := near[id]; ok {
+			row["near"], row["m"] = true, m
+		}
 		deps, err := wardenDepartures(ctx, id, now)
 		if err != nil {
 			row["error"] = true

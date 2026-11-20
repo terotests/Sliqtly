@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
 	"slices"
@@ -44,6 +45,7 @@ var (
 	wardenFindStops  = nysseFindStops
 	wardenDepartures = nysseDepartures
 	wardenStopLines  = nysseStopLines
+	wardenNearStops  = nysseNearStops
 )
 
 var (
@@ -262,4 +264,43 @@ func nysseStopLines(ctx context.Context, stop string) []string {
 	nysseLines[stop] = nysseLineCache{time.Now(), lines}
 	nysseMu.Unlock()
 	return lines
+}
+
+// the n stops nearest to a place, within max metres, nearest first, each
+// with its distance in metres
+func nysseNearStops(ctx context.Context, lat, lon float64, n int, max float64) ([]nysseStop, []float64, error) {
+	all, err := nysseAllStops(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	type near struct {
+		s nysseStop
+		d float64
+	}
+	l := []near{}
+	for _, s := range all {
+		if s.Lat == 0 && s.Lon == 0 {
+			continue
+		}
+		if d := nysseDistance(lat, lon, s.Lat, s.Lon); d <= max {
+			l = append(l, near{s, d})
+		}
+	}
+	sort.Slice(l, func(a, b int) bool { return l[a].d < l[b].d })
+	if len(l) > n {
+		l = l[:n]
+	}
+	stops, ds := []nysseStop{}, []float64{}
+	for _, x := range l {
+		stops, ds = append(stops, x.s), append(ds, x.d)
+	}
+	return stops, ds, nil
+}
+
+// metres between two places, near enough for a town
+func nysseDistance(lat1, lon1, lat2, lon2 float64) float64 {
+	const r = 6371000.0
+	x := (lon2 - lon1) * math.Pi / 180 * math.Cos((lat1+lat2)/2*math.Pi/180)
+	y := (lat2 - lat1) * math.Pi / 180
+	return r * math.Sqrt(x*x+y*y)
 }

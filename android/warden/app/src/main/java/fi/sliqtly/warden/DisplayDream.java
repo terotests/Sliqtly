@@ -32,6 +32,11 @@ public class DisplayDream extends DreamService implements Display.Host {
     }
 
     @Override
+    public boolean located() {
+        return checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
+    @Override
     public void onDetachedFromWindow() {
         if (web != null) web.destroy();
         web = null;
