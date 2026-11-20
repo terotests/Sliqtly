@@ -15,7 +15,7 @@
         android:allowBackup="true"
         android:usesCleartextTraffic="false">
         <!-- the display, full screen; opened from the launcher, or from the
-             display page's "Avaa sovelluksessa" (wardenhome://open?u=<address>) -->
+             display page's "Avaa sovelluksessa" (wardenhome://open) -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

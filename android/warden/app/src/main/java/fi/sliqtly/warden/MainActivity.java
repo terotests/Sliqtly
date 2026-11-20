@@ -6,7 +6,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -39,13 +38,12 @@ public class MainActivity extends Activity implements Display.Host {
         } else {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
         }
-        web = Display.make(this, this, true);
+        web = Display.make(this, this);
         setContentView(web);
-        take(getIntent());
         if (!located()) {
             requestPermissions(new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION, android.Manifest.permission.ACCESS_FINE_LOCATION}, 1);
         }
-        Display.load(this, web);
+        Display.load(web);
     }
 
     @Override
@@ -56,25 +54,13 @@ public class MainActivity extends Activity implements Display.Host {
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         super.onRequestPermissionsResult(code, perms, res);
-        if (located()) Display.load(this, web);
+        if (located()) Display.load(web);
     }
 
-    @Override
-    protected void onNewIntent(Intent i) {
-        super.onNewIntent(i);
-        if (take(i)) Display.load(this, web);
-    }
-
-    /** wardenhome://open?u=<the display's address>: kept, true when new */
-    private boolean take(Intent i) {
-        Uri d = i == null ? null : i.getData();
-        if (d == null || !"wardenhome".equals(d.getScheme())) return false;
-        return Display.save(this, d.getQueryParameter("u"));
-    }
 
     @Override
     public void reload() {
-        Display.load(this, web);
+        Display.load(web);
     }
 
     private void setCharging(boolean on) {
@@ -111,16 +97,6 @@ public class MainActivity extends Activity implements Display.Host {
                 | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
-    }
-
-    @Override
-    public void onBackPressed() {
-        // the display has nowhere to go back to; the setup page goes back to it
-        if (web.getUrl() != null && web.getUrl().startsWith(Display.SETUP) && Display.isDisplayUrl(Display.url(this))) {
-            Display.load(this, web);
-            return;
-        }
-        super.onBackPressed();
     }
 
     @Override

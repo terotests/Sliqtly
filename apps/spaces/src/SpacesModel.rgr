@@ -1110,8 +1110,10 @@ class SpSpace {
     ; the address its calendar app subscribes to (wardenfeed.go), "" off a server
     def feed:string ""
     ; the address of its home display for a tablet (wardendisplay.go), "" off
-    ; a server
+    ; a server, and the devices paired with it: their ids and names
     def display:string ""
+    def displayIds:[string]
+    def displayNames:[string]
     ; whether the viewer's email summary of it comes every morning (day), on
     ; Monday mornings (week) or not at all (off): theirs alone (wardensummary.go)
     def emailSummary:string "off"

@@ -132,6 +132,10 @@ class SpRemote {
         s.myRole = (o.stringOr("role" s.myRole))
         s.feed = (o.stringOr("calendar_feed" s.feed))
         s.display = (o.stringOr("home_display" s.display))
+        def hd:VlJson (o.get("home_displays"))
+        if (hd.isArray()) {
+            SpRemote.readDisplays(s hd)
+        }
         s.emailSummary = (o.stringOr("email_summary" s.emailSummary))
         def info:VlJson (o.get("info_screen"))
         if (info.isObject()) {
@@ -160,6 +164,21 @@ class SpRemote {
             }
             k = (k + 1)
         }
+    }
+
+    ; the devices paired with the space's home display: [{device_id, name}]
+    sfn readDisplays:void (s:SpSpace l:VlJson) {
+        def ids:[string]
+        def names:[string]
+        def i:int 0
+        while (i < (l.count())) {
+            def one:VlJson (l.at(i))
+            push ids (one.stringOr("device_id" ""))
+            push names (one.stringOr("name" ""))
+            i = (i + 1)
+        }
+        s.displayIds = ids
+        s.displayNames = names
     }
 
     ; get_space: {space: Space, events: [Event]}, the whole space. False when

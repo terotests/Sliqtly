@@ -5,27 +5,38 @@
 // screen on while the tablet charges and offers itself as its screensaver).
 // It shows the clock, today and the next six days (one-off things large,
 // what repeats every week small), the weather, and the next departures from
-// the Nysse (Tampere's buses and trams) stops the family picked. No sign-in:
-// the address carries the space's display secret, as the calendar feed's
-// does (wardenfeed.go), and anyone with it sees what the page shows.
+// the Nysse (Tampere's buses and trams) stops the family picked.
 //
-//	GET  /apps/warden/tv/<token>            the page (assets/warden-display.html)
-//	GET  /apps/warden/tv/<token>/data       what it shows, as JSON
-//	GET  /apps/warden/tv/<token>/stops?q=   Nysse stops by name, to pick from
-//	POST /apps/warden/tv/<token>/stops      the stops shown {stops: [{id, lines}]}
+// The page itself holds nothing: what it shows comes only to a paired device.
+// The device (the app, or a browser) makes a secret of its own and sends it
+// with every call as `Authorization: Bearer <secret>`, over HTTPS. Unpaired,
+// it asks for a pairing code, shows it, and a signed-in member enters the
+// code in Warden (home_display pair_code). The server keeps only the
+// secret's SHA-256: warden_tvdevices/{hash} {space, name, by, at, seen}; a
+// member removes a device there (remove_device) and it shows nothing more.
 //
-// The space document keeps the secret (`display`) and the stops
-// (`display_stops`: [{id, name, lines}]). The MCP tool home_display gives the
-// address and sets the stops, so the assistant can too.
+//	GET  /apps/warden/tv/          the page (assets/warden-display.html)
+//	POST /apps/warden/tv/pair      a pairing code for the device {code, expires}
+//	GET  /apps/warden/tv/data      what it shows, as JSON (?lat=&lon=: the
+//	                               tablet's place, for the nearest stops)
+//	GET  /apps/warden/tv/stops?q=  Nysse stops by name, or ?lat=&lon=
+//	POST /apps/warden/tv/stops     the stops shown {stops: [{id, lines}]}
+//
+// The space document keeps the stops (`display_stops`: [{id, name, lines}]).
 
 package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -39,9 +50,13 @@ import (
 
 const (
 	wardenDisplayPath = wardenPath + "/tv/"
+	wardenTVDevices   = "warden_tvdevices"
+	wardenTVPairs     = "warden_tvpairs"
 	wardenMaxStops    = 6 // stops on the display
 	wardenMaxLines    = 12
+	wardenMaxDevices  = 10 // paired devices of a space
 	wardenDisplayDays = 7
+	wardenPairTTL     = 15 * time.Minute
 )
 
 // The Android app: built by .github/workflows/warden-android.yml from
@@ -52,20 +67,17 @@ const wardenAppURL = "https://github.com/terotests/Sliqtly/releases/download/war
 var wardenDisplayHTML string
 
 var (
-	wardenStopRe = regexp.MustCompile(`^[0-9A-Za-z]{1,8}$`)
-	wardenLineRe = regexp.MustCompile(`^[0-9A-Za-z]{1,6}$`)
+	wardenStopRe   = regexp.MustCompile(`^[0-9A-Za-z]{1,8}$`)
+	wardenLineRe   = regexp.MustCompile(`^[0-9A-Za-z]{1,6}$`)
+	wardenSecretRe = regexp.MustCompile(`^[A-Za-z0-9_-]{32,128}$`)
+	wardenCodeRe   = regexp.MustCompile(`^[0-9]{6}$`)
+	// pairing codes asked for per address in ten minutes
+	wardenPairLimit = rateLimiter(20, 10*time.Minute)
 )
 
-// the display's address, made the first time it is asked for
-func (s *wardenService) displayURL(ctx context.Context, sp *wardenSpace, reset bool) (string, error) {
-	if docStr(sp.doc, "display") == "" || reset {
-		sp.doc["display"] = wardenRandomID("")
-		if err := s.save(ctx, sp); err != nil {
-			return "", err
-		}
-	}
-	return s.base + wardenDisplayPath + docStr(sp.doc, "display"), nil
-}
+// the display page's address (the same for every space: the device's
+// pairing says whose it is)
+func (s *wardenService) displayURL() string { return s.base + wardenDisplayPath }
 
 // the stops the display shows
 func wardenDisplayStops(d Doc) []map[string]any {
@@ -74,6 +86,42 @@ func wardenDisplayStops(d Doc) []map[string]any {
 		out = append(out, map[string]any{"id": docStr(m, "id"), "name": docStr(m, "name"), "lines": anys(docStrs(m, "lines"))})
 	}
 	return out
+}
+
+// a device secret's key: its SHA-256, the only thing kept of it
+func wardenSecretHash(secret string) string {
+	h := sha256.Sum256([]byte("warden-tv\x00" + secret))
+	return hex.EncodeToString(h[:])
+}
+
+// the space's paired devices, oldest first
+func (s *wardenService) displayDevices(ctx context.Context, sp *wardenSpace) ([]any, error) {
+	docs, ids, err := s.db.WhereEq(ctx, wardenTVDevices, "space", sp.id)
+	if err != nil {
+		return nil, err
+	}
+	type dev struct {
+		at int64
+		m  map[string]any
+	}
+	l := []dev{}
+	for i, d := range docs {
+		at, _ := d["at"].(int64)
+		if f, ok := d["at"].(float64); ok {
+			at = int64(f)
+		}
+		m := map[string]any{"device_id": ids[i][:12], "name": docStr(d, "name"), "paired_by": docStr(d, "by"), "paired": time.UnixMilli(at).UTC().Format("2006-01-02")}
+		if seen, ok := d["seen"].(string); ok {
+			m["seen"] = seen
+		}
+		l = append(l, dev{at, m})
+	}
+	sort.Slice(l, func(a, b int) bool { return l[a].at < l[b].at })
+	out := []any{}
+	for _, d := range l {
+		out = append(out, d.m)
+	}
+	return out, nil
 }
 
 // Sets the stops from [{id or stop, name?, lines?}]: each id a Nysse stop's
@@ -154,29 +202,48 @@ func wardenArgStrings(v any) []string {
 	return nil
 }
 
-// home_display: the display's address and the app's, and its stops; stops
-// sets them, find_stop looks stops up by name, reset (the owner) makes a new
-// address
+// home_display: the display's page and the app's address, the paired
+// devices and the stops; pair_code pairs the device showing it,
+// remove_device unpairs one, stops sets them, find_stop looks stops up
 func (s *wardenService) homeDisplay(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
-	reset, _ := a["reset"].(bool)
-	if reset {
-		if err := sp.owner(); err != nil {
+	out := map[string]any{"url": s.displayURL(), "app": wardenAppURL,
+		"how": "Open url on the tablet (or install the Warden Android app, app: an APK, which opens it full screen, keeps the screen on while charging and can be the tablet's screensaver). The tablet shows a six-digit pairing code; give it here as pair_code and the tablet shows the space: today and the coming week, the weather and the next departures of the stops. Only paired devices see anything; remove_device unpairs one."}
+	if code := strings.TrimSpace(argStr(a, "pair_code")); code != "" {
+		name, err := s.pairDisplay(ctx, sp, code, strings.TrimSpace(argStr(a, "name")))
+		if err != nil {
 			return nil, err
 		}
+		out["paired"] = name
 	}
-	u, err := s.displayURL(ctx, sp, reset)
-	if err != nil {
-		return nil, err
+	if id := strings.TrimSpace(argStr(a, "remove_device")); id != "" {
+		docs, ids, err := s.db.WhereEq(ctx, wardenTVDevices, "space", sp.id)
+		if err != nil {
+			return nil, err
+		}
+		gone := false
+		for i := range docs {
+			if strings.HasPrefix(ids[i], id) && len(id) >= 6 {
+				if err := s.db.Delete(ctx, wardenTVDevices, ids[i]); err != nil {
+					return nil, err
+				}
+				gone = true
+			}
+		}
+		if !gone {
+			return nil, roomErr{"no such device: home_display lists them (device_id)"}
+		}
+		out["removed"] = id
 	}
 	if l, ok := a["stops"].([]any); ok {
 		if err := s.setDisplayStops(ctx, sp, l); err != nil {
 			return nil, err
 		}
 	}
-	out := map[string]any{
-		"url": u, "app": wardenAppURL, "stops": anys(wardenDisplayStops(sp.doc)),
-		"how": "Open url on the tablet: it shows today and the coming week (one-off things large), the weather and the next departures of the stops. For a tablet that stays on: install the Warden Android app (app, an APK: allow installing from the browser), then open url on the tablet and press \"Avaa sovelluksessa\"; the app keeps the screen on while charging and can be the tablet's screensaver (Settings → Display → Screen saver → Warden). Anyone with the address sees what the display shows; reset (the owner) makes a new one.",
+	devs, err := s.displayDevices(ctx, sp)
+	if err != nil {
+		return nil, err
 	}
+	out["devices"], out["stops"] = devs, anys(wardenDisplayStops(sp.doc))
 	if q := strings.TrimSpace(argStr(a, "find_stop")); q != "" {
 		found, err := wardenFindStops(ctx, q)
 		if err != nil {
@@ -191,41 +258,143 @@ func (s *wardenService) homeDisplay(ctx context.Context, sp *wardenSpace, a map[
 	return out, nil
 }
 
+// pairs the device whose code this is with the space: its name
+func (s *wardenService) pairDisplay(ctx context.Context, sp *wardenSpace, code, name string) (string, error) {
+	code = strings.ReplaceAll(code, " ", "")
+	if !wardenCodeRe.MatchString(code) {
+		return "", roomErr{"the pairing code is the six digits the display shows"}
+	}
+	p, err := s.db.Get(ctx, wardenTVPairs, code)
+	if err != nil {
+		return "", err
+	}
+	exp, _ := p["expires"].(int64)
+	if f, ok := p["expires"].(float64); ok {
+		exp = int64(f)
+	}
+	if p == nil || s.now().UnixMilli() > exp {
+		return "", roomErr{"no such pairing code, or it is too old: the display shows a new one"}
+	}
+	devs, err := s.displayDevices(ctx, sp)
+	if err != nil {
+		return "", err
+	}
+	if len(devs) >= wardenMaxDevices {
+		return "", roomErr{fmt.Sprintf("a space has at most %d displays: remove one first", wardenMaxDevices)}
+	}
+	if name == "" {
+		name = docStr(p, "name")
+	}
+	if name == "" {
+		name = "Kotinäyttö"
+	}
+	if len([]rune(name)) > 40 {
+		name = string([]rune(name)[:40])
+	}
+	hash := docStr(p, "hash")
+	if err := s.db.Set(ctx, wardenTVDevices, hash, Doc{"space": sp.id, "name": name, "by": sp.who.name, "uid": sp.who.uid, "at": s.now().UnixMilli()}); err != nil {
+		return "", err
+	}
+	s.db.Delete(ctx, wardenTVPairs, code)
+	return name, nil
+}
+
+// a six-digit code, for a device to be paired with
+func wardenPairCode() string {
+	n, _ := rand.Int(rand.Reader, big.NewInt(1000000))
+	return fmt.Sprintf("%06d", n.Int64())
+}
+
 // ------------------------------------------------------------------- HTTP --
 
-func serveWardenDisplay(env *Env, w http.ResponseWriter, r *http.Request, p string) {
-	rest := strings.TrimPrefix(p, wardenDisplayPath)
-	tok, sub, _ := strings.Cut(rest, "/")
-	if len(tok) < 16 || !wardenIDRe.MatchString(tok) {
-		http.NotFound(w, r)
-		return
+// the device's secret, from Authorization: Bearer
+func wardenBearer(r *http.Request) string {
+	h := strings.TrimSpace(r.Header.Get("Authorization"))
+	if len(h) < 8 || !strings.EqualFold(h[:7], "bearer ") {
+		return ""
 	}
-	if why := wardenLimit("tv:" + tok); why != "" {
-		http.Error(w, "Too many requests", http.StatusTooManyRequests)
-		return
+	if t := strings.TrimSpace(h[7:]); wardenSecretRe.MatchString(t) {
+		return t
 	}
-	docs, ids, err := env.DB.WhereEq(r.Context(), wardenSpaces, "display", tok)
+	return ""
+}
+
+func wardenClientIP(r *http.Request) string {
+	if f := r.Header.Get("X-Forwarded-For"); f != "" {
+		return strings.TrimSpace(strings.Split(f, ",")[0])
+	}
+	h, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		http.Error(w, "The display could not be reached", http.StatusServiceUnavailable)
-		return
+		return r.RemoteAddr
 	}
-	if len(docs) != 1 {
-		http.NotFound(w, r)
-		return
-	}
-	sp := &wardenSpace{id: ids[0], doc: docs[0]}
-	switch {
-	case sub == "" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+	return h
+}
+
+func serveWardenDisplay(env *Env, w http.ResponseWriter, r *http.Request, p string) {
+	sub := strings.Trim(strings.TrimPrefix(p, wardenDisplayPath), "/")
+	if sub == "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("X-Robots-Tag", "noindex")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		io.WriteString(w, wardenDisplayHTML)
+		return
+	}
+	secret := wardenBearer(r)
+	if secret == "" {
+		editorJSON(w, 401, map[string]any{"error": "This device is not paired.", "code": "unpaired"})
+		return
+	}
+	hash := wardenSecretHash(secret)
+	ctx := r.Context()
+	if sub == "pair" && r.Method == http.MethodPost {
+		if why := wardenPairLimit(wardenClientIP(r)); why != "" {
+			editorJSON(w, 429, map[string]string{"error": "Too many requests; try again in a few minutes."})
+			return
+		}
+		var in struct {
+			Name string `json:"name"`
+		}
+		json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&in)
+		code := wardenPairCode()
+		exp := env.warden.now().Add(wardenPairTTL)
+		if err := env.DB.Set(ctx, wardenTVPairs, code, Doc{"hash": hash, "name": strings.TrimSpace(in.Name), "expires": exp.UnixMilli()}); err != nil {
+			editorJSON(w, 503, map[string]string{"error": "Try again in a moment."})
+			return
+		}
+		editorJSON(w, 200, map[string]any{"code": code, "expires": exp.UTC().Format(time.RFC3339)})
+		return
+	}
+	if why := wardenLimit("tv:" + hash); why != "" {
+		editorJSON(w, 429, map[string]string{"error": "Too many requests"})
+		return
+	}
+	dev, err := env.DB.Get(ctx, wardenTVDevices, hash)
+	if err != nil {
+		editorJSON(w, 503, map[string]string{"error": "The display could not be reached"})
+		return
+	}
+	if dev == nil {
+		editorJSON(w, 401, map[string]any{"error": "This device is not paired.", "code": "unpaired"})
+		return
+	}
+	sd, err := env.DB.Get(ctx, wardenSpaces, docStr(dev, "space"))
+	if err != nil || sd == nil {
+		editorJSON(w, 503, map[string]string{"error": "The space could not be reached"})
+		return
+	}
+	sp := &wardenSpace{id: docStr(dev, "space"), doc: sd}
+	switch {
 	case sub == "data" && r.Method == http.MethodGet:
-		at := wardenLatLon(r)
-		out, err := env.warden.displayData(r.Context(), sp, at)
+		out, err := env.warden.displayData(ctx, sp, wardenLatLon(r))
 		if err != nil {
 			editorJSON(w, 503, map[string]string{"error": "The space could not be reached"})
 			return
+		}
+		out["device"] = docStr(dev, "name")
+		// when it was last seen, kept a minute apart
+		now := env.warden.now().UTC().Format("2006-01-02T15:04")
+		if docStr(dev, "seen") != now {
+			env.DB.Update(ctx, wardenTVDevices, hash, Doc{"seen": now})
 		}
 		editorJSON(w, 200, out)
 	case sub == "stops" && r.Method == http.MethodGet:
@@ -234,9 +403,9 @@ func serveWardenDisplay(env *Env, w http.ResponseWriter, r *http.Request, p stri
 		var dist []float64
 		var err error
 		if at := wardenLatLon(r); at != nil {
-			found, dist, err = wardenNearStops(r.Context(), at[0], at[1], 6, 1500)
+			found, dist, err = wardenNearStops(ctx, at[0], at[1], 6, 1500)
 		} else {
-			found, err = wardenFindStops(r.Context(), r.URL.Query().Get("q"))
+			found, err = wardenFindStops(ctx, r.URL.Query().Get("q"))
 		}
 		if err != nil {
 			editorJSON(w, 503, map[string]string{"error": "Nysse's stops could not be reached"})
@@ -244,7 +413,7 @@ func serveWardenDisplay(env *Env, w http.ResponseWriter, r *http.Request, p stri
 		}
 		l := []any{}
 		for i, f := range found {
-			m := map[string]any{"id": f.ID, "name": f.Name, "lines": anys(wardenStopLines(r.Context(), f.ID))}
+			m := map[string]any{"id": f.ID, "name": f.Name, "lines": anys(wardenStopLines(ctx, f.ID))}
 			if i < len(dist) {
 				m["m"] = int(dist[i])
 			}
@@ -259,7 +428,7 @@ func serveWardenDisplay(env *Env, w http.ResponseWriter, r *http.Request, p stri
 			editorJSON(w, 400, map[string]string{"error": "A JSON object is expected."})
 			return
 		}
-		if err := env.warden.setDisplayStops(r.Context(), sp, in.Stops); err != nil {
+		if err := env.warden.setDisplayStops(ctx, sp, in.Stops); err != nil {
 			code := 503
 			if _, ok := err.(roomErr); ok {
 				code = 400
