@@ -97,3 +97,7 @@ RangerGames library instead of sending base64: `write_files` with
 `{ path: "img/earth.jpg", library: "textures/planets/earth.jpg" }`. The library has
 `textures/planets/` `earth`, `mars`, `jupiter`, `mercury`, `venus`, `sun` (`.jpg`, 2048×1024, Solar System
 Scope, CC BY 4.0: credit "Solar System Scope" in the game).
+
+A game made in the RangerGames repository is brought here file by file without base64:
+`{ path: "models/m-kibo.glb", library: "games/marsiin/models/m-kibo.glb" }` copies a file of that
+game's pack in the RangerGames build (`packs/<game>.rgpk`, published from its main branch).
