@@ -28,6 +28,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -41,6 +42,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -508,6 +510,53 @@ type gamesWrite struct {
 // {path, library} instead of sending megabytes of base64
 var gamesLibraryFile = regexp.MustCompile(`^textures/[a-z0-9_-]{1,40}(/[a-z0-9_-]{1,40}){0,3}\.(jpg|png|webp)$`)
 
+// or a file of one of the RangerGames games, games/<game>/<path>: it is read
+// from the game's pack in the build (packs/<game>.rgpk), so a game made in
+// the RangerGames repository (big 3D models and all) can be brought here
+var gamesLibraryGameFile = regexp.MustCompile(`^games/([a-z0-9_-]{1,40})/([A-Za-z0-9_.-]{1,80}(/[A-Za-z0-9_.-]{1,80}){0,3})$`)
+
+// the most a RangerGames pack read for its files may be
+const gamesLibraryMaxPack = 100 << 20
+
+// one file out of a RangerGames pack: "RGPK1\n<count>\n" and then each file
+// as "<path>\n<length>\n<bytes>"
+func gamesPackFile(pack []byte, path string) ([]byte, bool) {
+	line := func(at int) (string, int, bool) {
+		i := bytes.IndexByte(pack[at:], '\n')
+		if i < 0 {
+			return "", 0, false
+		}
+		return string(pack[at : at+i]), at + i + 1, true
+	}
+	head, at, ok := line(0)
+	if !ok || head != "RGPK1" {
+		return nil, false
+	}
+	cs, at, ok := line(at)
+	n, err := strconv.Atoi(cs)
+	if !ok || err != nil {
+		return nil, false
+	}
+	for k := 0; k < n; k++ {
+		var name, ls string
+		if name, at, ok = line(at); !ok {
+			return nil, false
+		}
+		if ls, at, ok = line(at); !ok {
+			return nil, false
+		}
+		l, err := strconv.Atoi(ls)
+		if err != nil || l < 0 || at+l > len(pack) {
+			return nil, false
+		}
+		if name == path {
+			return pack[at : at+l], true
+		}
+		at += l
+	}
+	return nil, false
+}
+
 func gamesWrites(v any) ([]gamesWrite, error) {
 	list, _ := v.([]any)
 	if len(list) == 0 {
@@ -536,8 +585,8 @@ func gamesWrites(v any) ([]gamesWrite, error) {
 			}
 			data = []byte(t)
 		} else if lib, ok := m["library"].(string); ok {
-			if !gamesLibraryFile.MatchString(lib) {
-				return nil, roomErr{p + ": library is a picture under textures/ of the RangerGames library, like textures/planets/earth.jpg."}
+			if !gamesLibraryFile.MatchString(lib) && !gamesLibraryGameFile.MatchString(lib) || strings.Contains(lib, "..") {
+				return nil, roomErr{p + ": library is a picture under textures/ of the RangerGames library, like textures/planets/earth.jpg, or a RangerGames game's file, like games/marsiin/models/m-kibo.glb."}
 			}
 			if gamesExt(p) != gamesExt(lib) {
 				return nil, roomErr{p + ": give it the library file's extension (" + gamesExt(lib) + ")."}
@@ -576,9 +625,23 @@ func (s *gamesService) fetchLibrary(ctx context.Context, w []gamesWrite) error {
 		if s.engine == nil {
 			return roomErr{"this server has no RangerGames library"}
 		}
-		b, err := s.engine.get(ctx, s.engineSrc, w[i].library)
-		if err != nil {
-			return roomErr{w[i].library + ": not in the RangerGames library"}
+		var b []byte
+		if m := gamesLibraryGameFile.FindStringSubmatch(w[i].library); m != nil {
+			pack, err := s.engine.get(ctx, s.engineSrc, "packs/"+m[1]+".rgpk")
+			if err != nil || len(pack) > gamesLibraryMaxPack {
+				return roomErr{w[i].library + ": no RangerGames game " + m[1] + " in the build"}
+			}
+			f, ok := gamesPackFile(pack, m[2])
+			if !ok {
+				return roomErr{w[i].library + ": the game " + m[1] + " has no file " + m[2]}
+			}
+			b = f
+		} else {
+			f, err := s.engine.get(ctx, s.engineSrc, w[i].library)
+			if err != nil {
+				return roomErr{w[i].library + ": not in the RangerGames library"}
+			}
+			b = f
 		}
 		if len(b) > gamesMaxFile {
 			return roomErr{fmt.Sprintf("%s: %d bytes, more than one file may be (%d).", w[i].library, len(b), gamesMaxFile)}

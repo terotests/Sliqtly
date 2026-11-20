@@ -108,7 +108,7 @@ var gamesTools = []roomTool{
 				"path":    strProp("Path in the folder: game.json, game.tsx, style.css, lib/rules.ts, img/cat.png, sounds/hop.wav, models/knight.glb"),
 				"text":    strProp("The file as text (code, CSS, JSON)"),
 				"base64":  strProp("The file's bytes as base64 (pictures, sounds)"),
-				"library": strProp("Instead of base64: a picture of the RangerGames library to copy, e.g. textures/planets/earth.jpg (maps of the Sun, the planets and the Moon; games_guide topic 3d lists them)"),
+				"library": strProp("Instead of base64: a picture of the RangerGames library to copy, e.g. textures/planets/earth.jpg (maps of the Sun, the planets and the Moon; games_guide topic 3d lists them), or a file of a RangerGames game, games/<game>/<path> such as games/marsiin/models/m-kibo.glb (any file of its pack in the RangerGames build)"),
 			}, "required": []string{"path"}}}},
 		required: []string{"game_id", "files"}},
 	{name: "delete_files", title: "Delete files", destructive: true,
