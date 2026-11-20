@@ -283,6 +283,9 @@ func (s *gamesService) json(g *gamesGame, withFiles bool) map[string]any {
 	if g.doc["published"] == true {
 		out["link"] = s.playURL(docStr(g.doc, "link"))
 	}
+	if dl := s.downloadJSON(g); dl != nil {
+		out["downloadable"] = dl
+	}
 	fs := g.files()
 	var total int64
 	for _, f := range fs {
@@ -636,6 +639,12 @@ func (s *gamesService) change(ctx context.Context, g *gamesGame, writes []gamesW
 	var total int64
 	l := []gamesFile{}
 	keep := map[string]bool{}
+	// the accepted downloadable version's files stay (gamesdownload.go)
+	if docStr(g.doc, "download") == "accepted" {
+		for _, f := range g.dlFiles() {
+			keep[f.Sha] = true
+		}
+	}
 	for _, f := range files {
 		total += f.Size
 		l = append(l, f)
@@ -692,7 +701,22 @@ func (s *gamesService) deleteGame(ctx context.Context, g *gamesGame, a map[strin
 	return map[string]any{"deleted": g.id}, nil
 }
 
-func (s *gamesService) publish(ctx context.Context, g *gamesGame, a map[string]any) (any, error) {
+func (s *gamesService) publish(ctx context.Context, u gamesUser, g *gamesGame, a map[string]any) (any, error) {
+	// downloadable: the phone app's list (gamesdownload.go), apart from the link
+	note := ""
+	if v, ok := a["downloadable"].(bool); ok {
+		var err error
+		if note, err = s.publishDownload(ctx, u, g, v); err != nil {
+			return nil, err
+		}
+		if _, ok := a["published"]; !ok {
+			if _, ok := a["new_link"]; !ok {
+				out := s.json(g, false)
+				out["download_note"] = note
+				return out, nil
+			}
+		}
+	}
 	on := true
 	if v, ok := a["published"].(bool); ok {
 		on = v
@@ -707,6 +731,9 @@ func (s *gamesService) publish(ctx context.Context, g *gamesGame, a map[string]a
 	out := s.json(g, false)
 	if on {
 		out["note"] = "Anyone with the link plays the game, without signing in. new_link: true makes a new link and the old one stops working."
+	}
+	if note != "" {
+		out["download_note"] = note
 	}
 	return out, nil
 }
@@ -893,7 +920,7 @@ func (s *gamesService) call(ctx context.Context, who gamesWho, op string, a map[
 	case "restore_file":
 		return s.restoreFile(ctx, g, a)
 	case "publish_game":
-		return s.publish(ctx, g, a)
+		return s.publish(ctx, u, g, a)
 	case "delete_game":
 		return s.deleteGame(ctx, g, a)
 	case "speak":

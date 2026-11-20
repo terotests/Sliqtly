@@ -253,6 +253,20 @@
         }
       },
       {
+        "source": "/games/catalog.json",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/games/d/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/games/x/**",
         "run": {
           "serviceId": "sliqtly-mcp",

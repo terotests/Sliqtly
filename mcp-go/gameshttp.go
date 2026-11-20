@@ -128,8 +128,8 @@ var gamesTools = []roomTool{
 		props:    map[string]any{"game_id": gamesGameID, "name": strProp("The new name")},
 		required: []string{"game_id", "name"}},
 	{name: "publish_game", title: "Publish a game",
-		desc:     "Gives the game a secret link that anyone can play it with, no sign-in (published: false takes it away; new_link: true makes a new link and the old one stops). Ask the user before publishing.",
-		props:    map[string]any{"game_id": gamesGameID, "published": map[string]any{"type": "boolean", "description": "true (the default) publishes, false unpublishes"}, "new_link": map[string]any{"type": "boolean", "description": "A new secret link; the old one stops working"}},
+		desc:     "Gives the game a secret link that anyone can play it with, no sign-in (published: false takes it away; new_link: true makes a new link and the old one stops). downloadable: true is another, separate mode (Accepted Downloadable Game): the game is listed openly in the RangerGames phone app (⚙️ → Lataa pelejä), which installs it to play offline; the admin accepts it first, and each acceptance is a new version (later changes reach phones only when accepted again). downloadable alone leaves the link as it is. Ask the user before publishing.",
+		props:    map[string]any{"game_id": gamesGameID, "published": map[string]any{"type": "boolean", "description": "true (the default) publishes, false unpublishes"}, "new_link": map[string]any{"type": "boolean", "description": "A new secret link; the old one stops working"}, "downloadable": map[string]any{"type": "boolean", "description": "true asks the admin to list the game's current files in the phone app (an admin's own call accepts at once); false takes it out of the list"}},
 		required: []string{"game_id"}},
 	{name: "delete_game", title: "Delete a game", destructive: true,
 		desc:     "Deletes the game and its files for good.",
@@ -197,6 +197,10 @@ func serveGames(env *Env, w http.ResponseWriter, r *http.Request) bool {
 		serveGamesEngine(env, w, r)
 	case strings.HasPrefix(p, gamesPath+"/p/"):
 		serveGamesPlay(env, w, r, strings.TrimPrefix(p, gamesPath+"/p/"))
+	case p == gamesCatalogPath:
+		serveGamesCatalog(env, w, r)
+	case strings.HasPrefix(p, gamesDownPath):
+		serveGamesDownload(env, w, r, strings.TrimPrefix(p, gamesDownPath))
 	case strings.HasPrefix(p, gamesPath+"/x/"):
 		serveGamesExample(env, w, r, strings.TrimPrefix(p, gamesPath+"/x/"))
 	case p == gamesAdmin || strings.HasPrefix(p, gamesAdmin+"/"):
@@ -557,6 +561,12 @@ func (s *gamesService) adminCall(ctx context.Context, op string, a map[string]an
 		return s.ttsAdmin(ctx)
 	case "tts_set":
 		return s.ttsAdminSet(ctx, a)
+	case "downloads":
+		return s.adminDownloads(ctx)
+	case "download_accept":
+		return s.adminDownloadSet(ctx, a, true)
+	case "download_withdraw":
+		return s.adminDownloadSet(ctx, a, false)
 	case "agent":
 		return s.agentAdmin(ctx)
 	case "agent_set":

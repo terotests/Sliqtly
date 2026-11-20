@@ -156,6 +156,10 @@
     var n = el("span", g.name, "name"); left.appendChild(n);
     if (g.hidden) left.appendChild(el("span", "piilotettu", "tag hid"));
     else if (g.published) left.appendChild(el("span", "julkaistu", "tag pub"));
+    // Accepted Downloadable Game: listed in the phone app (⚙️ → Lataa pelejä)
+    var dl = g.downloadable || null;
+    if (!g.hidden && dl && dl.state === "accepted") left.appendChild(el("span", "ladattava v" + dl.version + (dl.asked ? " · uusi pyydetty" : ""), "tag pub"));
+    else if (!g.hidden && dl && dl.state === "asked") left.appendChild(el("span", "ladattavaksi pyydetty", "tag"));
     var info = el("div", "Muokattu " + new Date(g.updated).toLocaleString("fi-FI") + " · " + g.file_count + " tiedostoa · " + Math.round((g.bytes || 0) / 1024) + " kt", "muted");
     left.appendChild(info);
     d.appendChild(left);
@@ -172,6 +176,17 @@
           if (confirm("Julkaistaanko \"" + g.name + "\"? Kuka tahansa, jolla on linkki, voi pelata sitä kirjautumatta.")) act("publish", { game_id: g.game_id, published: true });
         });
       }
+    }
+    if (!g.hidden) {
+      if (dl && dl.state === "accepted" && !dl.asked) {
+        btn("Pyydä päivitys puhelimiin", "", function () {
+          if (confirm("Pyydetäänkö ylläpitäjää hyväksymään nykyiset tiedostot uutena versiona puhelinsovellukseen?")) act("publish", { game_id: g.game_id, downloadable: true });
+        });
+      }
+      if (dl) btn("Pois puhelinlistalta", "", function () { act("publish", { game_id: g.game_id, downloadable: false }); });
+      else btn("Ladattavaksi puhelimeen", "", function () {
+        if (confirm("Pyydetäänkö \"" + g.name + "\" ladattavaksi RangerGames-puhelinsovellukseen? Ylläpitäjä tarkistaa pelin ensin; hyväksytty peli näkyy kaikille sovelluksen pelilistassa.")) act("publish", { game_id: g.game_id, downloadable: true });
+      });
     }
     var sc = el("a", "Muokkaa koodia", "btn"); sc.href = "/games/source?game=" + encodeURIComponent(g.game_id); sc.title = "Pelin lähdekoodi vasemmalla, peli oikealla"; acts.appendChild(sc);
     if (agentOn) { var ed = el("a", "Muokkaa tekoälyllä", "btn"); ed.href = "/games/editor?game=" + encodeURIComponent(g.game_id); acts.appendChild(ed); }
