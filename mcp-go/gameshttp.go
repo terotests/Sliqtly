@@ -102,7 +102,7 @@ var gamesTools = []roomTool{
 		props:    map[string]any{"game_id": gamesGameID, "path": strProp("The file's path in the game's folder, e.g. game.tsx")},
 		required: []string{"game_id", "path"}},
 	{name: "write_files", title: "Write files",
-		desc: "Adds or replaces files in the game's folder (a virtual directory kept in the cloud): code and data as text, pictures (.png .jpg .webp .gif), sounds (.wav .mp3 .ogg) and 3D models (.glb, or .gltf + .bin) as base64. Up to 60 files a call, 8 MB a file, 100 MB and 1000 files a game. The preview_url plays the new files at once.",
+		desc: "Adds or replaces files in the game's folder (a virtual directory kept in the cloud): code and data as text, pictures (.png .jpg .webp .gif), sounds (.wav .mp3 .ogg) and 3D models (.glb, or .gltf + .bin) as base64. Up to 60 files a call, 8 MB a file, 250 MB and 1000 files a game. The preview_url plays the new files at once.",
 		props: map[string]any{"game_id": gamesGameID, "files": map[string]any{"type": "array", "description": "The files",
 			"items": map[string]any{"type": "object", "properties": map[string]any{
 				"path":    strProp("Path in the folder: game.json, game.tsx, style.css, lib/rules.ts, img/cat.png, sounds/hop.wav, models/knight.glb"),

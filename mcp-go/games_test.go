@@ -905,6 +905,49 @@ func TestGamesEditorPage(t *testing.T) {
 	}
 }
 
+// a big game's pack is streamed (no Content-Length, past Cloud Run's 32 MB
+// limit) and holds the same files as the one built in memory
+func TestGamesPackStreamed(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	tok := gamesToken(db, "u1", "admin@example.com", gamesBase+gamesMcpPath)
+	a := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Iso"})
+	pic := bytes.Repeat([]byte{7}, 3000)
+	wav := []byte("RIFF....WAVEfmt fake clip")
+	var fs []any
+	for i := 0; i < 40; i++ {
+		fs = append(fs, map[string]any{"path": fmt.Sprintf("img/t%d.png", i), "base64": base64.StdEncoding.EncodeToString(pic)})
+	}
+	fs = append(fs, map[string]any{"path": "voice/hei.wav", "base64": base64.StdEncoding.EncodeToString(wav)})
+	gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": a["game_id"], "files": fs})
+	id := a["game_id"].(string)
+	preview := gamesTokenOf(t, a["preview_url"])
+	get := func(path string) *httptest.ResponseRecorder {
+		return gamesServe(env, httptest.NewRequest("GET", path, nil))
+	}
+	for _, q := range []string{"", "?lazy=1", "?menu=0"} {
+		whole := get("/games/p/" + preview + "/game.rgpk" + q)
+		old := gamesPackStreamAbove
+		gamesPackStreamAbove = 1000
+		streamed := get("/games/p/" + preview + "/game.rgpk" + q)
+		gamesPackStreamAbove = old
+		if whole.Header().Get("Content-Length") == "" || streamed.Header().Get("Content-Length") != "" || streamed.Code != 200 {
+			t.Fatalf("%s: lengths %q %q code %d", q, whole.Header().Get("Content-Length"), streamed.Header().Get("Content-Length"), streamed.Code)
+		}
+		a, b := gamesUnpack(t, whole.Body.Bytes()), gamesUnpack(t, streamed.Body.Bytes())
+		if len(a) != len(b) || len(a) < 40 {
+			t.Fatalf("%s: %d files whole, %d streamed", q, len(a), len(b))
+		}
+		for k, v := range a {
+			if b[k] != v {
+				t.Fatalf("%s: %s differs", q, k)
+			}
+		}
+		if q == "?lazy=1" && (b[id+"/voice/hei.wav"] != "" || b[id+"/.remote.json"] == "") {
+			t.Fatal("streamed lazy pack keeps the clip")
+		}
+	}
+}
+
 // every pack (but ?menu=0) carries the launcher that restarts the game;
 // ?lazy=1 leaves the .wav files
 // to b/<sha>

@@ -34,6 +34,12 @@ const (
 	gamesTokenKeep   = 20 * time.Second
 )
 
+// a pack bigger than this is streamed file by file (chunked, no
+// Content-Length) instead of built in memory: Cloud Run refuses a response
+// of more than 32 MB that is not streamed, and a 250 MB game would not fit
+// an instance's memory (a var for the tests)
+var gamesPackStreamAbove int64 = 16 << 20
+
 type gamesPackOpts struct {
 	lazy bool
 	// the menu's files; nil: no menu
@@ -231,6 +237,14 @@ func serveGamesPack(env *Env, w http.ResponseWriter, r *http.Request, g *gamesGa
 		w.WriteHeader(304)
 		return
 	}
+	if gamesPackSize(g, o.lazy) > gamesPackStreamAbove {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		if err := env.games.streamPack(r.Context(), w, g, o); err != nil {
+			// the start is sent: the page sees a cut pack and says so
+			log.Printf("games pack %s (streamed): %v", g.id, err)
+		}
+		return
+	}
 	b, err := env.games.pack(r.Context(), g, o)
 	if err != nil {
 		gamesPackFail(w, g, err)
@@ -239,6 +253,72 @@ func serveGamesPack(env *Env, w http.ResponseWriter, r *http.Request, g *gamesGa
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.Itoa(len(b)))
 	w.Write(b)
+}
+
+// the bytes of the game's files a pack holds (the lazy pack leaves out .wav)
+func gamesPackSize(g *gamesGame, lazy bool) int64 {
+	var n int64
+	for _, f := range g.files() {
+		if !(lazy && gamesLazyFile(f.Path)) {
+			n += f.Size
+		}
+	}
+	return n
+}
+
+// the pack written as it is read: a few files at a time from Storage, each
+// sent (and flushed) before the next are read
+func (s *gamesService) streamPack(ctx context.Context, w http.ResponseWriter, g *gamesGame, o gamesPackOpts) error {
+	var read []gamesFile
+	remote := map[string]string{}
+	for _, f := range g.files() {
+		if o.lazy && gamesLazyFile(f.Path) {
+			remote[f.Path] = f.Sha
+		} else {
+			read = append(read, f)
+		}
+	}
+	n := len(read) + len(o.launcher)
+	if len(remote) > 0 {
+		n++
+	}
+	flusher, _ := w.(http.Flusher)
+	head := []byte("RGPK1\n" + strconv.Itoa(n) + "\n")
+	for _, f := range o.launcher {
+		head = append(head, "launcher/"+f.path+"\n"+strconv.Itoa(len(f.data))+"\n"...)
+		head = append(head, f.data...)
+	}
+	if _, err := w.Write(head); err != nil {
+		return err
+	}
+	for i := 0; i < len(read); i += gamesPackReaders {
+		batch := read[i:min(i+gamesPackReaders, len(read))]
+		data, err := s.readFiles(ctx, g.id, batch)
+		if err != nil {
+			return err
+		}
+		for j, f := range batch {
+			if _, err := w.Write([]byte(g.id + "/" + f.Path + "\n" + strconv.Itoa(len(data[j])) + "\n")); err != nil {
+				return err
+			}
+			if _, err := w.Write(data[j]); err != nil {
+				return err
+			}
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+	if len(remote) > 0 {
+		j, _ := json.Marshal(remote)
+		if _, err := w.Write([]byte(g.id + "/.remote.json\n" + strconv.Itoa(len(j)) + "\n")); err != nil {
+			return err
+		}
+		if _, err := w.Write(j); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func gamesPackFail(w http.ResponseWriter, g *gamesGame, err error) {
