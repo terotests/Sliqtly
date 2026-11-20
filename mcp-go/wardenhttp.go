@@ -13,6 +13,7 @@
 //	                              resource)
 //	GET  /apps/warden/cal/<token>.ics, /apps/warden/ics/<space>/<event>.ics
 //	                              the calendar out as iCalendar (wardenfeed.go)
+//	GET  /apps/warden/tv/<token>  the home display for a tablet (wardendisplay.go)
 //	GET  /.well-known/oauth-protected-resource/apps/warden/mcp   RFC 9728
 //
 // The page itself is static (Hosting, /apps/warden/).
@@ -174,6 +175,10 @@ var wardenTools = append([]roomTool{
 		desc:     "The address of the space's calendar as an iCalendar feed: subscribe to it in Apple Calendar on an iPhone or a Mac (webcal), Google Calendar or Outlook and the space's events stay there, changed when they change here. The address is the space's secret; reset (the owner) makes a new one and the old stops working.",
 		props:    map[string]any{"space_id": spaceIDProp, "reset": map[string]any{"type": "boolean", "description": "Make a new address; the old stops working"}},
 		required: []string{"space_id"}},
+	{name: "home_display", title: "Home display",
+		desc:     "The space's home display: a page for a tablet that stays on at home (in a browser, or in the Warden Android app, which keeps the screen on while charging and can be the tablet's screensaver). It shows the clock, today and the coming six days (one-off entries large, weekly ones small), the weather of the space's first place, and the next departures of the Nysse (Tampere's buses and trams) stops picked for it, each with all its lines or only some. Gives the display's address (url), the Android app's (app) and the stops. stops replaces the stops shown: [{stop: a stop's code like 0001 or its name, lines: [\"3\", \"8\"] or none for all}], at most 6; find_stop looks stops up by name (their codes). The address is the space's secret; reset (the owner) makes a new one and the old stops working.",
+		props:    map[string]any{"space_id": spaceIDProp, "reset": map[string]any{"type": "boolean", "description": "Make a new address; the old stops working"}, "find_stop": strProp("Look Nysse stops up by name: their codes and names"), "stops": map[string]any{"type": "array", "description": "The stops shown, replacing the ones there; [] for none", "items": map[string]any{"type": "object", "properties": map[string]any{"stop": strProp("The stop's code (0001) or name"), "lines": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Only these lines; leave out for all"}}, "required": []string{"stop"}}}},
+		required: []string{"space_id"}},
 	{name: "save_event", title: "Save an event",
 		desc:     "Make one entry (an event or a typed entry, see list_entry_types), or change one: give event_id to change it (only the fields given change). From a photo or a text the user gives (an invitation card, a school letter, a receipt), read the details and save them with the fitting type.",
 		props:    wardenWith(wardenEventProps, map[string]any{"space_id": spaceIDProp, "event_id": strProp("The event to change; leave out to make a new one")}),
@@ -322,6 +327,8 @@ func serveWarden(env *Env, w http.ResponseWriter, r *http.Request) bool {
 		serveWardenFeed(env, w, r, p)
 	case strings.HasPrefix(p, wardenPath+"/ics/"):
 		serveWardenEventICS(env, w, r, p)
+	case strings.HasPrefix(p, wardenDisplayPath):
+		serveWardenDisplay(env, w, r, p)
 	default:
 		// the page and its files are Hosting's
 		http.NotFound(w, r)
