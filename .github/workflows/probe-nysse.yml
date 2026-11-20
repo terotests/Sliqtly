@@ -1,0 +1,15 @@
+name: Probe Nysse (temporary)
+on:
+  push:
+    branches: [claude/project-thread-raepc3]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          set -x
+          curl -s -m 20 "https://data.itsfactory.fi/journeys/api/1/stop-points?name=Keskustori" | head -c 3000; echo
+          curl -s -m 20 "https://data.itsfactory.fi/journeys/api/1/stop-monitoring?stops=0001,0015" | head -c 6000; echo
+          curl -s -m 20 "https://data.itsfactory.fi/journeys/api/1/lines" | head -c 3000; echo
+          curl -s -m 20 "https://data.itsfactory.fi/journeys/api/1/stop-points/0001" | head -c 2000; echo
+          curl -s -m 20 -o /dev/null -w "digitransit %{http_code}\n" -X POST -H 'Content-Type: application/json' -d '{"query":"{stops(name:\"Keskustori\"){gtfsId name}}"}' https://api.digitransit.fi/routing/v2/waltti/gtfs/v1
