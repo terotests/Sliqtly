@@ -8,10 +8,8 @@ jobs:
     steps:
       - run: |
           B=https://data.itsfactory.fi/journeys/api/1
-          echo "== sm 0015"; curl -s -m 20 "$B/stop-monitoring?stops=0015" | head -c 3000; echo
-          echo "== sm 0002"; curl -s -m 20 "$B/stop-monitoring?stops=0002" | head -c 1500; echo
-          echo "== va"; curl -s -m 20 "$B/vehicle-activity" | head -c 5000; echo
-          echo "== va count"; curl -s -m 20 "$B/vehicle-activity?exclude-fields=monitoredVehicleJourney.onwardCalls" | grep -o '"lineRef":"[^"]*"' | sort | uniq -c | head -60
-          echo "== va stop"; curl -s -m 20 "$B/vehicle-activity?stopPointRef=0001" | head -c 1500; echo
-          echo "== journeys"; curl -s -m 30 "$B/journeys?stopPointId=0001&dayTypes=friday&firstStopDepartureTime=19:00" | head -c 3000; echo
-          echo "== siri"; curl -s -m 20 "https://data.itsfactory.fi/siriaccess/vm/json" | head -c 2000; echo
+          echo "== allstops"; curl -s -m 30 "$B/stop-points" | wc -c
+          echo "== journeys ex"; curl -s -m 30 "$B/journeys?stopPointId=0015&exclude-fields=calls" | head -c 1500; echo
+          echo "== journeys ex size"; curl -s -m 30 "$B/journeys?stopPointId=0015&exclude-fields=calls" | wc -c
+          echo "== journeys full size"; curl -s -m 30 "$B/journeys?stopPointId=0015" | wc -c
+          echo "== tram stop"; curl -s -m 30 "$B/stop-points?name=Hervannan%20kampus" | head -c 800; echo

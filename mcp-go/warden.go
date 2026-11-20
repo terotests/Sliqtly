@@ -1147,6 +1147,9 @@ func (s *wardenService) getSpace(ctx context.Context, sp *wardenSpace) (any, err
 	if space["calendar_feed"], err = s.feedURL(ctx, sp, false); err != nil {
 		return nil, err
 	}
+	if space["home_display"], err = s.displayURL(ctx, sp, false); err != nil {
+		return nil, err
+	}
 	// the caller's own email summary of it (wardensummary.go)
 	m, err := s.summaries(ctx, sp.who.uid)
 	if err != nil {
@@ -1540,6 +1543,8 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.importICS(ctx, sp, a)
 	case "calendar_feed":
 		return s.calendarFeed(ctx, sp, a)
+	case "home_display":
+		return s.homeDisplay(ctx, sp, a)
 	case "budget":
 		return s.budget(ctx, sp, a)
 	case "ask_question":

@@ -218,6 +218,13 @@
         }
       },
       {
+        "source": "/apps/warden/tv/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/apps/warden/login",
         "run": {
           "serviceId": "sliqtly-mcp",
