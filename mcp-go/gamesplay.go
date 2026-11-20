@@ -738,7 +738,7 @@ func (s *gamesService) play(ctx context.Context, g *gamesGame, a map[string]any,
 			w, h = sn.w, sn.h
 		}
 	}
-	pack, err := s.pack(ctx, g, gamesPackOpts{launcher: gamesLauncher()})
+	pack, err := s.pack(ctx, g, gamesPackOpts{launcher: gamesLauncher(), fit: gamesRunnerFit})
 	if err != nil {
 		return nil, err
 	}
