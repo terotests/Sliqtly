@@ -20,6 +20,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -40,8 +41,17 @@ const (
 // an instance's memory (a var for the tests)
 var gamesPackStreamAbove int64 = 16 << 20
 
+// the page asks for a pack in parts (?part=0, then the rest as the answer's
+// X-Pack-Parts says), each a pack of its own of at most this many bytes of
+// files, built in memory and sent with its length; the page joins them. A
+// streamed pack reached the page cut short through sliqtly.com's hosting.
+// (a var for the tests)
+var gamesPackPartMax int64 = 12 << 20
+
 type gamesPackOpts struct {
 	lazy bool
+	// which part (?part=) plus one; 0: the whole pack
+	part int
 	// the menu's files; nil: no menu
 	launcher []gamesStarterFile
 }
@@ -131,23 +141,51 @@ func (s *gamesService) readFiles(ctx context.Context, id string, fs []gamesFile)
 	return out, nil
 }
 
-// the game's own part of a pack: its entries and how many
-func (s *gamesService) packPart(ctx context.Context, g *gamesGame, lazy bool) (*gamesPackPart, error) {
-	key := g.id + "/" + docStr(g.doc, "rev") + "/" + strconv.FormatBool(lazy)
+// the files a pack reads, in parts of at most gamesPackPartMax bytes (one
+// file bigger than that is a part alone), and the clips a lazy pack leaves
+// out ({path: sha})
+func gamesPackSplit(g *gamesGame, lazy bool) ([][]gamesFile, map[string]string) {
+	var parts [][]gamesFile
+	var cur []gamesFile
+	var size int64
+	remote := map[string]string{}
+	for _, f := range g.files() {
+		if lazy && gamesLazyFile(f.Path) {
+			remote[f.Path] = f.Sha
+			continue
+		}
+		if len(cur) > 0 && size+f.Size > gamesPackPartMax {
+			parts = append(parts, cur)
+			cur, size = nil, 0
+		}
+		cur = append(cur, f)
+		size += f.Size
+	}
+	return append(parts, cur), remote
+}
+
+// the game's own part of a pack: its entries and how many; part -1 is all
+// of them, else one part of gamesPackSplit (the first carries .remote.json)
+func (s *gamesService) packPart(ctx context.Context, g *gamesGame, lazy bool, part int) (*gamesPackPart, error) {
+	key := g.id + "/" + docStr(g.doc, "rev") + "/" + strconv.FormatBool(lazy) + "/" + strconv.Itoa(part)
 	if rev := docStr(g.doc, "rev"); rev != "" {
 		if p := gamesPacks.get(key); p != nil {
 			return p, nil
 		}
 	}
-	fs := g.files()
+	parts, remote := gamesPackSplit(g, lazy)
 	var read []gamesFile
-	remote := map[string]string{}
-	for _, f := range fs {
-		if lazy && gamesLazyFile(f.Path) {
-			remote[f.Path] = f.Sha
-		} else {
-			read = append(read, f)
+	if part < 0 {
+		for _, p := range parts {
+			read = append(read, p...)
 		}
+	} else if part < len(parts) {
+		read = parts[part]
+		if part > 0 {
+			remote = nil
+		}
+	} else {
+		return nil, errGamesNoPart
 	}
 	data, err := s.readFiles(ctx, g.id, read)
 	if err != nil {
@@ -173,13 +211,17 @@ func (s *gamesService) packPart(ctx context.Context, g *gamesGame, lazy bool) (*
 }
 
 func (s *gamesService) pack(ctx context.Context, g *gamesGame, o gamesPackOpts) ([]byte, error) {
-	part, err := s.packPart(ctx, g, o.lazy)
+	part, err := s.packPart(ctx, g, o.lazy, o.part-1)
 	if err != nil {
 		return nil, err
 	}
+	launcher := o.launcher
+	if o.part > 1 {
+		launcher = nil
+	}
 	out := make([]byte, 0, len(part.body)+4096)
-	out = append(out, "RGPK1\n"+strconv.Itoa(part.count+len(o.launcher))+"\n"...)
-	for _, f := range o.launcher {
+	out = append(out, "RGPK1\n"+strconv.Itoa(part.count+len(launcher))+"\n"...)
+	for _, f := range launcher {
 		out = append(out, "launcher/"+f.path+"\n"+strconv.Itoa(len(f.data))+"\n"...)
 		out = append(out, f.data...)
 	}
@@ -221,6 +263,20 @@ func serveGamesPack(env *Env, w http.ResponseWriter, r *http.Request, g *gamesGa
 	if o.lazy {
 		tag += "-l"
 	}
+	if v := q.Get("part"); v != "" {
+		parts, _ := gamesPackSplit(g, o.lazy)
+		k, err := strconv.Atoi(v)
+		if err != nil || k < 0 || k >= len(parts) {
+			w.Header().Set("Cache-Control", "no-store")
+			http.NotFound(w, r)
+			return
+		}
+		o.part = k + 1
+		n := strconv.Itoa(len(parts))
+		w.Header().Set("X-Pack-Parts", n)
+		w.Header().Set("Access-Control-Expose-Headers", "ETag, X-Pack-Parts")
+		tag += "-p" + v + "." + n
+	}
 	// the launcher's version is in the tag, so a browser holding a pack with
 	// the old menu (or none) fetches the new one
 	if q.Get("menu") != "0" {
@@ -237,7 +293,7 @@ func serveGamesPack(env *Env, w http.ResponseWriter, r *http.Request, g *gamesGa
 		w.WriteHeader(304)
 		return
 	}
-	if gamesPackSize(g, o.lazy) > gamesPackStreamAbove {
+	if o.part == 0 && gamesPackSize(g, o.lazy) > gamesPackStreamAbove {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		if err := env.games.streamPack(r.Context(), w, g, o); err != nil {
 			// the start is sent: the page sees a cut pack and says so
@@ -320,6 +376,8 @@ func (s *gamesService) streamPack(ctx context.Context, w http.ResponseWriter, g 
 	}
 	return nil
 }
+
+var errGamesNoPart = errors.New("no such part of the pack")
 
 func gamesPackFail(w http.ResponseWriter, g *gamesGame, err error) {
 	log.Printf("games pack %s: %v", g.id, err)

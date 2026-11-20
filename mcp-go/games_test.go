@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -944,6 +945,63 @@ func TestGamesPackStreamed(t *testing.T) {
 		}
 		if q == "?lazy=1" && (b[id+"/voice/hei.wav"] != "" || b[id+"/.remote.json"] == "") {
 			t.Fatal("streamed lazy pack keeps the clip")
+		}
+	}
+}
+
+// ?part=k: the pack in parts, each a whole pack, that joined hold what the
+// whole pack holds (the launcher and .remote.json in the first)
+func TestGamesPackParts(t *testing.T) {
+	env, db, _ := gamesEnv(t)
+	tok := gamesToken(db, "u1", "admin@example.com", gamesBase+gamesMcpPath)
+	a := gamesMustTool(t, env, tok, "create_game", map[string]any{"name": "Osat"})
+	pic := bytes.Repeat([]byte{7}, 3000)
+	wav := []byte("RIFF....WAVEfmt fake clip")
+	var fs []any
+	for i := 0; i < 20; i++ {
+		fs = append(fs, map[string]any{"path": fmt.Sprintf("img/t%d.png", i), "base64": base64.StdEncoding.EncodeToString(pic)})
+	}
+	fs = append(fs, map[string]any{"path": "voice/hei.wav", "base64": base64.StdEncoding.EncodeToString(wav)})
+	gamesMustTool(t, env, tok, "write_files", map[string]any{"game_id": a["game_id"], "files": fs})
+	id := a["game_id"].(string)
+	preview := gamesTokenOf(t, a["preview_url"])
+	get := func(path string) *httptest.ResponseRecorder {
+		return gamesServe(env, httptest.NewRequest("GET", path, nil))
+	}
+	old := gamesPackPartMax
+	gamesPackPartMax = 10000
+	defer func() { gamesPackPartMax = old }()
+	for _, q := range []string{"?lazy=1", "?menu=0"} {
+		whole := gamesUnpack(t, get("/games/p/"+preview+"/game.rgpk"+q).Body.Bytes())
+		first := get("/games/p/" + preview + "/game.rgpk" + q + "&part=0")
+		n, _ := strconv.Atoi(first.Header().Get("X-Pack-Parts"))
+		if first.Code != 200 || n != 7 || first.Header().Get("Content-Length") == "" {
+			t.Fatalf("%s: part 0 code %d, %d parts", q, first.Code, n)
+		}
+		joined := gamesUnpack(t, first.Body.Bytes())
+		if q == "?lazy=1" && (joined[id+"/.remote.json"] == "" || joined["launcher/game.json"] == "") {
+			t.Fatalf("%s: part 0 lacks .remote.json or the launcher", q)
+		}
+		for k := 1; k < n; k++ {
+			r := get(fmt.Sprintf("/games/p/%s/game.rgpk%s&part=%d", preview, q, k))
+			part := gamesUnpack(t, r.Body.Bytes())
+			if r.Code != 200 || len(part) == 0 || part[id+"/.remote.json"] != "" || part["launcher/game.json"] != "" {
+				t.Fatalf("%s: part %d code %d, %d files", q, k, r.Code, len(part))
+			}
+			for f, v := range part {
+				joined[f] = v
+			}
+		}
+		if len(joined) != len(whole) {
+			t.Fatalf("%s: %d files joined, %d whole", q, len(joined), len(whole))
+		}
+		for f, v := range whole {
+			if joined[f] != v {
+				t.Fatalf("%s: %s differs", q, f)
+			}
+		}
+		if r := get("/games/p/" + preview + "/game.rgpk" + q + "&part=7"); r.Code != 404 {
+			t.Fatalf("%s: part past the end: %d", q, r.Code)
 		}
 	}
 }

@@ -197,6 +197,58 @@
         return sha ? dir + "b/" + sha : null;
       };
     }
+    // a game's pack comes in parts (?part=k, each a pack of its own of at
+    // most 12 MB; the first answer says how many in X-Pack-Parts), joined
+    // here into one: a big pack sent whole reached the page cut short
+    if (pack && host.download) {
+      var download = host.download;
+      host.download = function (url, size, onProgress) {
+        if (url !== pack) return download.call(host, url, size, onProgress);
+        var partURL = function (k) { return pack + (pack.indexOf("?") < 0 ? "?" : "&") + "part=" + k; };
+        return fetch(partURL(0)).then(function (r) {
+          if (!r.ok) throw new Error(partURL(0) + ": " + r.status);
+          var n = +r.headers.get("X-Pack-Parts") || 1, len = +r.headers.get("Content-Length") || 0;
+          var first = r.body && r.body.getReader ? readAll(r.body.getReader(), function (got) {
+            if (onProgress) onProgress(partURL(0), got, len);
+          }) : r.arrayBuffer();
+          var rest = [first];
+          for (var k = 1; k < n; k++) rest.push(download.call(host, partURL(k), 0, onProgress));
+          return Promise.all(rest).then(joinPacks);
+        });
+      };
+    }
+    function readAll(reader, onGot) {
+      var chunks = [], got = 0;
+      var pump = function () {
+        return reader.read().then(function (c) {
+          if (c.done) {
+            var out = new Uint8Array(got), at = 0;
+            chunks.forEach(function (x) { out.set(x, at); at += x.length; });
+            return out.buffer;
+          }
+          chunks.push(c.value); got += c.value.length;
+          onGot(got);
+          return pump();
+        });
+      };
+      return pump();
+    }
+    // packs ("RGPK1\n<count>\n" and the entries) as one
+    function joinPacks(bufs) {
+      if (bufs.length === 1) return bufs[0];
+      var count = 0, bodies = [], size = 0;
+      bufs.forEach(function (buf) {
+        var b = new Uint8Array(buf), a = b.indexOf(10), z = b.indexOf(10, a + 1);
+        count += parseInt(new TextDecoder().decode(b.subarray(a + 1, z)), 10);
+        bodies.push(b.subarray(z + 1));
+        size += b.length - z - 1;
+      });
+      var head = new TextEncoder().encode("RGPK1\n" + count + "\n");
+      var out = new Uint8Array(head.length + size), at = head.length;
+      out.set(head, 0);
+      bodies.forEach(function (b) { out.set(b, at); at += b.length; });
+      return out.buffer;
+    }
     host.boot("rg_web.wasm", pack || "games.rgpk").then(function () {
       if (window.parent !== window) window.parent.postMessage({ rgReady: true }, location.origin);
     }).catch(function (e) {
