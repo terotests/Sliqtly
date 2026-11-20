@@ -557,6 +557,11 @@ func gamesPackFile(pack []byte, path string) ([]byte, bool) {
 	return nil, false
 }
 
+// the RangerGames build's shared library at its GitHub Pages: map pictures
+// of the planets and the like, which a game copies with write_files
+// {path, library} instead of sending megabytes of base64
+var gamesLibraryFile = regexp.MustCompile(`^textures/[a-z0-9_-]{1,40}(/[a-z0-9_-]{1,40}){0,3}\.(jpg|png|webp)$`)
+
 func gamesWrites(v any) ([]gamesWrite, error) {
 	list, _ := v.([]any)
 	if len(list) == 0 {
