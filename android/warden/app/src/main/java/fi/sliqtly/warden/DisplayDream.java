@@ -16,19 +16,19 @@ public class DisplayDream extends DreamService implements Display.Host {
         setInteractive(false);
         setFullscreen(true);
         setScreenBright(true);
-        web = Display.make(this, this, false);
+        web = Display.make(this, this);
         setContentView(web);
     }
 
     @Override
     public void onDreamingStarted() {
         super.onDreamingStarted();
-        Display.load(this, web);
+        Display.load(web);
     }
 
     @Override
     public void reload() {
-        if (web != null) Display.load(this, web);
+        if (web != null) Display.load(web);
     }
 
     @Override

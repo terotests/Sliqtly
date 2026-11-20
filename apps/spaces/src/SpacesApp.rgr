@@ -210,6 +210,8 @@ class SpacesApp {
     def shown:[InputCtl]
     def nameField:InputCtl (new InputCtl())
     def inviteField:InputCtl (new InputCtl())
+    ; the pairing code a home display shows
+    def pairField:InputCtl (new InputCtl())
     def wardField:InputCtl (new InputCtl())
     ; the ward whose clothing is open on the Members page, and its fields
     def clothesOpen:string ""
@@ -2568,11 +2570,22 @@ class SpacesApp {
         def t:string (SpWords.pick(lang "Home display for a tablet" "Kotinäyttö tabletille"))
         hb.a11yLabel = t
         hb.addChild((SpacesApp.tx("sp-title" t)))
-        hb.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Today and this week (one-off things large), the weather and Nysse's departures, on a screen that stays on. Open the display on the tablet; on Android install the Warden app too: it keeps the screen on while charging and can be the screensaver. Pick the stops with the display's ⚙. Anyone with the address sees the display." "Tänään ja tällä viikolla (kertaluontoiset isolla), sää ja Nyssen lähdöt näytöllä, joka pysyy päällä. Avaa näyttö tabletilla; Androidilla asenna myös Warden-sovellus: se pitää näytön päällä laturissa ja voi toimia näytönsäästäjänä. Pysäkit valitaan näytön ⚙-painikkeesta. Jokainen, jolla on osoite, näkee näytön.")))))
+        hb.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Today and this week (one-off things large), the weather and Nysse's departures, on a screen that stays on. Open the display on the tablet (on Android install the Warden app: it keeps the screen on while charging and can be the screensaver). The display shows a code: enter it here to pair it. Only paired devices see the space." "Tänään ja tällä viikolla (kertaluontoiset isolla), sää ja Nyssen lähdöt näytöllä, joka pysyy päällä. Avaa näyttö tabletilla (Androidilla asenna Warden-sovellus: se pitää näytön päällä laturissa ja voi toimia näytönsäästäjänä). Näyttö näyttää koodin: syötä se tähän, niin näyttö liitetään. Vain liitetyt laitteet näkevät tilan.")))))
+        def pr:EVGElement (SpacesApp.box("sp-formrow"))
+        pr.addChild((this.field(pairField "sp-display-code" (SpWords.pick(lang "Pairing code" "Liitoskoodi")) "123 456" "text")))
+        pr.addChild((SpacesApp.btn("sp-display-pair" "sp-action sp-action-primary" (SpWords.pick(lang "Pair display" "Liitä näyttö")))))
+        hb.addChild(pr)
+        def i:int 0
+        while (i < (array_length space.displayIds)) {
+            def row:EVGElement (SpacesApp.box("sp-formrow"))
+            row.addChild((SpacesApp.tx("sp-meta" ("📺 " + (itemAt space.displayNames i)))))
+            row.addChild((SpacesApp.btn(("sp-display-rm-" + (to_string i)) "sp-action" (SpWords.pick(lang "Remove" "Poista")))))
+            hb.addChild(row)
+            i = (i + 1)
+        }
         def r:EVGElement (SpacesApp.box("sp-formrow"))
-        r.addChild((SpacesApp.btn("sp-display-open" "sp-action sp-action-primary" (SpWords.pick(lang "Open the display" "Avaa näyttö")))))
+        r.addChild((SpacesApp.btn("sp-display-open" "sp-action" (SpWords.pick(lang "Open the display" "Avaa näyttö")))))
         r.addChild((SpacesApp.btn("sp-display-app" "sp-action" (SpWords.pick(lang "Download the Android app" "Lataa Android-sovellus")))))
-        r.addChild((SpacesApp.btn("sp-display-copy" "sp-action" (SpWords.pick(lang "Copy address" "Kopioi osoite")))))
         hb.addChild(r)
         return hb
     }
@@ -3715,6 +3728,9 @@ class SpacesApp {
         }
         if (tid == "sp-invite-email") {
             return "sp-invite"
+        }
+        if (tid == "sp-display-code") {
+            return "sp-display-pair"
         }
         if (tid == "sp-place-name") {
             return "sp-place-find"
@@ -9470,6 +9486,17 @@ class SpacesApp {
             tab = "home"
             status = ((SpWords.pick(lang "Created " "Luotu ")) + space.name)
         }
+        if (c.op == "home_display") {
+            def devs:VlJson (o.get("devices"))
+            if (devs.isArray()) {
+                SpRemote.readDisplays(space devs)
+            }
+            def pn:string (o.stringOr("paired" ""))
+            if ((strlen pn) > 0) {
+                pairField.setValue("")
+                status = ((SpWords.pick(lang "Paired: " "Liitetty: ")) + pn)
+            }
+        }
         if (((c.op == "set_space") || (c.op == "invite_member")) || (c.op == "remove_member")) {
             if ((o.stringOr("space_id" "")) == spaceId) {
                 SpRemote.readMeta(space o)
@@ -9864,9 +9891,24 @@ class SpacesApp {
             action = "open:https://github.com/terotests/Sliqtly/releases/download/warden-android-latest/Warden.apk"
             return true
         }
-        if (target == "sp-display-copy") {
-            copyText = space.display
-            action = "copy"
+        if (target == "sp-display-pair") {
+            def code:string (trim pairField.value)
+            if ((strlen code) < 6) {
+                status = (SpWords.pick(lang "Write the code the display shows" "Kirjoita näytön näyttämä koodi"))
+                focused = "sp-display-code"
+                return true
+            }
+            this.queue("home_display" (SpRemote.body(([] _:string ( "space_id" spaceId "pair_code" code )))) code)
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-display-rm-")) {
+            def dn@(optional):int (to_int (substring target 14 (strlen target)))
+            if (!null? dn) {
+                def dk:int (unwrap dn)
+                if ((dk >= 0) && (dk < (array_length space.displayIds))) {
+                    this.queue("home_display" (SpRemote.body(([] _:string ( "space_id" spaceId "remove_device" (itemAt space.displayIds dk) )))) "")
+                }
+            }
             return true
         }
         if (target == "sp-feed-copyhttps") {

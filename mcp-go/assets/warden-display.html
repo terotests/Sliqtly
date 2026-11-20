@@ -77,6 +77,11 @@ h2 { margin: 0 0 10px; font-size: 15px; text-transform: uppercase; letter-spacin
 .banner.on { display: flex; }
 .btn { background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; cursor: pointer; text-decoration: none; color: var(--tx); }
 .btn.pri { background: var(--acc); color: #111; border-color: var(--acc); font-weight: 600; }
+.pairing { position: fixed; inset: 0; background: var(--bg); display: none; align-items: center; justify-content: center; text-align: center; padding: 24px; }
+.pairing.on { display: flex; }
+.pairing h1 { font-size: 34px; margin: 0 0 12px; }
+.pairing p { font-size: 20px; color: var(--mut); max-width: 640px; margin: 8px auto; }
+.pairing .code { font-size: 96px; font-weight: 800; letter-spacing: 14px; margin: 24px 0; font-variant-numeric: tabular-nums; color: var(--acc); }
 .sheet { position: fixed; inset: 0; background: #000a; display: none; align-items: center; justify-content: center; padding: 16px; }
 .sheet.on { display: flex; }
 .panel { background: var(--card); border-radius: 18px; padding: 20px; width: min(640px, 100%); max-height: 100%; overflow: auto; }
@@ -127,6 +132,14 @@ h2 { margin: 0 0 10px; font-size: 15px; text-transform: uppercase; letter-spacin
   <a class="btn" id="getapp" href="#">Lataa Android-sovellus</a>
   <button class="btn" id="nobanner" aria-label="Sulje">✕</button>
 </div>
+<div class="pairing" id="pair" role="dialog" aria-label="Paritus">
+  <div>
+    <h1>Liitä tämä näyttö Wardeniin</h1>
+    <p>Avaa Warden puhelimella tai koneella: <b>📱 → Kotinäyttö tabletille → Liitä näyttö</b> ja syötä koodi:</p>
+    <div class="code" id="pcode">······</div>
+    <p class="hint" id="pinfo">Koodi on voimassa 15 minuuttia. Näyttö avautuu itsestään, kun koodi on syötetty.</p>
+  </div>
+</div>
 <div class="sheet" id="sheet" role="dialog" aria-label="Pysäkit">
   <div class="panel">
     <h3>Nyssen pysäkit</h3>
@@ -137,7 +150,6 @@ h2 { margin: 0 0 10px; font-size: 15px; text-transform: uppercase; letter-spacin
     <div class="res" id="res"></div>
     <div class="err" id="err"></div>
     <div class="row">
-      <button class="btn" id="appsetup" style="display:none;margin-right:auto">Vaihda näytön osoite</button>
       <button class="btn" id="cancel">Peruuta</button>
       <button class="btn pri" id="save">Tallenna</button>
     </div>
@@ -145,8 +157,29 @@ h2 { margin: 0 0 10px; font-size: 15px; text-transform: uppercase; letter-spacin
 </div>
 <script>
 "use strict";
-const BASE = location.pathname.replace(/\/+$/, "");
+const BASE = "/apps/warden/tv";
 const IN_APP = /WardenApp/.test(navigator.userAgent);
+// This device's own secret: the app's (kept in the app), or one this browser
+// made and keeps. It goes with every call; the server shows the space only
+// to a device a member has paired.
+function deviceKey() {
+  try { if (window.WardenApp && window.WardenApp.deviceKey) return window.WardenApp.deviceKey(); } catch {}
+  let k = null;
+  try { k = localStorage.getItem("warden-tv-key"); } catch {}
+  if (!k || k.length < 32) {
+    const b = new Uint8Array(32); crypto.getRandomValues(b);
+    k = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+    try { localStorage.setItem("warden-tv-key", k); } catch {}
+  }
+  return k;
+}
+const KEY = deviceKey();
+function api(path, opts) {
+  opts = opts || {};
+  opts.headers = Object.assign({ Authorization: "Bearer " + KEY }, opts.headers || {});
+  opts.cache = "no-store";
+  return fetch(BASE + path, opts);
+}
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const DAYS = ["su", "ma", "ti", "ke", "to", "pe", "la"];
@@ -282,8 +315,10 @@ const hereQuery = () => (here ? "lat=" + here.lat + "&lon=" + here.lon : "");
 
 async function load() {
   try {
-    const r = await fetch(BASE + "/data" + (here ? "?" + hereQuery() : ""), { cache: "no-store" });
+    const r = await api("/data" + (here ? "?" + hereQuery() : ""));
+    if (r.status === 401) { pairing(); return; }
     if (!r.ok) throw new Error(r.status);
+    $("pair").classList.remove("on");
     data = await r.json();
     // the server's wall clock in the space's time zone, as this device's
     const srv = new Date(data.now);
@@ -299,6 +334,24 @@ async function load() {
   }
 }
 
+// Not paired: a code to enter in Warden, asked for again before it expires;
+// the display shows up by itself once a member has entered it
+let pairUntil = 0, pairBusy = false;
+async function pairing() {
+  $("pair").classList.add("on");
+  if (pairBusy || Date.now() < pairUntil) return;
+  pairBusy = true;
+  try {
+    const r = await api("/pair", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: IN_APP ? "Tabletti" : "Selain" }) });
+    const o = await r.json();
+    if (!r.ok) throw new Error(o.error || r.status);
+    $("pcode").textContent = o.code.slice(0, 3) + " " + o.code.slice(3);
+    pairUntil = Date.now() + 14 * 60 * 1000;
+  } catch (e) { $("pcode").textContent = "– – –"; $("pinfo").textContent = "Koodia ei saatu (" + e.message + "). Yritetään uudelleen…"; pairUntil = Date.now() + 30000; }
+  pairBusy = false;
+}
+setInterval(() => { if ($("pair").classList.contains("on")) load(); }, 5000);
+
 // the screen stays on while this page is shown (the Android app also keeps it on)
 let lock = null;
 async function wake() {
@@ -313,7 +366,7 @@ if (!IN_APP && /Android/.test(navigator.userAgent)) {
   try { hidden = localStorage.getItem("warden-tv-nobanner") === "1"; } catch {}
   if (!hidden) $("banner").classList.add("on");
 }
-const pageUrl = location.origin + BASE;
+const pageUrl = location.origin + BASE + "/";
 $("openapp").href = "intent://open?u=" + encodeURIComponent(pageUrl) + "#Intent;scheme=wardenhome;package=fi.sliqtly.warden;S.browser_fallback_url=" + encodeURIComponent("https://github.com/terotests/Sliqtly/releases/download/warden-android-latest/Warden.apk") + ";end";
 $("getapp").href = "https://github.com/terotests/Sliqtly/releases/download/warden-android-latest/Warden.apk";
 $("nobanner").onclick = () => { $("banner").classList.remove("on"); try { localStorage.setItem("warden-tv-nobanner", "1"); } catch {} };
@@ -341,7 +394,7 @@ $("q").addEventListener("input", () => {
   qTimer = setTimeout(async () => {
     $("res").innerHTML = '<div class="hint">Haetaan…</div>';
     try {
-      const r = await fetch(BASE + "/stops?q=" + encodeURIComponent(q));
+      const r = await api("/stops?q=" + encodeURIComponent(q));
       showFound((await r.json()).stops || []);
     } catch { $("res").innerHTML = '<div class="err">Haku ei onnistunut.</div>'; }
   }, 350);
@@ -356,7 +409,7 @@ $("nearby").onclick = () => {
   locate(async (p) => {
     if (!p) { $("res").innerHTML = '<div class="err">Sijaintia ei saatu. Salli sijainti tälle sivulle tai sovellukselle.</div>'; return; }
     $("res").innerHTML = '<div class="hint">Haetaan lähimpiä pysäkkejä…</div>';
-    try { const r = await fetch(BASE + "/stops?" + hereQuery()); showFound((await r.json()).stops || []); }
+    try { const r = await api("/stops?" + hereQuery()); showFound((await r.json()).stops || []); }
     catch { $("res").innerHTML = '<div class="err">Haku ei onnistunut.</div>'; }
   });
 };
@@ -371,18 +424,17 @@ $("gear").onclick = () => {
   chosen = (data && data.stops || []).filter((s) => !s.near).map((s) => ({ id: s.id, name: s.name, lines: (s.lines || []).slice(), all: [] }));
   // the lines each chosen stop has, to pick from
   chosen.forEach(async (s) => {
-    try { const r = await fetch(BASE + "/stops?q=" + encodeURIComponent(s.id)); const f = ((await r.json()).stops || []).find((x) => x.id === s.id); if (f) { s.all = f.lines || []; renderChosen(); } } catch {}
+    try { const r = await api("/stops?q=" + encodeURIComponent(s.id)); const f = ((await r.json()).stops || []).find((x) => x.id === s.id); if (f) { s.all = f.lines || []; renderChosen(); } } catch {}
   });
   $("err").textContent = ""; $("q").value = ""; $("res").innerHTML = "";
   renderChosen(); $("sheet").classList.add("on");
 };
 $("cancel").onclick = () => $("sheet").classList.remove("on");
-// in the Android app: its own setup page (another space's display)
-if (window.WardenApp && window.WardenApp.setup) { $("appsetup").style.display = ""; $("appsetup").onclick = () => window.WardenApp.setup(); }
+
 $("save").onclick = async () => {
   $("err").textContent = "";
   try {
-    const r = await fetch(BASE + "/stops", { method: "POST", headers: { "Content-Type": "application/json" },
+    const r = await api("/stops", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ stops: chosen.map((s) => ({ id: s.id, name: s.name, lines: s.lines })) }) });
     const o = await r.json();
     if (!r.ok) throw new Error(o.error || r.status);

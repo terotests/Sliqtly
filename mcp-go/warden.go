@@ -1147,7 +1147,8 @@ func (s *wardenService) getSpace(ctx context.Context, sp *wardenSpace) (any, err
 	if space["calendar_feed"], err = s.feedURL(ctx, sp, false); err != nil {
 		return nil, err
 	}
-	if space["home_display"], err = s.displayURL(ctx, sp, false); err != nil {
+	space["home_display"] = s.displayURL()
+	if space["home_displays"], err = s.displayDevices(ctx, sp); err != nil {
 		return nil, err
 	}
 	// the caller's own email summary of it (wardensummary.go)
@@ -1483,6 +1484,7 @@ var wardenWrites = map[string]bool{
 	"set_space": true, "invite_member": true, "remove_member": true, "add_ward": true, "set_ward": true, "remove_ward": true,
 	"save_event": true, "delete_event": true, "restore_event": true, "import_events": true, "import_ics": true,
 	"ask_question": true, "answer_question": true, "save_doc": true, "delete_doc": true, "doc_folder": true,
+	"home_display": true,
 }
 
 // the page asks for this now and then (wardenChangesOp): when the space last

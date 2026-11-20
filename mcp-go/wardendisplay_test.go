@@ -5,6 +5,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -77,24 +79,61 @@ func TestWardenDisplay(t *testing.T) {
 		map[string]any{"title": "Ensi viikolla", "date": "2026-11-26", "ext_id": "e"},
 		map[string]any{"title": "Liian kaukana", "date": "2026-11-27", "ext_id": "f"},
 	}})
-	code, out := wardenCall(t, base, "anna", "home_display", map[string]any{"space_id": sid})
-	eq(t, code != 200, true, "a stranger gets nothing")
-	code, out = wardenCall(t, base, "tero", "home_display", map[string]any{"space_id": sid, "stops": []any{map[string]any{"stop": "Keskustori", "lines": []any{"30", "8a"}}}})
-	eq(t, code, 200, "the owner sets a stop by its name")
-	u := out["url"].(string)
-	eq(t, out["stops"], []any{map[string]any{"id": "0015", "name": "Keskustori D", "lines": []any{"30", "8A"}}}, "the stop found, the lines kept upper case")
-	path := u[strings.Index(u, "/apps/warden/tv/"):]
-	_, sp := wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
-	eq(t, sp["space"].(map[string]any)["home_display"], u, "get_space names the display")
+	tv := base + "/apps/warden/tv/"
+	secret := "tablet-secret-0123456789abcdef0123456789"
+	call := func(method, p, key, body string) (int, string) {
+		t.Helper()
+		req, _ := http.NewRequest(method, tv+p, strings.NewReader(body))
+		if key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		return res.StatusCode, string(b)
+	}
 
-	res, page := editorDo(t, "GET", base+path, "", "", "")
-	eq(t, []any{res.StatusCode, strings.Contains(page, "wakeLock")}, []any{200, true}, "the page needs no sign-in and keeps the screen on")
-	res, body := editorDo(t, "GET", base+path+"/data", "", "", "")
-	eq(t, res.StatusCode, 200, "its data")
+	// the page holds nothing; its data needs a paired device
+	code, page := call("GET", "", "", "")
+	eq(t, []any{code, strings.Contains(page, "wakeLock"), strings.Contains(page, "Lapset")}, []any{200, true, false}, "the page is the same for everyone and keeps the screen on")
+	code, _ = call("GET", "data", "", "")
+	eq(t, code, 401, "no data without a device's secret")
+	code, body := call("GET", "data", secret, "")
+	eq(t, []any{code, strings.Contains(body, "unpaired")}, []any{401, true}, "nor with one not paired")
+	code, _ = call("GET", "data", "short", "")
+	eq(t, code, 401, "a secret is long")
+
+	// pairing: the device asks for a code, a member enters it
+	code, body = call("POST", "pair", secret, `{"name":"Eteisen tabletti"}`)
+	var pr struct{ Code string }
+	json.Unmarshal([]byte(body), &pr)
+	eq(t, []any{code, len(pr.Code)}, []any{200, 6}, "a six-digit code")
+	code, _ = wardenCall(t, base, "anna", "home_display", map[string]any{"space_id": sid, "pair_code": pr.Code})
+	eq(t, code != 200, true, "a stranger pairs nothing")
+	code, out = wardenCall(t, base, "tero", "home_display", map[string]any{"space_id": sid, "pair_code": "000000"})
+	eq(t, code, 400, "a wrong code")
+	code, out = wardenCall(t, base, "tero", "home_display", map[string]any{"space_id": sid, "pair_code": pr.Code[:3] + " " + pr.Code[3:],
+		"stops": []any{map[string]any{"stop": "Keskustori", "lines": []any{"30", "8a"}}}})
+	eq(t, code, 200, "the owner pairs it and sets a stop by its name")
+	eq(t, out["paired"], "Eteisen tabletti", "with the name the device gave")
+	eq(t, out["stops"], []any{map[string]any{"id": "0015", "name": "Keskustori D", "lines": []any{"30", "8A"}}}, "the stop found, the lines kept upper case")
+	devs := out["devices"].([]any)
+	eq(t, []any{len(devs), devs[0].(map[string]any)["name"], devs[0].(map[string]any)["paired_by"]}, []any{1, "Eteisen tabletti", "Tero"}, "the devices listed")
+	code, _ = wardenCall(t, base, "tero", "home_display", map[string]any{"space_id": sid, "pair_code": pr.Code})
+	eq(t, code, 400, "a code pairs once")
+	_, sp := wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
+	eq(t, []any{sp["space"].(map[string]any)["home_display"], len(sp["space"].(map[string]any)["home_displays"].([]any))}, []any{"https://sliqtly.test/apps/warden/tv/", 1}, "get_space names the page and the devices")
+
+	code, body = call("GET", "data", secret, "")
+	eq(t, code, 200, "the paired device sees its space")
 	var d struct {
-		Name string `json:"name"`
-		Now  string `json:"now"`
-		Days []struct {
+		Name   string `json:"name"`
+		Device string `json:"device"`
+		Now    string `json:"now"`
+		Days   []struct {
 			Day   string           `json:"day"`
 			Items []map[string]any `json:"items"`
 		} `json:"days"`
@@ -102,7 +141,7 @@ func TestWardenDisplay(t *testing.T) {
 		Stops   []map[string]any `json:"stops"`
 	}
 	json.Unmarshal([]byte(body), &d)
-	eq(t, []any{d.Name, d.Now, len(d.Days), d.Days[0].Day, d.Days[6].Day}, []any{"Kotona", "2026-11-20T09:30:00", 7, "2026-11-20", "2026-11-26"}, "seven days from today, in the space's time")
+	eq(t, []any{d.Name, d.Device, d.Now, len(d.Days), d.Days[0].Day, d.Days[6].Day}, []any{"Kotona", "Eteisen tabletti", "2026-11-20T09:30:00", 7, "2026-11-20", "2026-11-26"}, "seven days from today, in the space's time")
 	titles := func(i int) []any {
 		l := []any{}
 		for _, it := range d.Days[i].Items {
@@ -123,35 +162,34 @@ func TestWardenDisplay(t *testing.T) {
 	eq(t, deps[0], map[string]any{"line": "30", "to": "Pyynikintori", "at": "09:34", "min": float64(4), "live": true}, "the next one first, in the space's time")
 
 	// the display's own picker
-	res, body = editorDo(t, "GET", base+path+"/stops?q=keskustori", "", "", "")
-	eq(t, []any{res.StatusCode, strings.Contains(body, `"lines":["3","8A","30"]`)}, []any{200, true}, "stops found with their lines")
-	res, body = editorDo(t, "POST", base+path+"/stops", "", "", `{"stops":[{"id":"0015","name":"Keskustori D","lines":[]}]}`)
-	eq(t, []any{res.StatusCode, strings.Contains(body, `"lines":[]`)}, []any{200, true}, "the page sets the stops")
-	res, _ = editorDo(t, "POST", base+path+"/stops", "", "", `{"stops":[{"id":"0015","lines":["3; drop"]}]}`)
-	eq(t, res.StatusCode, 400, "a line is a line's number")
+	code, body = call("GET", "stops?q=keskustori", secret, "")
+	eq(t, []any{code, strings.Contains(body, `"lines":["3","8A","30"]`)}, []any{200, true}, "stops found with their lines")
+	code, _ = call("GET", "stops?q=keskustori", "", "")
+	eq(t, code, 401, "only for a paired device")
+	code, body = call("POST", "stops", secret, `{"stops":[{"id":"0015","name":"Keskustori D","lines":[]}]}`)
+	eq(t, []any{code, strings.Contains(body, `"lines":[]`)}, []any{200, true}, "the page sets the stops")
+	code, _ = call("POST", "stops", secret, `{"stops":[{"id":"0015","lines":["3; drop"]}]}`)
+	eq(t, code, 400, "a line is a line's number")
 
 	// the tablet's place: the stops nearest to it, and with none picked the
 	// display shows the two nearest
-	res, body = editorDo(t, "GET", base+path+"/stops?lat=61.4497&lon=23.8566", "", "", "")
-	eq(t, []any{res.StatusCode, strings.Count(body, `"m":`), strings.Contains(body, `"id":"0835","lines":["3","8A","30"],"m":120`)}, []any{200, 3, true}, "the nearest stops with their distance")
-	editorDo(t, "POST", base+path+"/stops", "", "", `{"stops":[]}`)
-	res, body = editorDo(t, "GET", base+path+"/data?lat=61.4497&lon=23.8566", "", "", "")
+	code, body = call("GET", "stops?lat=61.4497&lon=23.8566", secret, "")
+	eq(t, []any{code, strings.Count(body, `"m":`), strings.Contains(body, `"id":"0835","lines":["3","8A","30"],"m":120`)}, []any{200, 3, true}, "the nearest stops with their distance")
+	call("POST", "stops", secret, `{"stops":[]}`)
+	_, body = call("GET", "data?lat=61.4497&lon=23.8566", secret, "")
 	json.Unmarshal([]byte(body), &d)
 	eq(t, []any{len(d.Stops), d.Stops[0]["id"], d.Stops[0]["near"], d.Stops[0]["m"], d.Stops[1]["id"]}, []any{2, "0835", true, float64(120), "0836"}, "no stops picked: the two nearest")
-	_, body = editorDo(t, "GET", base+path+"/data", "", "", "")
+	_, body = call("GET", "data", secret, "")
 	d.Stops = nil
 	json.Unmarshal([]byte(body), &d)
 	eq(t, len(d.Stops), 0, "and none without the place")
 
-	// a new address: the old one stops working
-	code, _ = wardenCall(t, base, "anna", "home_display", map[string]any{"space_id": sid, "reset": true})
-	eq(t, code != 200, true, "only members, and only the owner resets")
-	_, out = wardenCall(t, base, "tero", "home_display", map[string]any{"space_id": sid, "reset": true})
-	eq(t, out["url"] != u, true, "a new address")
-	res, _ = editorDo(t, "GET", base+path+"/data", "", "", "")
-	eq(t, res.StatusCode, 404, "the old one is gone")
-	res, _ = editorDo(t, "GET", base+"/apps/warden/tv/short", "", "", "")
-	eq(t, res.StatusCode, 404, "a made-up address is nothing")
+	// unpairing: the device sees nothing more
+	id := devs[0].(map[string]any)["device_id"].(string)
+	code, out = wardenCall(t, base, "tero", "home_display", map[string]any{"space_id": sid, "remove_device": id})
+	eq(t, []any{code, len(out["devices"].([]any))}, []any{200, 0}, "removed")
+	code, _ = call("GET", "data", secret, "")
+	eq(t, code, 401, "the removed device is unpaired")
 }
 
 func TestNysseDistance(t *testing.T) {

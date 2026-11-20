@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Base64;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -16,41 +17,44 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import java.security.SecureRandom;
+
 /**
- * The home display in a WebView: the address kept by the app (the display
- * page's, sliqtly.com/apps/warden/tv/&lt;token&gt;), or the setup page
- * (assets/setup.html) while there is none. Shared by the app's screen and
+ * The home display (sliqtly.com/apps/warden/tv/) in a WebView. The page
+ * shows a space only to a paired device: this app's secret, made on its
+ * first start and kept in its private storage, goes with every call the
+ * page makes (Authorization: Bearer, over HTTPS). Until a member pairs it,
+ * the page shows a code to enter in Warden. Shared by the app's screen and
  * its screensaver.
  */
 final class Display {
-    static final String PREFS = "warden";
-    static final String KEY_URL = "url";
-    static final String SETUP = "file:///android_asset/setup.html";
+    static final String URL = "https://sliqtly.com/apps/warden/tv/";
+    private static final String PREFS = "warden";
+    private static final String KEY = "device_key";
 
-    /** an address the app shows: Warden's display page only */
+    /** a page the app shows: Warden's display only */
     static boolean isDisplayUrl(String u) {
         if (u == null) return false;
-        Uri p = Uri.parse(u.trim());
+        Uri p = Uri.parse(u);
         return "https".equals(p.getScheme()) && "sliqtly.com".equals(p.getHost())
-                && p.getPath() != null && p.getPath().matches("/apps/warden/tv/[A-Za-z0-9_-]{16,64}/?");
+                && p.getPath() != null && p.getPath().startsWith("/apps/warden/tv");
     }
 
-    static String url(Context c) {
-        return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_URL, "");
-    }
-
-    static boolean save(Context c, String u) {
-        if (!isDisplayUrl(u)) return false;
-        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_URL, u.trim()).apply();
-        return true;
-    }
-
-    static void clear(Context c) {
-        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_URL).apply();
+    /** this device's secret, made once */
+    static synchronized String deviceKey(Context c) {
+        SharedPreferences sp = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String k = sp.getString(KEY, "");
+        if (k.length() < 32) {
+            byte[] b = new byte[32];
+            new SecureRandom().nextBytes(b);
+            k = Base64.encodeToString(b, Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP);
+            sp.edit().putString(KEY, k).apply();
+        }
+        return k;
     }
 
     interface Host {
-        /** the setup page asks for the display again (a new address saved) */
+        /** the display again (after no network) */
         void reload();
 
         /** whether the app may tell the page where the tablet is */
@@ -58,16 +62,17 @@ final class Display {
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
-    static WebView make(final Context ctx, final Host host, boolean setupAllowed) {
+    static WebView make(final Context ctx, final Host host) {
         final WebView w = new WebView(ctx);
         w.setBackgroundColor(Color.parseColor("#0F1115"));
         WebSettings s = w.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        s.setUserAgentString(s.getUserAgentString() + " WardenApp/1");
+        s.setUserAgentString(s.getUserAgentString() + " WardenApp/2");
         s.setAllowFileAccess(false);
         s.setGeolocationEnabled(true);
+        final Handler h = new Handler(Looper.getMainLooper());
         // the display's page may know the tablet's place (the nearest stops)
         // when the app has the location permission
         w.setWebChromeClient(new WebChromeClient() {
@@ -77,13 +82,11 @@ final class Display {
                 cb.invoke(origin, "https".equals(o.getScheme()) && "sliqtly.com".equals(o.getHost()) && host.located(), false);
             }
         });
-        final Handler h = new Handler(Looper.getMainLooper());
         w.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
-                // only the display and the setup page open here
-                String u = req.getUrl().toString();
-                return !(isDisplayUrl(u) || u.startsWith(SETUP));
+                // only the display opens here
+                return !isDisplayUrl(req.getUrl().toString());
             }
 
             @Override
@@ -95,32 +98,21 @@ final class Display {
                 }
             }
         });
-        if (setupAllowed) {
-            w.addJavascriptInterface(new Object() {
-                @JavascriptInterface
-                public boolean save(String u) {
-                    boolean ok = Display.save(ctx, u);
-                    if (ok) h.post(new Runnable() { public void run() { host.reload(); } });
-                    return ok;
-                }
-
-                @JavascriptInterface
-                public void setup() {
-                    h.post(new Runnable() { public void run() { w.loadUrl(SETUP); } });
-                }
-
-                @JavascriptInterface
-                public String current() {
-                    return Display.url(ctx);
-                }
-            }, "WardenApp");
-        }
+        // the secret, for the display's own page only
+        w.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public String deviceKey() {
+                return isDisplayUrl(currentUrl[0]) ? Display.deviceKey(ctx) : "";
+            }
+        }, "WardenApp");
         return w;
     }
 
-    /** the display, or the setup page while there is no address */
-    static void load(Context ctx, WebView w) {
-        String u = url(ctx);
-        w.loadUrl(isDisplayUrl(u) ? u : SETUP);
+    // the page shown, as the JavaScript bridge (on another thread) may read it
+    private static final String[] currentUrl = {URL};
+
+    static void load(WebView w) {
+        currentUrl[0] = URL;
+        w.loadUrl(URL);
     }
 }
