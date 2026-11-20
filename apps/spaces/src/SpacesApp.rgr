@@ -829,6 +829,9 @@ class SpacesApp {
             def pop:EVGElement (SpacesApp.box("sp-phonepop"))
             def pc:EVGElement (this.feedCard())
             pc.role = "dialog"
+            if ((strlen space.display) > 0) {
+                pc.addChild((this.displayBox()))
+            }
             def cr:EVGElement (SpacesApp.box("sp-formrow"))
             cr.addChild((SpacesApp.btn("sp-phone-close" "sp-action" (SpWords.pick(lang "Close" "Sulje")))))
             pc.addChild(cr)
@@ -2506,7 +2509,11 @@ class SpacesApp {
             v.addChild(iv)
         }
         if (((strlen space.feed) > 0) && (phoneOpen == false)) {
-            v.addChild((this.feedCard()))
+            def fcard:EVGElement (this.feedCard())
+            if ((strlen space.display) > 0) {
+                fcard.addChild((this.displayBox()))
+            }
+            v.addChild(fcard)
         }
         if server {
             v.addChild((this.summaryCard()))
@@ -2550,6 +2557,24 @@ class SpacesApp {
             fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "iCal works in Google and Outlook; the Apple link opens the subscription straight in an iPhone's or Mac's calendar." "iCal-osoite käy Googleen ja Outlookiin; Apple-linkki avaa tilauksen suoraan iPhonen tai Macin kalenterissa.")))))
         }
         return fc
+    }
+
+    ; The home display for a tablet that stays on (wardendisplay.go): open it
+    ; on the tablet, and the Android app that keeps the screen on while
+    ; charging and is the tablet's screensaver.
+    fn displayBox:EVGElement () {
+        def hb:EVGElement (SpacesApp.box("sp-feedhow"))
+        hb.role = "group"
+        def t:string (SpWords.pick(lang "Home display for a tablet" "Kotinäyttö tabletille"))
+        hb.a11yLabel = t
+        hb.addChild((SpacesApp.tx("sp-title" t)))
+        hb.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Today and this week (one-off things large), the weather and Nysse's departures, on a screen that stays on. Open the display on the tablet; on Android install the Warden app too: it keeps the screen on while charging and can be the screensaver. Pick the stops with the display's ⚙. Anyone with the address sees the display." "Tänään ja tällä viikolla (kertaluontoiset isolla), sää ja Nyssen lähdöt näytöllä, joka pysyy päällä. Avaa näyttö tabletilla; Androidilla asenna myös Warden-sovellus: se pitää näytön päällä laturissa ja voi toimia näytönsäästäjänä. Pysäkit valitaan näytön ⚙-painikkeesta. Jokainen, jolla on osoite, näkee näytön.")))))
+        def r:EVGElement (SpacesApp.box("sp-formrow"))
+        r.addChild((SpacesApp.btn("sp-display-open" "sp-action sp-action-primary" (SpWords.pick(lang "Open the display" "Avaa näyttö")))))
+        r.addChild((SpacesApp.btn("sp-display-app" "sp-action" (SpWords.pick(lang "Download the Android app" "Lataa Android-sovellus")))))
+        r.addChild((SpacesApp.btn("sp-display-copy" "sp-action" (SpWords.pick(lang "Copy address" "Kopioi osoite")))))
+        hb.addChild(r)
+        return hb
     }
 
     ; How to add the picked calendar: straight into the phone's calendar
@@ -9827,6 +9852,21 @@ class SpacesApp {
             if (at > 0) {
                 action = ("open:webcal" + (substring u at (strlen u)))
             }
+            return true
+        }
+        if (target == "sp-display-open") {
+            if ((strlen space.display) > 0) {
+                action = ("open:" + space.display)
+            }
+            return true
+        }
+        if (target == "sp-display-app") {
+            action = "open:https://github.com/terotests/Sliqtly/releases/download/warden-android-latest/Warden.apk"
+            return true
+        }
+        if (target == "sp-display-copy") {
+            copyText = space.display
+            action = "copy"
             return true
         }
         if (target == "sp-feed-copyhttps") {

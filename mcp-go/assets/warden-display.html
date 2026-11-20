@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="robots" content="noindex">
+<title>Warden – kotinäyttö</title>
+<!-- Warden's home display (mcp-go/wardendisplay.go): today and the coming
+     week, the weather and Nysse's departures, for a tablet that stays on. -->
+<style>
+:root {
+  --bg: #0f1115; --card: #1a1d24; --card2: #222632; --tx: #eef0f4; --mut: #9aa1ad; --dim: #6b7280;
+  --acc: #f59e0b; --line: #2b303b; --ok: #34d399; --warn: #f87171;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--tx);
+  font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
+  transition: opacity 2s; overflow: hidden; }
+body.night { opacity: .45; }
+button { font: inherit; color: inherit; }
+.app { display: grid; grid-template-columns: 1.55fr 1fr; grid-template-rows: auto 1fr; gap: 16px; height: 100%; }
+header { grid-column: 1 / -1; display: flex; align-items: center; gap: 24px; }
+.clock { font-size: 72px; font-weight: 700; letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums; }
+.date { font-size: 24px; color: var(--mut); }
+.date b { color: var(--tx); font-weight: 600; display: block; font-size: 28px; }
+.grow { flex: 1; }
+.wxnow { display: flex; align-items: center; gap: 10px; font-size: 44px; font-weight: 600; }
+.wxnow small { display: block; font-size: 15px; color: var(--mut); font-weight: 400; }
+.gear { background: none; border: 0; font-size: 26px; opacity: .35; cursor: pointer; padding: 8px; }
+.col { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 16px; }
+.card { background: var(--card); border-radius: 18px; padding: 16px 18px; }
+h2 { margin: 0 0 10px; font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--mut); font-weight: 600; }
+.today { flex: 0 1 auto; }
+.once { display: flex; gap: 14px; align-items: flex-start; padding: 10px 14px; margin-bottom: 10px; border-radius: 14px;
+  background: var(--card2); border-left: 6px solid var(--acc); }
+.once .t { font-size: 26px; font-weight: 700; min-width: 86px; font-variant-numeric: tabular-nums; }
+.once .ti { font-size: 26px; font-weight: 600; }
+.once .meta { color: var(--mut); font-size: 17px; margin-top: 2px; }
+.once.imp .ti::after { content: " !"; color: var(--warn); }
+.once.past { opacity: .45; }
+.reps { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--mut); font-size: 16px; margin-top: 4px; }
+.reps span { white-space: nowrap; }
+.reps i { font-style: normal; color: var(--dim); font-variant-numeric: tabular-nums; }
+.empty { color: var(--dim); font-size: 18px; }
+.week { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.day { display: grid; grid-template-columns: 92px 1fr; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.day:first-of-type { border-top: 0; }
+.dn { font-weight: 700; font-size: 18px; }
+.dn small { display: block; color: var(--mut); font-weight: 400; font-size: 14px; }
+.wo { font-size: 19px; font-weight: 600; margin-bottom: 2px; }
+.wo .tm { color: var(--acc); font-variant-numeric: tabular-nums; margin-right: 6px; }
+.wo .who { color: var(--mut); font-weight: 400; font-size: 15px; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.hours { display: flex; gap: 6px; overflow: hidden; }
+.hours div { flex: 1; text-align: center; font-size: 14px; color: var(--mut); }
+.hours b { display: block; font-size: 22px; line-height: 1.3; }
+.hours em { display: block; font-style: normal; color: var(--tx); font-size: 17px; font-weight: 600; }
+.wdays { display: flex; justify-content: space-between; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.wdays div { text-align: center; font-size: 14px; color: var(--mut); }
+.wdays b { display: block; font-size: 22px; }
+.wdays em { font-style: normal; color: var(--tx); font-weight: 600; }
+.stops { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.stop + .stop { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.sname { font-weight: 600; font-size: 17px; margin-bottom: 6px; }
+.dep { display: grid; grid-template-columns: 54px 1fr auto; gap: 10px; align-items: center; padding: 4px 0; font-size: 19px; }
+.ln { background: #1d4ed8; color: #fff; border-radius: 8px; text-align: center; font-weight: 700; padding: 2px 0; }
+.ln.tram { background: #dc2626; }
+.dest { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mut); }
+.mins { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.mins small { font-weight: 400; color: var(--dim); font-size: 14px; margin-left: 4px; }
+.live::before { content: "● "; color: var(--ok); font-size: 11px; vertical-align: 3px; }
+.hint { color: var(--dim); font-size: 15px; }
+.banner { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); background: #111827; border: 1px solid var(--line);
+  border-radius: 14px; padding: 10px 14px; display: none; gap: 10px; align-items: center; box-shadow: 0 8px 30px #0008; }
+.banner.on { display: flex; }
+.btn { background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; cursor: pointer; text-decoration: none; color: var(--tx); }
+.btn.pri { background: var(--acc); color: #111; border-color: var(--acc); font-weight: 600; }
+.sheet { position: fixed; inset: 0; background: #000a; display: none; align-items: center; justify-content: center; padding: 16px; }
+.sheet.on { display: flex; }
+.panel { background: var(--card); border-radius: 18px; padding: 20px; width: min(640px, 100%); max-height: 100%; overflow: auto; }
+.panel h3 { margin: 0 0 6px; font-size: 22px; }
+.panel input[type=search] { width: 100%; font: inherit; font-size: 18px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--tx); }
+.res { margin: 10px 0; }
+.res .r, .chosen .r { padding: 10px; border-radius: 10px; background: var(--card2); margin-bottom: 8px; }
+.r .rn { font-weight: 600; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.r .ls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.r .ls label { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; cursor: pointer; }
+.r .ls input { margin-right: 4px; }
+.row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+.err { color: var(--warn); }
+@media (orientation: portrait), (max-width: 820px) {
+  body { overflow: auto; }
+  .app { grid-template-columns: 1fr; height: auto; }
+  .clock { font-size: 56px; }
+  .col { overflow: visible; }
+}
+@media (max-width: 560px) {
+  header { flex-wrap: wrap; gap: 12px; }
+  .once .t, .once .ti { font-size: 20px; }
+  .wxnow { font-size: 32px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="clock" id="clock">--:--</div>
+    <div class="date" id="date"></div>
+    <div class="grow"></div>
+    <div class="wxnow" id="wxnow"></div>
+    <button class="gear" id="gear" aria-label="Asetukset">⚙</button>
+  </header>
+  <div class="col">
+    <section class="card today" id="today"><h2>Tänään</h2></section>
+    <section class="card week" id="week"><h2>Tällä viikolla</h2></section>
+  </div>
+  <div class="col">
+    <section class="card" id="wx"><h2>Sää</h2></section>
+    <section class="card stops" id="stops"><h2>Lähdöt</h2></section>
+  </div>
+</div>
+<div class="banner" id="banner">
+  <span>Pidä näyttö aina päällä:</span>
+  <a class="btn pri" id="openapp" href="#">Avaa sovelluksessa</a>
+  <a class="btn" id="getapp" href="#">Lataa Android-sovellus</a>
+  <button class="btn" id="nobanner" aria-label="Sulje">✕</button>
+</div>
+<div class="sheet" id="sheet" role="dialog" aria-label="Pysäkit">
+  <div class="panel">
+    <h3>Nyssen pysäkit</h3>
+    <div class="hint">Hae pysäkki nimellä, valitse se ja halutessasi vain tietyt linjat (ei valintaa = kaikki linjat). Enintään 6 pysäkkiä.</div>
+    <div class="chosen" id="chosen" style="margin-top:12px"></div>
+    <input type="search" id="q" placeholder="Pysäkin nimi, esim. Keskustori tai Hervannan kampus" autocomplete="off">
+    <div class="res" id="res"></div>
+    <div class="err" id="err"></div>
+    <div class="row">
+      <button class="btn" id="appsetup" style="display:none;margin-right:auto">Vaihda näytön osoite</button>
+      <button class="btn" id="cancel">Peruuta</button>
+      <button class="btn pri" id="save">Tallenna</button>
+    </div>
+  </div>
+</div>
+<script>
+"use strict";
+const BASE = location.pathname.replace(/\/+$/, "");
+const IN_APP = /WardenApp/.test(navigator.userAgent);
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const DAYS = ["su", "ma", "ti", "ke", "to", "pe", "la"];
+const DAYS_LONG = ["sunnuntai", "maanantai", "tiistai", "keskiviikko", "torstai", "perjantai", "lauantai"];
+const COLORS = { blue: "#3b82f6", emerald: "#10b981", green: "#10b981", violet: "#8b5cf6", purple: "#8b5cf6", amber: "#f59e0b",
+  orange: "#f59e0b", yellow: "#f59e0b", rose: "#f43f5e", red: "#f43f5e", pink: "#f43f5e", cyan: "#06b6d4", teal: "#06b6d4",
+  indigo: "#6366f1", gray: "#9ca3af" };
+const GROUPS = { event: "#d9573f", activity: "#0d9488", care: "#db2777", health: "#16a34a", travel: "#0284c7", booking: "#a16207",
+  deadline: "#dc2626", reminder: "#7c3aed", financial: "#ca8a04", asset_action: "#475569" };
+const TRAMS = ["1", "3"];
+function colorOf(it) {
+  if (it.color) return COLORS[it.color] || (/^#/.test(it.color) ? it.color : null) || "#f59e0b";
+  if (it.ward_color) return COLORS[it.ward_color] || (/^#/.test(it.ward_color) ? it.ward_color : null) || "#f59e0b";
+  return GROUPS[it.group] || "#f59e0b";
+}
+function wxIcon(c) {
+  if (c === 0) return "☀️"; if (c === 1) return "🌤️"; if (c === 2) return "⛅"; if (c === 3) return "☁️";
+  if (c === 45 || c === 48) return "🌫️"; if (c >= 51 && c <= 57) return "🌦️"; if (c >= 61 && c <= 67) return "🌧️";
+  if (c >= 71 && c <= 77) return "🌨️"; if (c >= 80 && c <= 82) return "🌧️"; if (c >= 85 && c <= 86) return "🌨️";
+  if (c >= 95) return "⛈️"; return "·";
+}
+const deg = (t) => (t == null ? "" : Math.round(t) + "°");
+function dmy(s) { const d = new Date(s + "T12:00:00"); return d.getDate() + "." + (d.getMonth() + 1) + "."; }
+
+let data = null, serverOffset = 0;
+function nowLocal() { return new Date(Date.now() + serverOffset); }
+
+function tick() {
+  const n = nowLocal();
+  $("clock").textContent = String(n.getHours()).padStart(2, "0") + ":" + String(n.getMinutes()).padStart(2, "0");
+  $("date").innerHTML = "<b>" + DAYS_LONG[n.getDay()] + "</b>" + n.getDate() + "." + (n.getMonth() + 1) + "." + n.getFullYear();
+  const h = n.getHours();
+  document.body.classList.toggle("night", h >= 23 || h < 6);
+}
+
+function itemMeta(it) {
+  const m = [];
+  if (it.ward) m.push(esc(it.ward));
+  if (it.place) m.push(esc(it.place));
+  if (it.who) m.push(esc(it.who.join(", ")));
+  if (it.from) m.push(dmy(it.from) + "–" + dmy(it.until));
+  return m.join(" · ");
+}
+function timeOf(it) { return it.start ? it.start + (it.end ? "–" + it.end : "") : "koko päivän"; }
+
+function renderToday(day) {
+  const el = $("today");
+  const n = nowLocal(), hm = String(n.getHours()).padStart(2, "0") + ":" + String(n.getMinutes()).padStart(2, "0");
+  const once = day.items.filter((i) => i.once), reps = day.items.filter((i) => !i.once);
+  let h = "<h2>Tänään</h2>";
+  if (!once.length && !reps.length) h += '<div class="empty">Ei merkintöjä tälle päivälle.</div>';
+  for (const it of once) {
+    const past = it.end ? it.end < hm : (it.start && it.start < hm && false);
+    h += '<div class="once' + (it.important ? " imp" : "") + (past ? " past" : "") + '" style="border-left-color:' + colorOf(it) + '">' +
+      '<div class="t">' + (it.start ? esc(it.start) : '<span style="font-size:15px;line-height:1.2;display:block;color:var(--mut);font-weight:600">KOKO<br>PÄIVÄ</span>') + "</div><div><div class=\"ti\">" + esc(it.title) + "</div>" +
+      '<div class="meta">' + (it.start && it.end ? esc(it.start + "–" + it.end) + (itemMeta(it) ? " · " : "") : "") + itemMeta(it) + "</div></div></div>";
+  }
+  if (reps.length) {
+    h += '<div class="reps">' + reps.map((it) => '<span><span class="dot" style="background:' + colorOf(it) + '"></span><i>' +
+      esc(it.start || "") + "</i> " + esc(it.title) + (it.ward ? " (" + esc(it.ward) + ")" : "") + "</span>").join("") + "</div>";
+  }
+  el.innerHTML = h;
+}
+
+function renderWeek(days) {
+  let h = "<h2>Tällä viikolla</h2>";
+  for (const d of days) {
+    const dt = new Date(d.day + "T12:00:00");
+    const once = d.items.filter((i) => i.once), reps = d.items.filter((i) => !i.once);
+    h += '<div class="day"><div class="dn">' + DAYS[dt.getDay()] + " " + dt.getDate() + "." + (dt.getMonth() + 1) + ".";
+    const wd = data.weather && data.weather.days && data.weather.days.find((x) => x.day === d.day);
+    if (wd) h += "<small>" + wxIcon(wd.code) + " " + deg(wd.max) + "</small>";
+    h += "</div><div>";
+    for (const it of once) {
+      h += '<div class="wo"><span class="dot" style="background:' + colorOf(it) + '"></span>' +
+        (it.start ? '<span class="tm">' + esc(it.start) + "</span>" : "") + esc(it.title) +
+        (itemMeta(it) ? ' <span class="who">' + itemMeta(it) + "</span>" : "") + "</div>";
+    }
+    if (reps.length) h += '<div class="reps">' + reps.map((it) => "<span><i>" + esc(it.start || "") + "</i> " + esc(it.title) + "</span>").join("") + "</div>";
+    if (!once.length && !reps.length) h += '<div class="empty">–</div>';
+    h += "</div></div>";
+  }
+  $("week").innerHTML = h;
+}
+
+function renderWeather(w) {
+  if (!w) { $("wx").innerHTML = '<h2>Sää</h2><div class="hint">Säätietoja ei saatu.</div>'; $("wxnow").innerHTML = ""; return; }
+  $("wxnow").innerHTML = wxIcon(w.now.code) + "<span>" + deg(w.now.temp) + "<small>" + esc(w.place || "") + " · " + Math.round(w.now.wind) + " m/s</small></span>";
+  let h = "<h2>Sää · " + esc(w.place || "") + '</h2><div class="hours">';
+  for (const x of w.hours.slice(0, 8)) {
+    h += "<div>" + esc(x.time.slice(0, 2)) + "<b>" + wxIcon(x.code) + "</b><em>" + deg(x.temp) + "</em>" + (x.rain >= 30 ? Math.round(x.rain) + "%" : "&nbsp;") + "</div>";
+  }
+  h += '</div><div class="wdays">';
+  for (const d of w.days.slice(1, 7)) {
+    const dt = new Date(d.day + "T12:00:00");
+    h += "<div>" + DAYS[dt.getDay()] + "<b>" + wxIcon(d.code) + "</b><em>" + deg(d.max) + "</em> " + deg(d.min) + "</div>";
+  }
+  $("wx").innerHTML = h + "</div>";
+}
+
+function renderStops(stops) {
+  let h = "<h2>Lähdöt</h2>";
+  if (!stops.length) {
+    h += '<div class="hint">Valitse Nyssen pysäkit ja linjat ⚙-painikkeesta.</div>';
+  }
+  for (const s of stops) {
+    h += '<div class="stop"><div class="sname">' + esc(s.name || s.id) + (s.lines && s.lines.length ? ' <span class="hint">· ' + esc(s.lines.join(", ")) + "</span>" : "") + "</div>";
+    if (s.error) h += '<div class="hint">Lähtöjä ei saatu juuri nyt.</div>';
+    else if (!s.departures.length) h += '<div class="hint">Ei lähtöjä tiedossa juuri nyt.</div>';
+    for (const d of s.departures.slice(0, 5)) {
+      const m = d.min <= 0 ? "nyt" : d.min + " min";
+      h += '<div class="dep"><div class="ln' + (TRAMS.includes(d.line) ? " tram" : "") + '">' + esc(d.line) + '</div><div class="dest">' + esc(d.to || "") +
+        '</div><div class="mins' + (d.live ? " live" : "") + '">' + m + "<small>" + esc(d.at) + "</small></div></div>";
+    }
+    h += "</div>";
+  }
+  $("stops").innerHTML = h;
+}
+
+async function load() {
+  try {
+    const r = await fetch(BASE + "/data", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    data = await r.json();
+    // the server's wall clock in the space's time zone, as this device's
+    const srv = new Date(data.now);
+    if (!isNaN(srv)) serverOffset = srv - Date.now();
+    document.title = "Warden – " + (data.name || "kotinäyttö");
+    renderToday(data.days[0]);
+    renderWeek(data.days.slice(1));
+    renderWeather(data.weather);
+    renderStops(data.stops || []);
+    tick();
+  } catch (e) {
+    if (!data) $("today").innerHTML = '<h2>Tänään</h2><div class="hint">Näyttöä ei saatu ladattua. Yritetään uudelleen…</div>';
+  }
+}
+
+// the screen stays on while this page is shown (the Android app also keeps it on)
+let lock = null;
+async function wake() {
+  try { if ("wakeLock" in navigator && document.visibilityState === "visible" && !lock) { lock = await navigator.wakeLock.request("screen"); lock.addEventListener("release", () => { lock = null; }); } } catch { lock = null; }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { wake(); load(); } });
+document.addEventListener("click", wake, { once: true });
+
+// in a browser: the app keeps the screen on, offered once
+if (!IN_APP && /Android/.test(navigator.userAgent)) {
+  let hidden = false;
+  try { hidden = localStorage.getItem("warden-tv-nobanner") === "1"; } catch {}
+  if (!hidden) $("banner").classList.add("on");
+}
+const pageUrl = location.origin + BASE;
+$("openapp").href = "intent://open?u=" + encodeURIComponent(pageUrl) + "#Intent;scheme=wardenhome;package=fi.sliqtly.warden;S.browser_fallback_url=" + encodeURIComponent("https://github.com/terotests/Sliqtly/releases/download/warden-android-latest/Warden.apk") + ";end";
+$("getapp").href = "https://github.com/terotests/Sliqtly/releases/download/warden-android-latest/Warden.apk";
+$("nobanner").onclick = () => { $("banner").classList.remove("on"); try { localStorage.setItem("warden-tv-nobanner", "1"); } catch {} };
+
+// ⚙: the stops and lines shown
+let chosen = [];
+function renderChosen() {
+  $("chosen").innerHTML = chosen.length ? chosen.map((s, i) => '<div class="r"><div class="rn"><span>' + esc(s.name || s.id) + ' <span class="hint">' + esc(s.id) +
+    "</span></span><button class=\"btn\" data-rm=\"" + i + '">Poista</button></div>' + linesBox(s, i) + "</div>").join("") : '<div class="hint">Ei valittuja pysäkkejä.</div>';
+}
+function linesBox(s, i) {
+  if (!s.all || !s.all.length) return s.lines.length ? '<div class="hint">Linjat: ' + esc(s.lines.join(", ")) + "</div>" : "";
+  return '<div class="ls">' + s.all.map((l) => '<label><input type="checkbox" data-st="' + i + '" value="' + esc(l) + '"' + (s.lines.includes(l) ? " checked" : "") + ">" + esc(l) + "</label>").join("") + "</div>";
+}
+$("chosen").addEventListener("click", (e) => { const b = e.target.closest("[data-rm]"); if (b) { chosen.splice(+b.dataset.rm, 1); renderChosen(); } });
+$("chosen").addEventListener("change", (e) => {
+  const c = e.target; if (!c.dataset.st) return; const s = chosen[+c.dataset.st];
+  s.lines = s.lines.filter((l) => l !== c.value); if (c.checked) s.lines.push(c.value);
+});
+let found = [], qTimer = 0;
+$("q").addEventListener("input", () => {
+  clearTimeout(qTimer);
+  const q = $("q").value.trim();
+  if (q.length < 2) { $("res").innerHTML = ""; return; }
+  qTimer = setTimeout(async () => {
+    $("res").innerHTML = '<div class="hint">Haetaan…</div>';
+    try {
+      const r = await fetch(BASE + "/stops?q=" + encodeURIComponent(q));
+      found = (await r.json()).stops || [];
+      $("res").innerHTML = found.length ? found.map((s, i) => '<div class="r"><div class="rn"><span>' + esc(s.name) + ' <span class="hint">' + esc(s.id) +
+        (s.lines && s.lines.length ? " · " + esc(s.lines.join(", ")) : "") + '</span></span><button class="btn" data-add="' + i + '">Lisää</button></div></div>').join("") : '<div class="hint">Ei löytynyt.</div>';
+    } catch { $("res").innerHTML = '<div class="err">Haku ei onnistunut.</div>'; }
+  }, 350);
+});
+$("res").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-add]"); if (!b) return;
+  const s = found[+b.dataset.add];
+  if (chosen.length >= 6 || chosen.some((c) => c.id === s.id)) return;
+  chosen.push({ id: s.id, name: s.name, lines: [], all: s.lines || [] });
+  renderChosen();
+});
+$("gear").onclick = () => {
+  chosen = (data && data.stops || []).map((s) => ({ id: s.id, name: s.name, lines: (s.lines || []).slice(), all: [] }));
+  // the lines each chosen stop has, to pick from
+  chosen.forEach(async (s) => {
+    try { const r = await fetch(BASE + "/stops?q=" + encodeURIComponent(s.id)); const f = ((await r.json()).stops || []).find((x) => x.id === s.id); if (f) { s.all = f.lines || []; renderChosen(); } } catch {}
+  });
+  $("err").textContent = ""; $("q").value = ""; $("res").innerHTML = "";
+  renderChosen(); $("sheet").classList.add("on");
+};
+$("cancel").onclick = () => $("sheet").classList.remove("on");
+// in the Android app: its own setup page (another space's display)
+if (window.WardenApp && window.WardenApp.setup) { $("appsetup").style.display = ""; $("appsetup").onclick = () => window.WardenApp.setup(); }
+$("save").onclick = async () => {
+  $("err").textContent = "";
+  try {
+    const r = await fetch(BASE + "/stops", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stops: chosen.map((s) => ({ id: s.id, name: s.name, lines: s.lines })) }) });
+    const o = await r.json();
+    if (!r.ok) throw new Error(o.error || r.status);
+    $("sheet").classList.remove("on");
+    load();
+  } catch (e) { $("err").textContent = "Tallennus ei onnistunut: " + e.message; }
+};
+
+tick(); load(); wake();
+setInterval(tick, 1000 * 5);
+setInterval(load, 30 * 1000);
+// a fresh page now and then, so a change to the display reaches the tablet
+setTimeout(() => location.reload(), 6 * 60 * 60 * 1000);
+</script>
+</body>
+</html>

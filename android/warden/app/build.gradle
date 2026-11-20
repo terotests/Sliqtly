@@ -1,0 +1,44 @@
+// Warden's Android app: the home display (sliqtly.com/apps/warden/tv/<token>,
+// mcp-go/wardendisplay.go) in a WebView that fills the screen, keeps it on
+// while the tablet charges, and is the tablet's screensaver too. Plain
+// Android, no libraries. Built by .github/workflows/warden-android.yml.
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "fi.sliqtly.warden"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "fi.sliqtly.warden"
+        // Android 7.0: tablets from 2016 on
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    // One public key for every build, so a newer APK installs over the old
+    // one: the app is only sideloaded. A store build needs its own, secret key.
+    signingConfigs {
+        sideload {
+            storeFile file("../sideload.keystore")
+            storePassword "wardenapp"
+            keyAlias "warden"
+            keyPassword "wardenapp"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.sideload
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}

@@ -131,6 +131,7 @@ class SpRemote {
         s.lang = (o.stringOr("lang" s.lang))
         s.myRole = (o.stringOr("role" s.myRole))
         s.feed = (o.stringOr("calendar_feed" s.feed))
+        s.display = (o.stringOr("home_display" s.display))
         s.emailSummary = (o.stringOr("email_summary" s.emailSummary))
         def info:VlJson (o.get("info_screen"))
         if (info.isObject()) {

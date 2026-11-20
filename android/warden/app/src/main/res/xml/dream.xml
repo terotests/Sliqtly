@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- the screensaver's settings: none, the display's address is the app's -->
+<dream xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="fi.sliqtly.warden/.MainActivity" />
