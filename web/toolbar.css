@@ -292,3 +292,6 @@
 .pf-tag-pptx { background-color: #ffedd5; color: #c2410c; }
 .theme-tb .ui-checkbox-box-state-indeterminate { background-color: #2563eb; border-color: #2563eb; }
 .theme-tb .ui-checkbox-mark-state-indeterminate { stroke: #ffffff; }
+/* the side panel's rows under its head (PresToolbar.sideBody): the rest of
+   the panel's height, scrolled by the wheel or a finger */
+.tb-side-list { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 1px; flex-grow: 1; flex-shrink: 1; flex-basis: 0px; min-height: 0px; }
