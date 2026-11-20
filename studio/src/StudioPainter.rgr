@@ -1,0 +1,759 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; StudioPainter — EVGDisplayList → OpenGL for the Studio window
+; ==============================================================================
+;
+; Adapted from EVGSheets datagrid/platform/sdl/EvgGlPainter.rgr (AGPL-3.0,
+; Tero Tolonen): the text atlas and the clip stack are that file's. What the
+; Studio adds is what a game's picture needs and a spreadsheet does not:
+; pictures that stay on the GPU (StudioImages), crops and flips, rotation
+; about any point, gradients, a simple shadow and concave paths.
+;
+; Text runs are rasterized into one white-on-black atlas per frame with the
+; Ranger text renderer, at the window's pixel density.
+; ==============================================================================
+
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "../../game_engine/framebuffer.rgr"
+Import "../../game_engine/ui/UIContext.rgr"
+Import "../native/gfx_studio.rgr"
+Import "StudioImages.rgr"
+
+; One text run's place in the atlas: x/y/dw/dh in device pixels (where the
+; glyphs were rasterized), w/h/pad in page units (where the quad goes).
+class StudioAtlasSlot {
+    def u0:double 0.0
+    def v0:double 0.0
+    def u1:double 0.0
+    def v1:double 0.0
+    def x:double 0.0
+    def y:double 0.0
+    def dw:double 0.0
+    def dh:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def pad:double 2.0
+    def cmdIndex:int -1
+}
+
+class StudioPainter {
+    def atlas:SoftCanvas (new SoftCanvas)
+    def slots:[StudioAtlasSlot]
+    def atlasW:int 0
+    def atlasH:int 0
+    def fontFamily:string "Open Sans"
+    def clipStack:[double]
+    ; where a rotated box's top-left goes (rotation about its own centre is
+    ; what the GL layer does; any other origin moves the box)
+    def rx:double 0.0
+    def ry:double 0.0
+    def drawn:int 0
+
+    Constructor () {
+    }
+
+    ; --- clip ------------------------------------------------------------------
+    fn pushClipRect:void (x:double y:double w:double h:double) {
+        def cx:double x
+        def cy:double y
+        def x2:double (x + w)
+        def y2:double (y + h)
+        def n:int (array_length clipStack)
+        if (n >= 4) {
+            def ox:double (itemAt clipStack (n - 4))
+            def oy:double (itemAt clipStack (n - 3))
+            def ox2:double (ox + (itemAt clipStack (n - 2)))
+            def oy2:double (oy + (itemAt clipStack (n - 1)))
+            if (ox > cx) {
+                cx = ox
+            }
+            if (oy > cy) {
+                cy = oy
+            }
+            if (ox2 < x2) {
+                x2 = ox2
+            }
+            if (oy2 < y2) {
+                y2 = oy2
+            }
+        }
+        def cw:double (x2 - cx)
+        def ch:double (y2 - cy)
+        if (cw < 0.0) {
+            cw = 0.0
+        }
+        if (ch < 0.0) {
+            ch = 0.0
+        }
+        push clipStack cx
+        push clipStack cy
+        push clipStack cw
+        push clipStack ch
+    }
+
+    fn popClipRect:void () {
+        if ((array_length clipStack) >= 4) {
+            removeLast clipStack
+            removeLast clipStack
+            removeLast clipStack
+            removeLast clipStack
+        }
+    }
+
+    fn syncClip:void () {
+        def n:int (array_length clipStack)
+        if (n < 4) {
+            evg_clip_off
+            return
+        }
+        evg_clip (itemAt clipStack (n - 4)) (itemAt clipStack (n - 3)) (itemAt clipStack (n - 2)) (itemAt clipStack (n - 1))
+    }
+
+    fn rectInClip:boolean (x:double y:double w:double h:double) {
+        def n:int (array_length clipStack)
+        if (n < 4) {
+            return true
+        }
+        def cx:double (itemAt clipStack (n - 4))
+        def cy:double (itemAt clipStack (n - 3))
+        def cw:double (itemAt clipStack (n - 2))
+        def ch:double (itemAt clipStack (n - 1))
+        if (((x + w) <= cx) || (x >= (cx + cw))) {
+            return false
+        }
+        if (((y + h) <= cy) || (y >= (cy + ch))) {
+            return false
+        }
+        return true
+    }
+
+    ; --- text atlas --------------------------------------------------------------
+    fn applyFace:void (tr:UITextRenderer family:string bold:boolean italic:boolean) {
+        def base:string fontFamily
+        if ((strlen family) > 0) {
+            def probe:TrueTypeFont (tr.fm.getFont(family))
+            if (probe.unitsPerEm > 0) {
+                base = family
+            }
+        }
+        def want:string (UITextRenderer.faceName(base bold italic))
+        if (tr.fontFamily == want) {
+            return
+        }
+        def face:TrueTypeFont (tr.fm.getFont(want))
+        if (face.unitsPerEm > 0) {
+            tr.fontFamily = want
+            tr.applyFace()
+            return
+        }
+        if (want != base) {
+            def reg:TrueTypeFont (tr.fm.getFont(base))
+            if (reg.unitsPerEm > 0) {
+                tr.fontFamily = base
+                tr.applyFace()
+            }
+        }
+    }
+
+    sfn nextPow2:int (n:int) {
+        def p:int 1
+        while (p < n) {
+            p = (p * 2)
+        }
+        return p
+    }
+
+    sfn isBold:boolean (weight:string) {
+        if (weight == "bold") {
+            return true
+        }
+        if ((weight == "600") || (weight == "700") || (weight == "800") || (weight == "900")) {
+            return true
+        }
+        return false
+    }
+
+    fn buildAtlas:void (dl:EVGDisplayList tr:UITextRenderer scale:double) {
+        clear slots
+        def sc:double scale
+        if (sc < 0.5) {
+            sc = 1.0
+        }
+        if (sc > 4.0) {
+            sc = 4.0
+        }
+        def pad:int 2
+        def padPage:double ((to_double pad) / sc)
+        def measured:[StudioAtlasSlot]
+        def i:int 0
+        def n:int (dl.count())
+        while (i < n) {
+            def c:EVGDrawCmd (dl.at(i))
+            if ((c.kind == 3) && ((strlen c.text) > 0) && (c.fontSize > 0.5)) {
+                this.applyFace(tr c.fontFamily (StudioPainter.isBold(c.fontWeight)) (c.textAlign == "italic"))
+                def px:double (c.fontSize * sc)
+                def wf:double (tr.measureWidth(c.text px))
+                def hf:double (tr.lineHeight(px))
+                def imgW:double (to_double ((to_int (wf + 1.0)) + 2))
+                def imgH:double (to_double ((to_int (hf + 1.0)) + 2))
+                def slot:StudioAtlasSlot (new StudioAtlasSlot)
+                slot.cmdIndex = i
+                slot.dw = (imgW + (to_double (pad * 2)))
+                slot.dh = (imgH + (to_double (pad * 2)))
+                slot.w = (slot.dw / sc)
+                slot.h = (slot.dh / sc)
+                slot.pad = padPage
+                push measured slot
+            }
+            i = (i + 1)
+        }
+        if ((array_length measured) == 0) {
+            atlasW = 1
+            atlasH = 1
+            atlas.init(1 1)
+            atlas.clear(0 0 0)
+            return
+        }
+        def maxW:int 1024
+        def mi:int 0
+        while (mi < (array_length measured)) {
+            def m:StudioAtlasSlot (itemAt measured mi)
+            def mw:int (to_int m.dw)
+            if (mw > maxW) {
+                maxW = mw
+            }
+            mi = (mi + 1)
+        }
+        atlasW = (StudioPainter.nextPow2(maxW))
+        if (atlasW > 4096) {
+            atlasW = 4096
+        }
+        def x:int 0
+        def y:int 0
+        def rowH:int 0
+        def needH:int 0
+        mi = 0
+        while (mi < (array_length measured)) {
+            def m2:StudioAtlasSlot (itemAt measured mi)
+            def bw:int (to_int m2.dw)
+            def bh:int (to_int m2.dh)
+            if ((x + bw) > atlasW) {
+                x = 0
+                y = (y + rowH)
+                rowH = 0
+            }
+            m2.x = (to_double x)
+            m2.y = (to_double y)
+            x = (x + bw)
+            if (bh > rowH) {
+                rowH = bh
+            }
+            needH = (y + rowH)
+            mi = (mi + 1)
+        }
+        atlasH = (StudioPainter.nextPow2(needH))
+        if (atlasH < 1) {
+            atlasH = 1
+        }
+        atlas.init(atlasW atlasH)
+        atlas.clear(0 0 0)
+        ; white on black: the shader reads a colour channel as coverage
+        def ctx:UIContext (new UIContext)
+        ctx.attach(atlas)
+        ctx.tr = tr
+        mi = 0
+        while (mi < (array_length measured)) {
+            def m3:StudioAtlasSlot (itemAt measured mi)
+            def cmd:EVGDrawCmd (dl.at(m3.cmdIndex))
+            this.applyFace(tr cmd.fontFamily (StudioPainter.isBold(cmd.fontWeight)) (cmd.textAlign == "italic"))
+            def col:EVGColor (EVGColor.rgb(255 255 255))
+            def tx:int ((to_int m3.x) + pad)
+            def ty:int ((to_int m3.y) + pad)
+            ctx.text(cmd.text tx ty (cmd.fontSize * sc) col)
+            m3.u0 = (m3.x / (to_double atlasW))
+            m3.v0 = (m3.y / (to_double atlasH))
+            m3.u1 = ((m3.x + m3.dw) / (to_double atlasW))
+            m3.v1 = ((m3.y + m3.dh) / (to_double atlasH))
+            push slots m3
+            mi = (mi + 1)
+        }
+    }
+
+    ; --- geometry helpers ----------------------------------------------------------
+    ; Rotation about (ox, oy) of a box drawn rotated about its own centre: the
+    ; box keeps its size and its centre moves. Leaves the new corner in rx/ry.
+    fn placeRotated:void (c:EVGDrawCmd x:double y:double w:double h:double) {
+        rx = x
+        ry = y
+        if ((c.rotate == 0.0) || (c.hasRotOrigin == false)) {
+            return
+        }
+        def cx:double (x + (w / 2.0))
+        def cy:double (y + (h / 2.0))
+        def a:double ((c.rotate * 3.14159265358979) / 180.0)
+        def s:double (sin a)
+        def co:double (cos a)
+        def dx:double (cx - c.rotOriginX)
+        def dy:double (cy - c.rotOriginY)
+        def ncx:double ((c.rotOriginX + (dx * co)) - (dy * s))
+        def ncy:double ((c.rotOriginY + (dx * s)) + (dy * co))
+        rx = (ncx - (w / 2.0))
+        ry = (ncy - (h / 2.0))
+    }
+
+    ; A path's points, turned about the command's rotation origin.
+    fn turnedPoints:[double] (c:EVGDrawCmd) {
+        if (c.rotate == 0.0) {
+            return c.pts
+        }
+        def ox:double (c.x + (c.w / 2.0))
+        def oy:double (c.y + (c.h / 2.0))
+        if c.hasRotOrigin {
+            ox = c.rotOriginX
+            oy = c.rotOriginY
+        }
+        def a:double ((c.rotate * 3.14159265358979) / 180.0)
+        def s:double (sin a)
+        def co:double (cos a)
+        def out:[double]
+        def n:int (array_length c.pts)
+        def k:int 0
+        while ((k + 1) < n) {
+            def dx:double ((itemAt c.pts k) - ox)
+            def dy:double ((itemAt c.pts (k + 1)) - oy)
+            push out ((ox + (dx * co)) - (dy * s))
+            push out ((oy + (dx * s)) + (dy * co))
+            k = (k + 2)
+        }
+        return out
+    }
+
+    fn ringOf:[double] (pts:[double] ends:[int] index:int) {
+        def out:[double]
+        def start:int 0
+        if (index > 0) {
+            start = (itemAt ends (index - 1))
+        }
+        def stop:int (itemAt ends index)
+        if (stop > (array_length pts)) {
+            stop = (array_length pts)
+        }
+        def k:int start
+        while (k < stop) {
+            push out (itemAt pts k)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; Ear clipping, so a star or a letter shape fills as drawn. Big rings
+    ; (over 1500 points) fall back to a fan.
+    sfn triangulate:[double] (ring:[double]) {
+        def tris:[double]
+        def n:int (idiv (array_length ring) 2)
+        if (n < 3) {
+            return tris
+        }
+        def idx:[int]
+        def area:double 0.0
+        def i:int 0
+        while (i < n) {
+            push idx i
+            def j:int ((i + 1) % n)
+            area = (area + (((itemAt ring (i * 2)) * (itemAt ring ((j * 2) + 1))) - ((itemAt ring (j * 2)) * (itemAt ring ((i * 2) + 1)))))
+            i = (i + 1)
+        }
+        def ccw:boolean (area > 0.0)
+        if (n > 1500) {
+            def k:int 1
+            while ((k + 1) < n) {
+                push tris (itemAt ring 0)
+                push tris (itemAt ring 1)
+                push tris (itemAt ring (k * 2))
+                push tris (itemAt ring ((k * 2) + 1))
+                push tris (itemAt ring ((k + 1) * 2))
+                push tris (itemAt ring (((k + 1) * 2) + 1))
+                k = (k + 1)
+            }
+            return tris
+        }
+        def guard:int 0
+        def at:int 0
+        while (((array_length idx) > 3) && (guard < (n * n))) {
+            guard = (guard + 1)
+            def m:int (array_length idx)
+            if (at >= m) {
+                at = 0
+            }
+            def ia:int (itemAt idx ((at + (m - 1)) % m))
+            def ib:int (itemAt idx at)
+            def ic:int (itemAt idx ((at + 1) % m))
+            def ax:double (itemAt ring (ia * 2))
+            def ay:double (itemAt ring ((ia * 2) + 1))
+            def bx:double (itemAt ring (ib * 2))
+            def by:double (itemAt ring ((ib * 2) + 1))
+            def cx:double (itemAt ring (ic * 2))
+            def cy:double (itemAt ring ((ic * 2) + 1))
+            def cross:double (((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax)))
+            def convex:boolean (cross > 0.0)
+            if (ccw == false) {
+                convex = (cross < 0.0)
+            }
+            def ear:boolean convex
+            if ear {
+                def q:int 0
+                while (q < m) {
+                    def ip:int (itemAt idx q)
+                    if ((ip != ia) && (ip != ib) && (ip != ic)) {
+                        def px:double (itemAt ring (ip * 2))
+                        def py:double (itemAt ring ((ip * 2) + 1))
+                        def d1:double (((bx - ax) * (py - ay)) - ((by - ay) * (px - ax)))
+                        def d2:double (((cx - bx) * (py - by)) - ((cy - by) * (px - bx)))
+                        def d3:double (((ax - cx) * (py - cy)) - ((ay - cy) * (px - cx)))
+                        def hasNeg:boolean ((d1 < 0.0) || (d2 < 0.0) || (d3 < 0.0))
+                        def hasPos:boolean ((d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0))
+                        if ((hasNeg && hasPos) == false) {
+                            ear = false
+                            q = m
+                        }
+                    }
+                    q = (q + 1)
+                }
+            }
+            if ear {
+                push tris ax
+                push tris ay
+                push tris bx
+                push tris by
+                push tris cx
+                push tris cy
+                remove_index idx at
+            } {
+                at = (at + 1)
+            }
+        }
+        if ((array_length idx) == 3) {
+            def i0:int (itemAt idx 0)
+            def i1:int (itemAt idx 1)
+            def i2:int (itemAt idx 2)
+            push tris (itemAt ring (i0 * 2))
+            push tris (itemAt ring ((i0 * 2) + 1))
+            push tris (itemAt ring (i1 * 2))
+            push tris (itemAt ring ((i1 * 2) + 1))
+            push tris (itemAt ring (i2 * 2))
+            push tris (itemAt ring ((i2 * 2) + 1))
+        }
+        return tris
+    }
+
+    fn emitFill:void (c:EVGDrawCmd) {
+        def rf:double ((to_double c.r) / 255.0)
+        def gf:double ((to_double c.g) / 255.0)
+        def bf:double ((to_double c.b) / 255.0)
+        def pts:[double] (this.turnedPoints(c))
+        def i:int 0
+        while (i < (array_length c.ringEnds)) {
+            def ring:[double] (this.ringOf(pts c.ringEnds i))
+            def tris:[double] (StudioPainter.triangulate(ring))
+            if ((array_length tris) >= 6) {
+                evg_tris tris rf gf bf c.a
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn emitStroke:void (c:EVGDrawCmd) {
+        def half:double (c.thickness / 2.0)
+        if (half < 0.5) {
+            half = 0.5
+        }
+        def rf:double ((to_double c.r) / 255.0)
+        def gf:double ((to_double c.g) / 255.0)
+        def bf:double ((to_double c.b) / 255.0)
+        def pts:[double] (this.turnedPoints(c))
+        def i:int 0
+        while (i < (array_length c.ringEnds)) {
+            def ring:[double] (this.ringOf(pts c.ringEnds i))
+            def n:int (array_length ring)
+            def tris:[double]
+            def k:int 0
+            while ((k + 3) < n) {
+                def x1:double (itemAt ring k)
+                def y1:double (itemAt ring (k + 1))
+                def x2:double (itemAt ring (k + 2))
+                def y2:double (itemAt ring (k + 3))
+                def dx:double (x2 - x1)
+                def dy:double (y2 - y1)
+                def len:double (sqrt ((dx * dx) + (dy * dy)))
+                if (len > 0.0001) {
+                    ; a little past each end, so joints have no gaps
+                    def ex:double ((dx / len) * (half * 0.5))
+                    def ey:double ((dy / len) * (half * 0.5))
+                    def nx:double (((0.0 - dy) / len) * half)
+                    def ny:double ((dx / len) * half)
+                    def sx:double (x1 - ex)
+                    def sy:double (y1 - ey)
+                    def tx:double (x2 + ex)
+                    def ty:double (y2 + ey)
+                    push tris (sx + nx)
+                    push tris (sy + ny)
+                    push tris (tx + nx)
+                    push tris (ty + ny)
+                    push tris (tx - nx)
+                    push tris (ty - ny)
+                    push tris (sx + nx)
+                    push tris (sy + ny)
+                    push tris (tx - nx)
+                    push tris (ty - ny)
+                    push tris (sx - nx)
+                    push tris (sy - ny)
+                }
+                k = (k + 2)
+            }
+            if ((array_length tris) >= 6) {
+                evg_tris tris rf gf bf c.a
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- shapes --------------------------------------------------------------------
+    fn emitRect:void (c:EVGDrawCmd) {
+        if ((c.w <= 0.0) || (c.h <= 0.0)) {
+            return
+        }
+        def rf:double ((to_double c.r) / 255.0)
+        def gf:double ((to_double c.g) / 255.0)
+        def bf:double ((to_double c.b) / 255.0)
+        if c.hasShadow {
+            ; a soft-ish shadow: the box offset, in the shadow's colour, a
+            ; little bigger and rounder (no blur)
+            def grow:double (c.shadowBlur / 4.0)
+            evg_rect ((c.x + c.shadowX) - grow) ((c.y + c.shadowY) - grow) (c.w + (grow * 2.0)) (c.h + (grow * 2.0)) ((to_double c.shadowR) / 255.0) ((to_double c.shadowG) / 255.0) ((to_double c.shadowB) / 255.0) (c.shadowA * 0.6) (c.radius + grow)
+        }
+        this.placeRotated(c c.x c.y c.w c.h)
+        if (c.hasGrad && (c.rotate == 0.0)) {
+            this.emitGradient(c)
+            return
+        }
+        def a:double c.a
+        if c.hasGrad {
+            rf = ((rf + ((to_double c.r2) / 255.0)) / 2.0)
+            gf = ((gf + ((to_double c.g2) / 255.0)) / 2.0)
+            bf = ((bf + ((to_double c.b2) / 255.0)) / 2.0)
+            a = ((a + c.a2) / 2.0)
+        }
+        if (c.rotate != 0.0) {
+            evg_rect_rot rx ry c.w c.h rf gf bf a c.radius c.rotate
+        } {
+            evg_rect c.x c.y c.w c.h rf gf bf a c.radius
+        }
+    }
+
+    ; A linear gradient as strips (24, fewer for a small box). Rounded corners
+    ; are kept on the first and last strip only.
+    fn emitGradient:void (c:EVGDrawCmd) {
+        def across:boolean (c.gradDir == 1)
+        def len:double c.h
+        if across {
+            len = c.w
+        }
+        def steps:int (to_int (len / 4.0))
+        if (steps > 24) {
+            steps = 24
+        }
+        if (steps < 2) {
+            steps = 2
+        }
+        def r1:double ((to_double c.r) / 255.0)
+        def g1:double ((to_double c.g) / 255.0)
+        def b1:double ((to_double c.b) / 255.0)
+        def r2:double ((to_double c.r2) / 255.0)
+        def g2:double ((to_double c.g2) / 255.0)
+        def b2:double ((to_double c.b2) / 255.0)
+        if (c.radius > 0.0) {
+            ; the rounded outline in the middle colour, strips inside it
+            evg_rect c.x c.y c.w c.h ((r1 + r2) / 2.0) ((g1 + g2) / 2.0) ((b1 + b2) / 2.0) ((c.a + c.a2) / 2.0) c.radius
+        }
+        def inset:double 0.0
+        if (c.radius > 0.0) {
+            inset = (c.radius * 0.3)
+        }
+        def i:int 0
+        while (i < steps) {
+            def t:double (((to_double i) + 0.5) / (to_double steps))
+            def r:double (r1 + ((r2 - r1) * t))
+            def g:double (g1 + ((g2 - g1) * t))
+            def b:double (b1 + ((b2 - b1) * t))
+            def a:double (c.a + ((c.a2 - c.a) * t))
+            def p0:double ((len * (to_double i)) / (to_double steps))
+            def p1:double ((len * (to_double (i + 1))) / (to_double steps))
+            if across {
+                def sx0:double (c.x + p0)
+                def sw:double ((p1 - p0) + 2.0)
+                if ((i == 0) || (i == (steps - 1))) {
+                    if (inset > 0.0) {
+                        ; leave the rounded ends to the outline
+                        if (i == 0) {
+                            sx0 = (sx0 + inset)
+                        }
+                        sw = (sw - inset)
+                    }
+                }
+                evg_rect sx0 (c.y + inset) sw (c.h - (inset * 2.0)) r g b a 0.0
+            } {
+                def sy0:double (c.y + p0)
+                def sh:double ((p1 - p0) + 2.0)
+                if ((i == 0) || (i == (steps - 1))) {
+                    if (inset > 0.0) {
+                        if (i == 0) {
+                            sy0 = (sy0 + inset)
+                        }
+                        sh = (sh - inset)
+                    }
+                }
+                evg_rect (c.x + inset) sy0 (c.w - (inset * 2.0)) sh r g b a 0.0
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn emitImage:void (c:EVGDrawCmd images:StudioImages) {
+        if ((c.w <= 0.0) || (c.h <= 0.0)) {
+            return
+        }
+        if ((strlen c.src) == 0) {
+            return
+        }
+        def img:StudioImage (images.get(c.src ""))
+        if ((images.ensureUploaded(img)) == false) {
+            return
+        }
+        def u0:double 0.0
+        def v0:double 0.0
+        def u1:double 1.0
+        def v1:double 1.0
+        if c.hasCrop {
+            u0 = c.cropX
+            v0 = c.cropY
+            u1 = (c.cropX + c.cropW)
+            v1 = (c.cropY + c.cropH)
+        }
+        if c.flipH {
+            def t:double u0
+            u0 = u1
+            u1 = t
+        }
+        if c.flipV {
+            def t2:double v0
+            v0 = v1
+            v1 = t2
+        }
+        this.placeRotated(c c.x c.y c.w c.h)
+        evg_image_key rx ry c.w c.h img.key u0 v0 u1 v1 c.a c.radius c.rotate
+    }
+
+    ; --- the frame -----------------------------------------------------------------
+    fn draw:void (dl:EVGDisplayList pageW:int pageH:int tr:UITextRenderer images:StudioImages) {
+        def drawW:int (sh_drawable_w)
+        def drawH:int (sh_drawable_h)
+        if (drawW < 1) {
+            drawW = pageW
+        }
+        if (drawH < 1) {
+            drawH = pageH
+        }
+        def scale:double 1.0
+        if (pageW > 0) {
+            scale = ((to_double drawW) / (to_double pageW))
+        }
+        this.buildAtlas(dl tr scale)
+        evg_begin pageW pageH drawW drawH
+        evg_set_atlas (atlas.raw()) atlasW atlasH
+        clear clipStack
+        evg_clip_off
+        drawn = 0
+        def slotAt:int 0
+        def i:int 0
+        def n:int (dl.count())
+        while (i < n) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 4) {
+                this.pushClipRect(c.x c.y c.w c.h)
+                this.syncClip()
+            }
+            if (c.kind == 5) {
+                this.popClipRect()
+                this.syncClip()
+            }
+            if (c.kind == 0) {
+                if ((c.rotate != 0.0) || (this.rectInClip(c.x c.y c.w c.h))) {
+                    this.emitRect(c)
+                    drawn = (drawn + 1)
+                }
+            }
+            if (c.kind == 1) {
+                if ((c.rotate != 0.0) || (this.rectInClip(c.x c.y c.w c.h))) {
+                    def rf:double ((to_double c.r) / 255.0)
+                    def gf:double ((to_double c.g) / 255.0)
+                    def bf:double ((to_double c.b) / 255.0)
+                    def th:double c.thickness
+                    if (th <= 0.0) {
+                        th = 1.0
+                    }
+                    if (c.rotate != 0.0) {
+                        this.placeRotated(c c.x c.y c.w c.h)
+                        evg_border_rot rx ry c.w c.h th rf gf bf c.a c.radius c.rotate
+                    } {
+                        evg_border c.x c.y c.w c.h th rf gf bf c.a c.radius
+                    }
+                    drawn = (drawn + 1)
+                }
+            }
+            if (c.kind == 3) {
+                ; slots are in command order, so walk them alongside
+                def walking:boolean true
+                while (walking && (slotAt < (array_length slots))) {
+                    def ws:StudioAtlasSlot (itemAt slots slotAt)
+                    if (ws.cmdIndex < i) {
+                        slotAt = (slotAt + 1)
+                    } {
+                        walking = false
+                    }
+                }
+                if (slotAt < (array_length slots)) {
+                    def s:StudioAtlasSlot (itemAt slots slotAt)
+                    if (s.cmdIndex == i) {
+                        def tx:double (c.x - s.pad)
+                        def ty:double (c.y - s.pad)
+                        if ((c.rotate != 0.0) || (this.rectInClip(tx ty s.w s.h))) {
+                            def rf2:double ((to_double c.r) / 255.0)
+                            def gf2:double ((to_double c.g) / 255.0)
+                            def bf2:double ((to_double c.b) / 255.0)
+                            this.placeRotated(c tx ty s.w s.h)
+                            evg_text rx ry s.w s.h s.u0 s.v0 s.u1 s.v1 rf2 gf2 bf2 c.a c.rotate
+                            drawn = (drawn + 1)
+                        }
+                    }
+                }
+            }
+            if (c.kind == 2) {
+                if ((c.rotate != 0.0) || (this.rectInClip(c.x c.y c.w c.h))) {
+                    this.emitImage(c images)
+                    drawn = (drawn + 1)
+                }
+            }
+            if (c.kind == 6) {
+                this.emitFill(c)
+                drawn = (drawn + 1)
+            }
+            if (c.kind == 7) {
+                this.emitStroke(c)
+                drawn = (drawn + 1)
+            }
+            i = (i + 1)
+        }
+    }
+}

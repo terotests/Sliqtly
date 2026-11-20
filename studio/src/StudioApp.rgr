@@ -1,0 +1,817 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; StudioApp — Sliqtly Game Studio, the window
+; ==============================================================================
+;
+;   ┌──────────────────────────────────────────────────────────────────────┐
+;   │ Sliqtly Game Studio · project · game        [Tallenna] [Käynnistä]   │
+;   ├──────────┬──────────────────────────────────────┬────────────────────┤
+;   │ games    │ code editor (Ranger's own,           │ the game, running  │
+;   │ files    │ JS/TSX checked as you type)          │ natively           │
+;   │          ├──────────────────────────────────────┤                    │
+;   │          │ log                                  │                    │
+;   └──────────┴──────────────────────────────────────┴────────────────────┘
+;
+; The project is a folder on disk. The Studio never copies it anywhere: an AI
+; agent in a terminal (Claude Code, Cursor, OpenCode) edits the same files,
+; and the Studio notices within a second, reloads the open file and restarts
+; the game. Ctrl+S saves and restarts at once.
+;
+;   sliqtly-studio <folder> [--game id] [--file rel] [--frames N]
+;                           [--shot out.png] [--dump] [--hidden] [--size WxH]
+;
+; --frames N runs N frames at a fixed 60 fps and quits; --shot saves the
+; window then, --dump prints the last frame's draw commands. With xvfb-run
+; (Linux) this needs no screen: an AI agent can run it and look at the PNG.
+; ==============================================================================
+
+Import "../../datagrid/src/script/ScriptEditor.rgr"
+Import "../../datagrid/src/script/lang/EditorLanguage.rgr"
+Import "../../datagrid/src/script/lang/JsLanguage.rgr"
+Import "../../game_engine/framebuffer.rgr"
+Import "../../game_engine/ui/UIContext.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "../native/gfx_studio.rgr"
+Import "StudioImages.rgr"
+Import "StudioPainter.rgr"
+Import "GamePreview.rgr"
+
+class StudioFile {
+    def rel:string ""
+    def size:int 0
+    def text:boolean false
+}
+
+class StudioApp {
+    def W:int 1280
+    def H:int 800
+    def topH:int 40
+    def leftW:int 220
+    def logH:int 130
+    def rowH:int 22
+    def previewW:int 400
+    def fontFamily:string "Open Sans"
+    def fontDir:string "fonts"
+
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    def painter:StudioPainter (new StudioPainter)
+    def editor:ScriptEditor (new ScriptEditor)
+    def languages:LanguageRegistry (new LanguageRegistry)
+    def preview:GamePreview (new GamePreview)
+
+    def files:[StudioFile]
+    def fileScroll:int 0
+    def openRel:string ""
+    def openDisk:string ""
+    def openStamp:double 0.0
+    def savedVersion:int -1
+    def status:string ""
+    def logScroll:int 0
+    ; "editor" or "game": where the keys go
+    def focus:string "editor"
+    def lastMouseDown:boolean false
+    def lastFrameMs:double 0.0
+    def frameMsAvg:double 16.0
+    def hasWindow:boolean false
+
+    def bg:EVGColor (EVGColor.rgb(15 16 22))
+    def panel:EVGColor (EVGColor.rgb(22 24 33))
+    def bar:EVGColor (EVGColor.rgb(30 32 44))
+    def line:EVGColor (EVGColor.rgb(48 52 70))
+    def ink:EVGColor (EVGColor.rgb(206 214 234))
+    def muted:EVGColor (EVGColor.rgb(118 128 154))
+    def accent:EVGColor (EVGColor.rgb(122 162 247))
+    def good:EVGColor (EVGColor.rgb(158 206 106))
+    def warn:EVGColor (EVGColor.rgb(224 175 104))
+
+    Constructor () {
+    }
+
+    ; --- start ---------------------------------------------------------------------
+    fn initFonts:void () {
+        canvas.init(4 4)
+        ctx.attach(canvas)
+        ctx.tr.addFontDir(fontDir)
+        def ok:boolean (ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Regular.ttf"))
+        ctx.tr.fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        ctx.tr.fm.loadFont("Noto_Sans/NotoSans-Regular.ttf")
+        ctx.tr.fm.loadFont("Noto_Sans/NotoSans-Bold.ttf")
+        ; emoji as outlines (games use them for icons); colour emoji are not drawn
+        ctx.tr.fm.loadFont("Noto_Emoji/NotoEmoji-Regular.ttf")
+        if (ok == false) {
+            print ("[studio] no fonts in " + fontDir + " (set SLIQTLY_STUDIO_FONTS)")
+        }
+        painter.fontFamily = fontFamily
+        languages.add((new JsLanguage))
+    }
+
+    fn openProject:void (folder:string) {
+        preview.open(folder)
+        this.refreshFiles()
+        this.openFirstFile()
+        status = preview.status
+    }
+
+    ; the folder of the game being shown
+    fn gameDir:string () {
+        if preview.single {
+            return preview.root
+        }
+        return (GamePreview.joinPath(preview.root preview.gameId))
+    }
+
+    sfn isTextFile:boolean (rel:string) {
+        def e:string (GamePreview.extOf(rel))
+        def kinds:[string] ([] _:string ("tsx" "ts" "jsx" "js" "css" "json" "md" "txt" "html" "svg" "rgr" "yml" "yaml" "glsl"))
+        return ((indexOf kinds e) >= 0)
+    }
+
+    fn refreshFiles:void () {
+        clear files
+        def listing:string (sh_list_files (this.gameDir()))
+        def lines:[string] (strsplit listing "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) "\t")
+            if ((array_length parts) >= 2) {
+                def f:StudioFile (new StudioFile)
+                f.rel = (itemAt parts 0)
+                f.size = (?? (to_int (itemAt parts 1)) 0)
+                f.text = (StudioApp.isTextFile(f.rel))
+                push files f
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn openFirstFile:void () {
+        def want:[string] ([] _:string ("game.tsx" "game.ts" "game.jsx" "game.js" "game.json"))
+        def i:int 0
+        while (i < (array_length want)) {
+            def rel:string (itemAt want i)
+            if ((sh_exists (GamePreview.joinPath((this.gameDir()) rel))) == 1) {
+                this.openFile(rel)
+                return
+            }
+            i = (i + 1)
+        }
+        this.openFile("")
+    }
+
+    fn dirty:boolean () {
+        return (((strlen openRel) > 0) && (editor.buf.version != savedVersion))
+    }
+
+    fn openFile:void (rel:string) {
+        if (this.dirty()) {
+            this.save()
+        }
+        openRel = rel
+        if ((strlen rel) == 0) {
+            openDisk = ""
+            editor.init("")
+            savedVersion = editor.buf.version
+            return
+        }
+        openDisk = (GamePreview.joinPath((this.gameDir()) rel))
+        editor.init((sh_read_text openDisk))
+        editor.setLanguage((languages.forFile(rel)))
+        editor.focused = true
+        focus = "editor"
+        savedVersion = editor.buf.version
+        openStamp = (sh_file_mtime openDisk)
+    }
+
+    fn save:void () {
+        if ((strlen openDisk) == 0) {
+            return
+        }
+        def ok:int (sh_write_text openDisk (editor.text()))
+        if (ok == 1) {
+            savedVersion = editor.buf.version
+            openStamp = (sh_file_mtime openDisk)
+            status = ("saved " + openRel)
+            def changed:int (preview.syncFiles(false))
+            if (changed > 0) {
+                preview.restart()
+            }
+        } {
+            status = ("could not save " + openDisk)
+        }
+    }
+
+    ; Someone else (an AI agent, git, another editor) changed the open file.
+    fn checkOpenFile:void () {
+        if ((strlen openDisk) == 0) {
+            return
+        }
+        def now:double (sh_file_mtime openDisk)
+        if (now == openStamp) {
+            return
+        }
+        openStamp = now
+        if (this.dirty()) {
+            status = (openRel + " changed on disk; you have unsaved edits (Ctrl+S keeps yours)")
+            return
+        }
+        def caretLine:int editor.sel.caret.line
+        def scroll:int editor.layout.scrollLine
+        editor.init((sh_read_text openDisk))
+        editor.setLanguage((languages.forFile(openRel)))
+        savedVersion = editor.buf.version
+        editor.moveCaret(caretLine 0 false)
+        editor.layout.scrollLine = scroll
+        status = ("reloaded " + openRel + " from disk")
+    }
+
+    ; --- layout --------------------------------------------------------------------
+    fn layoutPreview:void () {
+        def pw:int (to_int ((to_double W) * 0.34))
+        if (pw > 480) {
+            pw = 480
+        }
+        if (pw < 240) {
+            pw = 240
+        }
+        previewW = pw
+        preview.setPanel((to_double (W - pw)) (to_double topH) (to_double pw) (to_double (H - topH)))
+    }
+
+    fn editorX:int () {
+        return leftW
+    }
+
+    fn editorW:int () {
+        return ((W - leftW) - previewW)
+    }
+
+    fn editorH:int () {
+        return (((H - topH) - logH) - 24)
+    }
+
+    fn buttonX:int (index:int) {
+        return ((W - previewW) - ((2 - index) * 112))
+    }
+
+    ; --- input ---------------------------------------------------------------------
+    fn handleInput:void () {
+        sh_poll
+        def ww:int (sh_window_w)
+        def wh:int (sh_window_h)
+        if ((ww >= 640) && (wh >= 400)) {
+            W = ww
+            H = wh
+        }
+        this.layoutPreview()
+        def mx:int (sh_mouse_x)
+        def my:int (sh_mouse_y)
+        def down:boolean ((bit_and (sh_mouse_buttons) 1) != 0)
+        def pressed:boolean (down && (lastMouseDown == false))
+        def released:boolean ((down == false) && lastMouseDown)
+        lastMouseDown = down
+        def shift:boolean ((sh_shift) == 1)
+        def ctrl:boolean ((sh_ctrl) == 1)
+        editor.setBounds((this.editorX()) topH (this.editorW()) (this.editorH()))
+
+        if pressed {
+            if (preview.inside(mx my)) {
+                focus = "game"
+                editor.focused = false
+            } {
+                if (editor.insideRect(mx my)) {
+                    focus = "editor"
+                    editor.focused = true
+                    editor.pointerDown(ctx.tr mx my shift)
+                } {
+                    this.clickChrome(mx my)
+                }
+            }
+        } {
+            if (down && (focus == "editor") && editor.focused) {
+                editor.pointerDrag(ctx.tr mx my)
+            }
+        }
+        preview.pointer(mx my down pressed released)
+
+        def wy:int (sh_wheel_y)
+        def wx:int (sh_wheel_x)
+        if (wy != 0) {
+            if (editor.insideRect(mx my)) {
+                editor.scrollBy((0 - wy))
+            } {
+                if ((mx < leftW) && (my > topH)) {
+                    fileScroll = (fileScroll - wy)
+                    if (fileScroll < 0) {
+                        fileScroll = 0
+                    }
+                } {
+                    if ((mx >= leftW) && (mx < (W - previewW)) && (my > (H - logH))) {
+                        logScroll = (logScroll + wy)
+                        if (logScroll < 0) {
+                            logScroll = 0
+                        }
+                    }
+                }
+            }
+        }
+        if ((wx != 0) && (editor.insideRect(mx my))) {
+            editor.scrollByX((wx * 24))
+        }
+
+        def gameKeys:string (sh_take_game_keys)
+        def text:string (sh_take_text)
+        if (focus == "game") {
+            preview.keys(gameKeys)
+        }
+        if ((strlen text) > 0) {
+            if ctrl {
+                def i:int 0
+                while (i < (strlen text)) {
+                    this.ctrlChar((charAt text i))
+                    i = (i + 1)
+                }
+            } {
+                if (focus == "editor") {
+                    editor.handleText(text)
+                }
+            }
+        }
+        def k:int (sh_pop_key)
+        while (k != 0) {
+            if (k == 15) {
+                preview.restart()
+                status = "restarted"
+            } {
+                if (focus == "editor") {
+                    editor.handleKey(k shift ctrl)
+                }
+            }
+            k = (sh_pop_key)
+        }
+    }
+
+    fn ctrlChar:void (ch:int) {
+        if ((ch == 115) || (ch == 83)) {
+            this.save()
+            return
+        }
+        if ((ch == 114) || (ch == 82)) {
+            preview.restart()
+            status = "restarted"
+            return
+        }
+        if (focus != "editor") {
+            return
+        }
+        if ((ch == 99) || (ch == 67)) {
+            sh_set_clipboard (editor.selectionText())
+            return
+        }
+        if ((ch == 120) || (ch == 88)) {
+            sh_set_clipboard (editor.cutSelection())
+            return
+        }
+        if ((ch == 118) || (ch == 86)) {
+            def clip:string (sh_get_clipboard)
+            if ((strlen clip) > 0) {
+                editor.handleText(clip)
+            }
+            return
+        }
+        if (ch == 32) {
+            editor.requestCompletions()
+            return
+        }
+        editor.handleCtrlChar(ch)
+    }
+
+    fn clickChrome:void (mx:int my:int) {
+        if (my < topH) {
+            if ((mx >= (this.buttonX(0))) && (mx < ((this.buttonX(0)) + 104))) {
+                this.save()
+            }
+            if ((mx >= (this.buttonX(1))) && (mx < ((this.buttonX(1)) + 104))) {
+                preview.restart()
+                status = "restarted"
+            }
+            return
+        }
+        if (mx < leftW) {
+            def row:int ((idiv (my - (topH + 8)) rowH) + fileScroll)
+            def games:int 0
+            if (preview.single == false) {
+                games = ((array_length preview.games) + 1)
+            }
+            if ((preview.single == false) && (row >= 1) && (row < games)) {
+                def id:string (itemAt preview.games (row - 1))
+                if (this.dirty()) {
+                    this.save()
+                }
+                preview.select(id)
+                this.refreshFiles()
+                this.openFirstFile()
+                return
+            }
+            def fi:int ((row - games) - 1)
+            if ((fi >= 0) && (fi < (array_length files))) {
+                def f:StudioFile (itemAt files fi)
+                if f.text {
+                    this.openFile(f.rel)
+                } {
+                    status = (f.rel + " is not a text file (" + (to_string (idiv f.size 1024)) + " kB)")
+                }
+            }
+        }
+    }
+
+    ; --- painting ------------------------------------------------------------------
+    fn rect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn roundRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor radius:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.radius = radius
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn text:double (dl:EVGDisplayList s:string x:double y:double size:double col:EVGColor bold:boolean) {
+        if ((strlen s) == 0) {
+            return 0.0
+        }
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 3
+        c.x = x
+        c.y = y
+        c.w = (ctx.tr.measureWidth(s size))
+        c.h = (ctx.tr.lineHeight(size))
+        c.text = s
+        c.fontFamily = fontFamily
+        c.fontSize = size
+        if bold {
+            c.fontWeight = "bold"
+        }
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+        return c.w
+    }
+
+    fn clip:void (dl:EVGDisplayList x:double y:double w:double h:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 4
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        push dl.cmds c
+    }
+
+    fn unclip:void (dl:EVGDisplayList) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 5
+        push dl.cmds c
+    }
+
+    sfn kb:string (bytes:double) {
+        if (bytes > 1048576.0) {
+            return ((to_string (to_int (bytes / 1048576.0))) + " MB")
+        }
+        return ((to_string (to_int (bytes / 1024.0))) + " kB")
+    }
+
+    fn buildDisplayList:EVGDisplayList () {
+        def dl:EVGDisplayList (new EVGDisplayList)
+        def fw:double (to_double W)
+        def fh:double (to_double H)
+        this.rect(dl 0.0 0.0 fw fh bg)
+
+        ; top bar
+        this.rect(dl 0.0 0.0 fw (to_double topH) bar)
+        this.rect(dl 0.0 (to_double (topH - 1)) fw 1.0 line)
+        def tx:double 14.0
+        tx = (tx + (this.text(dl "Sliqtly Game Studio" tx 10.0 14.0 ink true)) + 16.0)
+        def proj:string (GamePreview.baseName(preview.root))
+        tx = (tx + (this.text(dl proj tx 11.0 13.0 accent false)) + 10.0)
+        if (preview.single == false) {
+            tx = (tx + (this.text(dl ("/ " + preview.gameId) tx 11.0 13.0 accent false)) + 10.0)
+        }
+        def labels:[string] ([] _:string ("Tallenna  ^S" "Käynnistä  F5"))
+        def bi:int 0
+        while (bi < 2) {
+            def bx:double (to_double (this.buttonX(bi)))
+            def bcol:EVGColor line
+            if ((bi == 0) && (this.dirty())) {
+                bcol = (EVGColor.rgb(61 89 161))
+            }
+            this.roundRect(dl bx 7.0 104.0 26.0 bcol 5.0)
+            this.text(dl (itemAt labels bi) (bx + 10.0) 11.0 12.0 ink false)
+            bi = (bi + 1)
+        }
+
+        ; left: games and files
+        def lx:double 0.0
+        this.rect(dl lx (to_double topH) (to_double leftW) (fh - (to_double topH)) panel)
+        this.rect(dl (to_double (leftW - 1)) (to_double topH) 1.0 (fh - (to_double topH)) line)
+        this.clip(dl 0.0 (to_double topH) (to_double (leftW - 1)) (fh - (to_double topH)))
+        def row:int 0
+        def y0:double (to_double (topH + 8))
+        if (preview.single == false) {
+            this.row(dl row "PELIT" muted true false)
+            row = (row + 1)
+            def gi:int 0
+            while (gi < (array_length preview.games)) {
+                def gid:string (itemAt preview.games gi)
+                this.row(dl row ("  " + gid) ink false (gid == preview.gameId))
+                row = (row + 1)
+                gi = (gi + 1)
+            }
+        }
+        this.row(dl row "TIEDOSTOT" muted true false)
+        row = (row + 1)
+        def fi:int 0
+        while (fi < (array_length files)) {
+            def f:StudioFile (itemAt files fi)
+            def col:EVGColor ink
+            if (f.text == false) {
+                col = muted
+            }
+            def label:string ("  " + f.rel)
+            if (f.text == false) {
+                label = (label + "  " + (StudioApp.kb((to_double f.size))))
+            }
+            this.row(dl row label col false (f.rel == openRel))
+            row = (row + 1)
+            fi = (fi + 1)
+        }
+        this.unclip(dl)
+
+        ; centre: editor, status line and log
+        def ex:double (to_double (this.editorX()))
+        def ew:double (to_double (this.editorW()))
+        editor.setBounds((this.editorX()) topH (this.editorW()) (this.editorH()))
+        editor.ensureTokens()
+        def blink:int (to_int ((sh_now_ms) / 500.0))
+        editor.paint(dl ctx.tr blink)
+        def sy:double (to_double (topH + (this.editorH())))
+        this.rect(dl ex sy ew 24.0 bar)
+        def caret:string ("L" + (to_string (editor.sel.caret.line + 1)) + ":" + (to_string (editor.sel.caret.col + 1)))
+        def sx:double ((ex + 10.0) + (this.text(dl caret (ex + 10.0) (sy + 5.0) 12.0 accent false)) + 12.0)
+        def fname:string openRel
+        if (this.dirty()) {
+            fname = (fname + " ●")
+        }
+        sx = (sx + (this.text(dl fname sx (sy + 5.0) 12.0 ink false)) + 12.0)
+        def problems:int (editor.problemCount())
+        if (problems > 0) {
+            sx = (sx + (this.text(dl ((to_string problems) + " problem(s)") sx (sy + 5.0) 12.0 warn false)) + 12.0)
+        }
+        this.text(dl status sx (sy + 5.0) 12.0 muted false)
+
+        def ly:double (sy + 24.0)
+        this.rect(dl ex ly ew (fh - ly) panel)
+        this.rect(dl ex ly ew 1.0 line)
+        this.clip(dl ex ly ew (fh - ly))
+        def perf:string ("game " + preview.status + " · " + (to_string (to_int frameMsAvg)) + " ms/frame · " + (to_string preview.cmdsLast) + " draw cmds · engine holds " + (StudioApp.kb(preview.bytesPut)) + ", read from disk " + (StudioApp.kb(preview.bytesKept)) + " · " + (to_string preview.images.decodes) + " pictures")
+        this.text(dl perf (ex + 10.0) (ly + 6.0) 11.0 good false)
+        def maxRows:int (to_int (((fh - ly) - 26.0) / 16.0))
+        def nlog:int (array_length preview.logLines)
+        def first:int ((nlog - maxRows) - logScroll)
+        if (first < 0) {
+            first = 0
+        }
+        def li:int first
+        def ry:double (ly + 24.0)
+        while ((li < nlog) && (ry < (fh - 4.0))) {
+            this.text(dl (itemAt preview.logLines li) (ex + 10.0) ry 11.0 muted false)
+            ry = (ry + 16.0)
+            li = (li + 1)
+        }
+        this.unclip(dl)
+
+        ; right: the game
+        def gx:double (to_double (W - previewW))
+        this.rect(dl (gx - 1.0) (to_double topH) 1.0 (fh - (to_double topH)) line)
+        preview.paint(dl ctx.tr)
+        if (focus == "game") {
+            def fc:EVGDrawCmd (new EVGDrawCmd)
+            fc.kind = 1
+            fc.x = gx
+            fc.y = (to_double topH)
+            fc.w = (to_double previewW)
+            fc.h = (fh - (to_double topH))
+            fc.thickness = 2.0
+            fc.r = (accent.red())
+            fc.g = (accent.green())
+            fc.b = (accent.blue())
+            fc.a = 0.8
+            push dl.cmds fc
+        }
+        if (preview.running == false) {
+            this.text(dl preview.status (gx + 16.0) (to_double (topH + 16)) 12.0 warn false)
+        }
+        return dl
+    }
+
+    fn row:void (dl:EVGDisplayList index:int label:string col:EVGColor bold:boolean selected:boolean) {
+        def r:int (index - fileScroll)
+        if (r < 0) {
+            return
+        }
+        def y:double (to_double ((topH + 8) + (r * rowH)))
+        if (y > (to_double H)) {
+            return
+        }
+        if selected {
+            this.rect(dl 0.0 y (to_double (leftW - 1)) (to_double rowH) (EVGColor.rgb(40 46 70)))
+        }
+        def size:double 12.0
+        if bold {
+            size = 11.0
+        }
+        this.text(dl label 10.0 (y + 3.0) size col bold)
+    }
+
+    ; --- the loop ------------------------------------------------------------------
+    fn frame:void (dt:double) {
+        this.handleInput()
+        preview.watch()
+        this.checkOpenFile()
+        preview.step(dt)
+        def dl:EVGDisplayList (this.buildDisplayList())
+        painter.draw(dl W H ctx.tr preview.images)
+    }
+
+    sfn argValue:string (i:int) {
+        if ((i + 1) < (shell_arg_cnt)) {
+            return (shell_arg (i + 1))
+        }
+        return ""
+    }
+
+    sfn main:void () {
+        def app:StudioApp (new StudioApp)
+        def folder:string ""
+        def game:string ""
+        def file:string ""
+        def frames:int 0
+        def shot:string ""
+        def hidden:int 0
+        def dump:boolean false
+        def i:int 0
+        def n:int (shell_arg_cnt)
+        while (i < n) {
+            def a:string (shell_arg i)
+            if (a == "--game") {
+                game = (StudioApp.argValue(i))
+                i = (i + 1)
+            } {
+                if (a == "--file") {
+                    file = (StudioApp.argValue(i))
+                    i = (i + 1)
+                } {
+                    if (a == "--frames") {
+                        frames = (?? (to_int (StudioApp.argValue(i))) 0)
+                        i = (i + 1)
+                    } {
+                        if (a == "--shot") {
+                            shot = (StudioApp.argValue(i))
+                            i = (i + 1)
+                        } {
+                            if (a == "--hidden") {
+                                hidden = 1
+                            } {
+                            if (a == "--dump") {
+                                dump = true
+                            } {
+                                if (a == "--size") {
+                                    def wh:[string] (strsplit (StudioApp.argValue(i)) "x")
+                                    if ((array_length wh) == 2) {
+                                        app.W = (?? (to_int (itemAt wh 0)) 1280)
+                                        app.H = (?? (to_int (itemAt wh 1)) 800)
+                                    }
+                                    i = (i + 1)
+                                } {
+                                    folder = a
+                                }
+                            }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen folder) == 0) {
+            print "usage: sliqtly-studio <game or collection folder> [--game id] [--file rel] [--frames N] [--shot out.png] [--dump] [--hidden] [--size WxH]"
+            return
+        }
+        if ((sh_is_dir folder) == 0) {
+            print ("not a folder: " + folder)
+            return
+        }
+        ; fonts/ beside the program, or SLIQTLY_STUDIO_FONTS
+        app.fontDir = ((sh_base_path) + "fonts")
+        def fonts:string (sh_env "SLIQTLY_STUDIO_FONTS")
+        if ((strlen fonts) > 0) {
+            app.fontDir = fonts
+        }
+        app.initFonts()
+        def ok:int (sh_open "Sliqtly Game Studio" app.W app.H hidden)
+        if (ok == 0) {
+            print "[studio] could not open a window (no display?)"
+            return
+        }
+        app.hasWindow = true
+        app.openProject(folder)
+        if ((strlen game) > 0) {
+            if ((indexOf app.preview.games game) >= 0) {
+                app.preview.gameId = game
+                app.refreshFiles()
+                app.openFirstFile()
+            } {
+                print ("[studio] no game " + game + " in " + folder)
+            }
+        }
+        if ((strlen file) > 0) {
+            app.openFile(file)
+        }
+        app.layoutPreview()
+        app.preview.restart()
+        sh_print ("[studio] " + app.preview.status)
+        def mounts:string (app.preview.mountReport())
+        sh_print ("[studio] mounts:\n" + mounts)
+        def count:int 0
+        def last:double (sh_now_ms)
+        def running:boolean true
+        while running {
+            def now:double (sh_now_ms)
+            def dt:double (now - last)
+            last = now
+            if (frames > 0) {
+                ; a recorded run steps at a fixed 60 fps, whatever the machine
+                dt = (1000.0 / 60.0)
+            }
+            if (dt > 100.0) {
+                dt = 100.0
+            }
+            def t0:double (sh_now_ms)
+            app.frame(dt)
+            def t1:double (sh_now_ms)
+            app.frameMsAvg = ((app.frameMsAvg * 0.9) + ((t1 - t0) * 0.1))
+            count = (count + 1)
+            ; the log goes to stdout too, for an agent driving the Studio
+            def oi:int 0
+            while (oi < (array_length app.preview.outbox)) {
+                sh_print ("[game] " + (itemAt app.preview.outbox oi))
+                oi = (oi + 1)
+            }
+            clear app.preview.outbox
+            if ((frames > 0) && ((count + 1) == frames) && dump) {
+                app.preview.dumpNext = true
+            }
+            if ((frames > 0) && (count >= frames)) {
+                evg_flush
+                if ((strlen shot) > 0) {
+                    def wrote:int (sh_screenshot shot)
+                    if (wrote == 1) {
+                        sh_print ("[studio] screenshot " + shot)
+                    } {
+                        sh_print ("[studio] screenshot failed: " + shot)
+                    }
+                }
+                running = false
+            }
+            sh_swap
+            if ((sh_should_close) == 1) {
+                running = false
+            }
+        }
+        sh_print ("[studio] done: frames=" + (to_string count) + " game=" + app.preview.gameId + " running=" + (to_string app.preview.running) + " ms/frame=" + (to_string (to_int app.frameMsAvg)))
+        sh_close
+    }
+}

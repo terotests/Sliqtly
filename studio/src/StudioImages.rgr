@@ -1,0 +1,149 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; StudioImages — pictures read from disk, decoded once, kept on the GPU
+; ==============================================================================
+;
+; A game names a picture by its path in the engine ("/games/<id>/img/x.png").
+; The Studio knows which folder on disk that path came from, so the bytes are
+; read straight from the disk and never copied into the engine's memory. Each
+; picture is decoded once (stb_image natively, WebP with Ranger's decoder),
+; uploaded as a texture under a number, and every later frame only draws that number.
+; ==============================================================================
+
+Import "pkg:image/WebPDecoder.rgr"
+Import "../native/gfx_studio.rgr"
+
+class StudioImage {
+    def src:string ""
+    def disk:string ""
+    def key:int 0
+    def width:int 0
+    def height:int 0
+    def ok:boolean false
+    def uploaded:boolean false
+    ; the file changed: read it again on the next draw
+    def stale:boolean false
+    def note:string ""
+    def pixels:buffer (buffer_alloc 0)
+}
+
+class StudioImages {
+    def items:[string:StudioImage]
+    def nextKey:int 1
+    def decodes:int 0
+    def decodeMs:double 0.0
+    ; pictures that could not be read, for the log
+    def problems:[string]
+
+    Constructor () {
+    }
+
+    ; Forget every picture (a reload: files on disk may have changed).
+    fn clearAll:void () {
+        map_clear items
+        evg_image_forget_all
+    }
+
+    ; Forget one picture, so the next draw reads it again.
+    fn forget:void (src:string) {
+        def hit@(optional):StudioImage (get items src)
+        if (!null? hit) {
+            def found:StudioImage (unwrap hit)
+            found.stale = true
+        }
+    }
+
+    fn known:boolean (src:string) {
+        return (has items src)
+    }
+
+    ; The picture for `src`: from `disk` when that is a file, otherwise from
+    ; the engine's file system. Decoded on first use.
+    fn get:StudioImage (src:string disk:string) {
+        def hit@(optional):StudioImage (get items src)
+        if (!null? hit) {
+            def found:StudioImage (unwrap hit)
+            if (found.stale == false) {
+                return found
+            }
+        }
+        def bytes:buffer (buffer_alloc 0)
+        if ((strlen disk) > 0) {
+            bytes = (sh_read_bytes disk)
+        }
+        if ((buffer_length bytes) == 0) {
+            bytes = (sh_rg_read src)
+        }
+        def t0:double (sh_now_ms)
+        def img:StudioImage (this.decode(src bytes nextKey))
+        nextKey = (nextKey + 1)
+        def t1:double (sh_now_ms)
+        decodeMs = (decodeMs + (t1 - t0))
+        img.disk = disk
+        if (img.ok == false) {
+            push problems (src + ": " + img.note)
+        }
+        set items src img
+        return img
+    }
+
+    ; Upload on first draw (a GL context exists only once the window is open).
+    fn ensureUploaded:boolean (img:StudioImage) {
+        if (img.ok == false) {
+            return false
+        }
+        if img.uploaded {
+            return true
+        }
+        evg_image_upload img.key img.pixels img.width img.height
+        img.uploaded = true
+        ; the texture holds the pixels now
+        img.pixels = (buffer_alloc 0)
+        return true
+    }
+
+    ; WebP through Ranger's decoder; everything else (PNG of any depth, JPEG,
+    ; GIF, BMP) straight to the GPU through the native decoder.
+    fn decode:StudioImage (src:string bytes:buffer key:int) {
+        def out:StudioImage (new StudioImage)
+        out.src = src
+        out.key = key
+        def n:int (buffer_length bytes)
+        if (n < 12) {
+            out.note = "missing"
+            return out
+        }
+        decodes = (decodes + 1)
+        def b0:int (buffer_get bytes 0)
+        def b8:int (buffer_get bytes 8)
+        def b9:int (buffer_get bytes 9)
+        if ((b0 == 82) && (b8 == 87) && (b9 == 69)) {
+            def wdec:WebPDecoder (new WebPDecoder)
+            def wimg:ImageBuffer (wdec.decodeBytes(bytes))
+            this.take(out wimg "webp")
+            return out
+        }
+        def ok:int (sh_image_upload key bytes)
+        if (ok == 1) {
+            out.width = (sh_image_w)
+            out.height = (sh_image_h)
+            out.ok = true
+            out.uploaded = true
+        } {
+            out.note = (sh_image_error)
+        }
+        return out
+    }
+
+    fn take:void (out:StudioImage img:ImageBuffer kind:string) {
+        if ((img.width > 0) && (img.height > 0)) {
+            out.width = img.width
+            out.height = img.height
+            out.pixels = img.pixels
+            out.ok = true
+        } {
+            out.note = ("unreadable " + kind)
+        }
+    }
+}

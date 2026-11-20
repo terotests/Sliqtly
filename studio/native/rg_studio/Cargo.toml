@@ -1,0 +1,22 @@
+[package]
+name = "rg_studio"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+description = "The RangerGames engine as a native static library, for Sliqtly Game Studio"
+
+# Its own workspace: Sliqtly has no Cargo workspace, and this crate must not
+# join RangerGames' one either (it lives outside that tree).
+[workspace]
+
+[dependencies]
+rg_engine = { path = "../../.deps/RangerGames/crates/rg_engine" }
+rg_core = { path = "../../.deps/RangerGames/crates/rg_core" }
+
+[lib]
+crate-type = ["staticlib"]
+
+[profile.release]
+opt-level = 3
+debug = false
