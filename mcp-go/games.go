@@ -37,6 +37,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"regexp"
@@ -503,6 +506,8 @@ type gamesWrite struct {
 	// a file of the RangerGames library to copy (gamesLibraryFile), read by
 	// the caller: data is empty until then
 	library string
+	// or an https address the server fetches the file from (gamesFetchURL)
+	url string
 }
 
 // the RangerGames build's shared library at its GitHub Pages: map pictures
@@ -593,6 +598,16 @@ func gamesWrites(v any) ([]gamesWrite, error) {
 			}
 			out = append(out, gamesWrite{path: p, library: lib})
 			continue
+		} else if u, ok := m["url"].(string); ok {
+			pu, err := url.Parse(strings.TrimSpace(u))
+			if err != nil || pu.Scheme != "https" || pu.Host == "" || pu.User != nil {
+				return nil, roomErr{p + ": url is an https address of the file, like https://example.com/music/song.mp3."}
+			}
+			if _, ok := gamesTypes[gamesExt(p)]; !ok {
+				return nil, roomErr{p + ": not a kind of file a game keeps."}
+			}
+			out = append(out, gamesWrite{path: p, url: pu.String()})
+			continue
 		} else if b, ok := m["base64"].(string); ok {
 			d, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b))
 			if err != nil {
@@ -600,7 +615,7 @@ func gamesWrites(v any) ([]gamesWrite, error) {
 			}
 			data = d
 		} else {
-			return nil, roomErr{p + ": give text or base64."}
+			return nil, roomErr{p + ": give text, base64, library or url."}
 		}
 		if len(data) > gamesMaxFile {
 			return nil, roomErr{fmt.Sprintf("%s: %d bytes, more than one file may be (%d).", p, len(data), gamesMaxFile)}
@@ -619,6 +634,14 @@ func gamesWrites(v any) ([]gamesWrite, error) {
 // home, as the engine is read)
 func (s *gamesService) fetchLibrary(ctx context.Context, w []gamesWrite) error {
 	for i := range w {
+		if w[i].url != "" {
+			b, err := gamesFetchURL(ctx, w[i].url)
+			if err != nil {
+				return roomErr{w[i].path + ": " + err.Error()}
+			}
+			w[i].data = b
+			continue
+		}
 		if w[i].library == "" {
 			continue
 		}
@@ -650,6 +673,41 @@ func (s *gamesService) fetchLibrary(ctx context.Context, w []gamesWrite) error {
 	}
 	return nil
 }
+
+// fetches a file a write names by its address: https only, to public
+// addresses only (newPublicClient), at most one file's size, not an HTML page
+// (an error or a download page instead of the file). A variable so that tests
+// can answer without the network.
+var gamesFetchURL = func(ctx context.Context, u string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, errors.New("the address does not work")
+	}
+	req.Header.Set("User-Agent", "SliqtlyGames/1.0")
+	res, err := gamesURLClient.Do(req)
+	if err != nil {
+		return nil, errors.New("the address could not be read")
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("the address answered HTTP %d", res.StatusCode)
+	}
+	if strings.HasPrefix(strings.ToLower(res.Header.Get("Content-Type")), "text/html") {
+		return nil, errors.New("the address gives a web page, not the file")
+	}
+	b, err := io.ReadAll(io.LimitReader(res.Body, gamesMaxFile+1))
+	if err != nil {
+		return nil, errors.New("the file did not come whole")
+	}
+	if len(b) > gamesMaxFile {
+		return nil, fmt.Errorf("more than one file may be (%d bytes)", gamesMaxFile)
+	}
+	return b, nil
+}
+
+var gamesURLClient = newPublicClient()
 
 // sets files and takes paths away, within the game's limits
 func (s *gamesService) change(ctx context.Context, g *gamesGame, writes []gamesWrite, remove []string) (map[string]any, error) {
