@@ -615,6 +615,18 @@ class CartoonEditor {
             }
             return
         }
+        if (a == "stylescene") {
+            pendingKind = "styleshot"
+            pendingText = ""
+            return
+        }
+        if (a == "stylenone") {
+            doc.styleRef = ""
+            doc.styleName = ""
+            dirty = true
+            status = "tyyliviite poistettu"
+            return
+        }
         if (a == "delscene") {
             if ((array_length doc.scenes) > 1) {
                 remove_index doc.scenes sceneIx
@@ -1485,7 +1497,11 @@ class CartoonEditor {
         if ((strlen areas) > 0) {
             out = (out + "\nThe editor will put speech bubbles over these areas later; keep them free of faces and important details (plain background there, nothing written):\n" + areas)
         }
-        out = (out + "\nThe attached picture is the panel as it is now in the editor (without bubbles): keep its composition, characters and any sketch lines the author drew, and redraw them as finished art.\n\n" + rules)
+        out = (out + "\nThe first attached picture is the panel as it is now in the editor (without bubbles): keep its composition, characters and any sketch lines the author drew, and redraw them as finished art.\n")
+        if ((strlen doc.styleRef) > 0) {
+            out = (out + "The second attached picture is an earlier page of the same comic: STYLE REFERENCE. Match its drawing style, line work, colours, shading and the look of its characters (same faces, clothes and proportions), so the new panel looks like the same comic. Do not copy its layout or panels.\n")
+        }
+        out = (out + "\n" + rules)
         return out
     }
 
@@ -1846,6 +1862,10 @@ class CartoonEditor {
             }
             y = (this.row(dl y "  + Uusi skene" accent false false "newscene"))
             y = (this.row(dl y "  + Kopioi tämä skene" accent false false "copyscene"))
+            y = (this.row(dl y "  + Käytä tätä tyylinä" accent false false "stylescene"))
+            if ((strlen doc.styleRef) > 0) {
+                y = (this.row(dl y ("  Tyyli: " + doc.styleName + "  ×") (EVGColor.rgb(224 175 104)) false false "stylenone"))
+            }
             if ((array_length doc.scenes) > 1) {
                 y = (this.row(dl y "  − Poista tämä skene" (EVGColor.rgb(224 120 104)) false false "delscene"))
             }

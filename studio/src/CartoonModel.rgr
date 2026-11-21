@@ -563,6 +563,9 @@ class CartoonDoc {
     def rel:string ""
     def style:CartoonStyle (new CartoonStyle)
     def scenes:[CartoonScene]
+    ; a picture of an earlier scene Nano Banana copies the look of (.studio/...png)
+    def styleRef:string ""
+    def styleName:string ""
 
     Constructor () {
     }
@@ -676,7 +679,11 @@ class CartoonDoc {
     }
 
     fn toJson:string () {
-        def out:string ("{\"name\":" + (CartoonDoc.q(name)) + ",\n \"style\":" + (CartoonDoc.styleJson(style)) + ",\n \"scenes\":[")
+        def out:string ("{\"name\":" + (CartoonDoc.q(name)) + ",\n \"style\":" + (CartoonDoc.styleJson(style)) + ",\n")
+        if ((strlen styleRef) > 0) {
+            out = (out + " \"styleRef\":" + (CartoonDoc.q(styleRef)) + ", \"styleName\":" + (CartoonDoc.q(styleName)) + ",\n")
+        }
+        out = (out + " \"scenes\":[")
         def i:int 0
         while (i < (array_length scenes)) {
             if (i > 0) {
@@ -771,6 +778,8 @@ class CartoonDoc {
         def o:CJ (CJParser.parse(text))
         doc.name = (o.s("name" "sarjakuva"))
         doc.style = (CartoonDoc.readStyle((o.obj("style"))))
+        doc.styleRef = (o.s("styleRef" ""))
+        doc.styleName = (o.s("styleName" ""))
         def list:[CJ] (o.arr("scenes"))
         def i:int 0
         while (i < (array_length list)) {
