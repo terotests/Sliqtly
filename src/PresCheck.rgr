@@ -1158,6 +1158,49 @@ class PresCheck {
         this.ok(((strlen p1.el) == 0) "review follow: a pin dragged off lets the element go")
         this.ok(((PresReview.alike("abcdef" "abXcdef")) > 0.8) "review follow: alike keeps an edit inside")
         this.ok(((PresReview.alike("abcdef" "zzzzzz")) < 0.1) "review follow: not alike")
+        this.reviewRewrite()
+    }
+
+    ; A comment on a line that its answer rewrites (an assistant answers
+    ; through MCP and fixes the line in the same go): the line's end and
+    ; middle change, but it is the same line. The comment stays on it, open,
+    ; and "Next" still finds it; it was closed as "taken out" before.
+    fn reviewRewrite:void () {
+        def t0:double 1795256122130.0
+        def r (new PresReview())
+        r.start("c" 3 "Olio ja identiteetti" 0.84 0.74 (PresReview.msg("m1" "u1" "Tero" "" "Suorituskykyongelma?" t0)))
+        def titles:[string]
+        push titles "Intro"
+        push titles "Mitä verrataan"
+        push titles "Yhdellä silmäyksellä"
+        push titles "Olio ja identiteetti"
+        def was:string "Rust etsii id:n lineaarisesti ja palauttaa kopion (`object(id) -> Option<HostObject>`). Olioita on kymmeniä, joten tämä riittää **[P]**"
+        def now:string "Rust etsii id:n lineaarisesti ja palauttaa **kopion** olion props-puineen (`object(id) -> Option<HostObject>`). Seuraus: ks. seuraava dia"
+        def ts:string "**TS**: host antaa laajennukselle oikean olion kuvauksen; id:llä löytyy takaisin sama JS-olio, jonka metodit ajetaan"
+        def rs:string "**Rust**: olio on rivi taulussa; `iface` kertoo rajapinnan, `key` hostin oman kohteen (kehys, tabi, dashboard)"
+        def b0:[PresReviewBlock]
+        push b0 (PresCheck.rvBlock(3 ts 0.1 0.55 0.8 0.08))
+        push b0 (PresCheck.rvBlock(3 rs 0.1 0.63 0.8 0.08))
+        push b0 (PresCheck.rvBlock(3 was 0.1 0.71 0.8 0.08))
+        r.pinTo("c" was 0.92 0.4)
+        this.ok(((PresReview.endsAlike(was now)) < 0.5) "review rewrite: the ends alone do not hold it")
+        this.ok(((PresReview.wordsAlike(was now)) >= 0.5) ("review rewrite: most words kept: " + (to_string (PresReview.wordsAlike(was now)))))
+        this.ok(((PresReview.alike(was ts)) < 0.5) ("review rewrite: another line of the slide is not it: " + (to_string (PresReview.alike(was ts)))))
+        this.ok(((PresReview.alike(was rs)) < 0.5) ("review rewrite: nor the line above: " + (to_string (PresReview.alike(was rs)))))
+        def b1:[PresReviewBlock]
+        push b1 (PresCheck.rvBlock(3 ts 0.1 0.55 0.8 0.08))
+        push b1 (PresCheck.rvBlock(3 rs 0.1 0.63 0.8 0.08))
+        push b1 (PresCheck.rvBlock(3 now 0.1 0.71 0.8 0.08))
+        r.follow(b1 titles (t0 + 80000.0))
+        def c:PresReviewThread (unwrap (r.find("c")))
+        this.ok((((c.lost == false) && (c.closed == false)) && (c.el == now)) ("review rewrite: still open, on the rewritten line: " + c.el))
+        this.ok(((r.openCount()) == 1) "review rewrite: counted open, so Next goes to it")
+        ; the line really taken out: closed as before
+        def b2:[PresReviewBlock]
+        push b2 (PresCheck.rvBlock(3 ts 0.1 0.55 0.8 0.08))
+        push b2 (PresCheck.rvBlock(3 rs 0.1 0.63 0.8 0.08))
+        r.follow(b2 titles (t0 + 90000.0))
+        this.ok((c.lost && c.closed) "review rewrite: the line taken out, the comment closed")
     }
 
     fn review:void () {

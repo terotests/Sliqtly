@@ -46,7 +46,8 @@
 ; the first line of the element's source and `element.x`/`y` the point in
 ; the element's box (0..1). `follow(blocks titles)` finds the element again
 ; after every edit: the same source nearest the slide it was on, else the
-; most alike one (an edit inside it), and the thread goes with it to
+; most alike one (an edit inside it, or the line rewritten keeping most of
+; its words), and the thread goes with it to
 ; another slide, and to the element's new place when the slide turns or
 ; the text above it grows. When the element is gone the thread is closed
 ; and marked `lost`; it opens again if the element comes back (an undo).
@@ -610,10 +611,94 @@ class PresReview {
         return best
     }
 
-    ; How alike two sources are, 0..1: what they start and end with in
-    ; common against the longer one. An edit inside a line keeps the most
-    ; of both ends.
+    ; How alike two sources are, 0..1: the better of what they start and
+    ; end with in common (an edit inside a line keeps the most of both
+    ; ends) and the words they share (a sentence rewritten in its middle
+    ; and end, as an answer to the comment on it often is, keeps most of
+    ; its words though its end changed).
     sfn alike:double (a:string b:string) {
+        def e:double (PresReview.endsAlike(a b))
+        def w:double (PresReview.wordsAlike(a b))
+        if (w > e) {
+            return w
+        }
+        return e
+    }
+
+    ; A letter or digit; anything past ASCII (ä, ö, é …) counts as a letter.
+    sfn wordChar:boolean (c:int) {
+        if ((c >= 48) && (c <= 57)) {
+            return true
+        }
+        if ((c >= 97) && (c <= 122)) {
+            return true
+        }
+        return (c >= 128)
+    }
+
+    ; The words of a source, lower case, in order (Markdown marks and
+    ; punctuation between them dropped).
+    sfn wordsOf:[string] (s:string) {
+        def out:[string]
+        def low:string (to_lowercase s)
+        def n:int (strlen low)
+        def start:int 0
+        def i:int 0
+        while (i <= n) {
+            def sep:boolean true
+            if (i < n) {
+                sep = ((PresReview.wordChar((charAt low i))) == false)
+            }
+            if sep {
+                if (i > start) {
+                    push out (substring low start i)
+                }
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Shared words, 0..1: twice the words both have (each used once)
+    ; against all the words of both.
+    sfn wordsAlike:double (a:string b:string) {
+        def wa:[string] (PresReview.wordsOf(a))
+        def wb:[string] (PresReview.wordsOf(b))
+        def na:int (array_length wa)
+        def nb:int (array_length wb)
+        if ((na + nb) == 0) {
+            return 1.0
+        }
+        def used:[boolean]
+        def j:int 0
+        while (j < nb) {
+            push used false
+            j = (j + 1)
+        }
+        def common:int 0
+        def i:int 0
+        while (i < na) {
+            def w:string (itemAt wa i)
+            def k:int 0
+            def found:boolean false
+            while ((k < nb) && (found == false)) {
+                if (((itemAt used k) == false) && ((itemAt wb k) == w)) {
+                    set used k true
+                    found = true
+                }
+                k = (k + 1)
+            }
+            if found {
+                common = (common + 1)
+            }
+            i = (i + 1)
+        }
+        return ((to_double (common * 2)) / (to_double (na + nb)))
+    }
+
+    ; What two sources start and end with in common against the longer one.
+    sfn endsAlike:double (a:string b:string) {
         def na:int (strlen a)
         def nb:int (strlen b)
         def n:int na
