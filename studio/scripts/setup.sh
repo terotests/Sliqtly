@@ -15,7 +15,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 RANGER_REV=ab06d5c3bfd80efa67e390901a9a52455f67a7b1
 EVGSHEETS_REV=ab5dd0340a8290732f27af03833e13d5b71876f5
-RANGERGAMES_REV=056f932227d4ed75fba537b11c9b7862f580089d
+RANGERGAMES_REV=c41220bacd4fe78500fae840edcfa99f3f9fa9b9
 mkdir -p .deps
 
 fetch() { # name url rev

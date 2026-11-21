@@ -48,7 +48,7 @@ class GamePreview {
     def stamps:[string:string]
     def present:[string:boolean]
     ; files above this size whose kind the engine does not read get only their head
-    def bigLimit:int 262144
+    def bigLimit:int 65536
     def headBytes:int 65536
     def bytesPut:double 0.0
     def bytesKept:double 0.0
@@ -70,6 +70,15 @@ class GamePreview {
     ; print the next frame's draw commands (game units) to stdout
     def dumpNext:boolean false
     def images:StudioImages (new StudioImages)
+    ; files (relative) that the last sync found changed
+    def lastChanged:[string]
+    ; the game's SCENES, and the one jumped to last
+    def scenes:[string]
+    def currentScene:string ""
+    ; game frames per window frame, and pause / single step
+    def speed:int 1
+    def paused:boolean false
+    def stepOnce:boolean false
 
     Constructor () {
     }
@@ -281,6 +290,7 @@ class GamePreview {
     ; A file that disappeared needs a fresh engine (it cannot forget a file).
     fn syncFiles:int (first:boolean) {
         def changed:int 0
+        clear lastChanged
         def gone:boolean false
         def seen:[string:boolean]
         def mi:int 0
@@ -311,6 +321,7 @@ class GamePreview {
                         set stamps vfs stamp
                         if (first == false) {
                             changed = (changed + 1)
+                            push lastChanged rel
                             this.note(("changed " + vfs))
                             if (images.known(vfs)) {
                                 images.forget(vfs)
@@ -338,6 +349,7 @@ class GamePreview {
             images.clearAll()
             this.syncFiles(true)
             changed = (changed + 1)
+            push lastChanged "(removed)"
         }
         return changed
     }
@@ -351,10 +363,151 @@ class GamePreview {
         lastSync = now
         def changed:int (this.syncFiles(false))
         if (changed > 0) {
-            this.restart()
+            this.reload()
             return true
         }
         return false
+    }
+
+    ; After files changed on disk, as little as it takes:
+    ;   pictures, sounds only  → nothing (pictures are read again when drawn)
+    ;   style.css only         → the engine re-reads the style, the game goes on
+    ;   code                   → restart, then the game's own state back
+    ;                            (hotSave/hotLoad) or the scene it was in
+    fn reload:void () {
+        def code:boolean false
+        def css:boolean false
+        def i:int 0
+        while (i < (array_length lastChanged)) {
+            def rel:string (itemAt lastChanged i)
+            def e:string (GamePreview.extOf(rel))
+            if (e == "css") {
+                css = true
+            } {
+                if ((GamePreview.isMedia(rel)) == false) {
+                    code = true
+                }
+            }
+            i = (i + 1)
+        }
+        if ((code == false) && (css == false)) {
+            this.note("hot reload: pictures/sounds only, the game goes on")
+            return
+        }
+        if ((code == false) && running) {
+            def ok:int (sh_rg_restyle)
+            this.takeLog()
+            if (ok == 1) {
+                this.note("hot reload: style.css, the game goes on")
+                return
+            }
+        }
+        this.hotRestart()
+    }
+
+    ; Restart with the game's state carried over when the game can give it.
+    fn hotRestart:void () {
+        def saved:string ""
+        if running {
+            saved = (this.evalJs("typeof hotSave === 'function' ? JSON.stringify(hotSave()) : ''"))
+            if ((indexOf saved "Error") == 0) {
+                this.note(("hotSave failed: " + saved))
+                saved = ""
+            }
+        }
+        def scene:string currentScene
+        this.restart()
+        if (running == false) {
+            return
+        }
+        if ((strlen saved) > 0) {
+            def r:string (this.evalJs(("hotLoad(JSON.parse(" + (GamePreview.jsString(saved)) + "))")))
+            currentScene = scene
+            this.note("hot reload: code, state kept (hotLoad)")
+            if ((strlen r) > 0) {
+                if ((indexOf r "rror") >= 0) {
+                    this.note(("hotLoad: " + r))
+                }
+            }
+            return
+        }
+        if (((strlen scene) > 0) && ((indexOf scenes scene) >= 0)) {
+            this.jump(scene)
+            this.note(("hot reload: code, back to scene " + scene))
+            return
+        }
+        this.note("hot reload: code, restarted")
+    }
+
+    ; --- scenes ----------------------------------------------------------------------
+    ; A game that wants jump points defines a global object of functions:
+    ;   const SCENES = { "kuu-laskeutuminen": () => { ...set the state... } };
+    ; and, to keep its state across a code change:
+    ;   function hotSave() { return {...} }     function hotLoad(s) { ... }
+    ; Other hosts never call them, so nothing changes for them.
+    sfn jsString:string (s:string) {
+        def out:string "\""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if (ch == 34) {
+                out = (out + "\\\"")
+            } {
+                if (ch == 92) {
+                    out = (out + "\\\\")
+                } {
+                    if (ch == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (ch == 13) {
+                            out = (out + "\\r")
+                        } {
+                            out = (out + (substring s i (i + 1)))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+
+    fn evalJs:string (src:string) {
+        def r:string (sh_rg_eval src)
+        this.takeLog()
+        return r
+    }
+
+    fn readScenes:void () {
+        clear scenes
+        def r:string (this.evalJs("typeof SCENES === 'object' && SCENES ? JSON.stringify(Object.keys(SCENES)) : '[]'"))
+        if (((strlen r) < 2) || ((charAt r 0) != 91)) {
+            return
+        }
+        def parts:[string] (strsplit r "\"")
+        def i:int 1
+        while (i < (array_length parts)) {
+            push scenes (itemAt parts i)
+            i = (i + 2)
+        }
+    }
+
+    fn jump:boolean (name:string) {
+        if (running == false) {
+            return false
+        }
+        if ((indexOf scenes name) < 0) {
+            this.note(("no scene " + name + " (the game's SCENES has: " + (join scenes ", ") + ")"))
+            return false
+        }
+        def r:string (this.evalJs(("SCENES[" + (GamePreview.jsString(name)) + "]()")))
+        if ((indexOf r "rror") >= 0) {
+            this.note(("scene " + name + ": " + r))
+        }
+        currentScene = name
+        this.note(("scene " + name))
+        return true
     }
 
     fn mountReport:string () {
@@ -392,9 +545,11 @@ class GamePreview {
         sizedH = ph
         def r:int (sh_rg_start gameId)
         this.takeLog()
+        currentScene = ""
         if (r == 0) {
             running = true
             status = ("running " + gameId)
+            this.readScenes()
         } {
             running = false
             status = ("could not start " + gameId + " (see the log)")
@@ -499,17 +654,37 @@ class GamePreview {
         }
     }
 
+    ; One window frame: `speed` game frames (fast forward), none while paused
+    ; unless a single step was asked for. A fast frame gives up when it has
+    ; used 40 ms, so the window stays responsive.
     fn step:void (dtMs:double) {
         if (running == false) {
             return
         }
-        def r:int (sh_rg_frame dtMs)
-        frames = (frames + 1)
-        this.takeLog()
-        this.takeCommands()
-        if (r != 0) {
-            running = false
-            status = ("the game stopped on an error (see the log)")
+        def times:int speed
+        if paused {
+            if (stepOnce == false) {
+                return
+            }
+            stepOnce = false
+            times = 1
+        }
+        def t0:double (sh_now_ms)
+        def k:int 0
+        while (k < times) {
+            def r:int (sh_rg_frame dtMs)
+            frames = (frames + 1)
+            this.takeLog()
+            this.takeCommands()
+            if (r != 0) {
+                running = false
+                status = ("the game stopped on an error (see the log)")
+                k = times
+            }
+            k = (k + 1)
+            if (((sh_now_ms) - t0) > 40.0) {
+                k = times
+            }
         }
     }
 
@@ -718,8 +893,25 @@ class GamePreview {
                 }
                 push dl.cmds c
             }
-            ; kind 8 (a textured globe) is not drawn yet: the engine is not told
-            ; the Studio can draw them, so it sends its flat fallback instead
+            ; a textured globe: the camera numbers go along as they are (game
+            ; units); the box in game units rides in the crop fields
+            if ((k == 8) && (nx >= 20)) {
+                def src8:string (sh_rg_string s0)
+                def globe:StudioImage (images.get(src8 (this.diskFor(src8))))
+                if (globe.ok && (w > 0.0) && (h > 0.0)) {
+                    c.src = src8
+                    c.cropX = x
+                    c.cropY = y
+                    c.cropW = w
+                    c.cropH = h
+                    def gi:int 0
+                    while (gi < nx) {
+                        push c.pts (sh_rg_draw_at (e + gi))
+                        gi = (gi + 1)
+                    }
+                    push dl.cmds c
+                }
+            }
         }
         while (opened > 0) {
             def pop:EVGDrawCmd (new EVGDrawCmd)

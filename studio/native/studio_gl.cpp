@@ -386,7 +386,11 @@ extern "C" void evggl_shutdown(void) {
   g_prog = 0;
 }
 
+static void studio_draw_sphere(int idx);
+static void studio_spheres_clear();
+
 extern "C" void evggl_begin(int pageW, int pageH, int drawW, int drawH) {
+  studio_spheres_clear();
   g_pageW = pageW > 0 ? pageW : 1;
   g_pageH = pageH > 0 ? pageH : 1;
   g_drawW = drawW > 0 ? drawW : g_pageW;
@@ -581,6 +585,10 @@ extern "C" void evggl_flush(void) {
       (void)triCursor;
       continue;
     }
+    if (run.isImage == 3) {
+      studio_draw_sphere(-1 - run.start);
+      continue;
+    }
     if (run.count <= 0) continue;
     glUseProgram(g_prog);
     glBindVertexArray(g_vao);
@@ -646,4 +654,153 @@ extern "C" void evggl_image_key(float x, float y, float w, float h, int key,
 extern "C" void evggl_image_forget_all(void) {
   for (auto& kv : g_cachedTex) glDeleteTextures(1, &kv.second);
   g_cachedTex.clear();
+}
+
+
+// --- textured globes (RangerGames draw kind 8) --------------------------------
+// The same ray-cast as RangerGames web/js/painter.js (SPHERE_FS): every pixel
+// of the box looks along fwd*focal + rgt*(px - w/2) - upv*(py - h/2) and reads
+// the map at the hit point's longitude and latitude. `box` is the command's
+// rectangle in GAME units (the camera numbers are in game units too); the quad
+// itself is placed in page units.
+namespace {
+struct Sphere {
+  float x, y, w, h;      // page units
+  float box[4];          // game units
+  float p[20];
+  float win[4];
+  int useWin;
+  GLuint tex;
+};
+std::vector<Sphere> g_spheres;
+GLuint g_sphereProg = 0, g_sphereVao = 0, g_sphereVbo = 0;
+GLint g_su[16];
+enum { SU_TEX, SU_EYE, SU_RGT, SU_UPV, SU_FWD, SU_SUN, SU_BOX, SU_VIEW, SU_FOCAL, SU_NIGHT, SU_LIT, SU_WIN, SU_USEWIN, SU_RECT, SU_PAGE };
+
+const char* SPHERE_VERT = R"GLSL(
+#version 150
+in vec2 aCorner;
+uniform vec4 uRect;
+uniform vec2 uPage;
+out vec2 uv;
+void main() {
+  uv = aCorner;
+  vec2 p = uRect.xy + aCorner * uRect.zw;
+  gl_Position = vec4((p.x / uPage.x) * 2.0 - 1.0, 1.0 - (p.y / uPage.y) * 2.0, 0.0, 1.0);
+}
+)GLSL";
+
+const char* SPHERE_FRAG = R"GLSL(
+#version 150
+in vec2 uv;
+out vec4 o;
+uniform sampler2D tex;
+uniform vec3 eye, rgt, upv, fwd, sun;
+uniform vec4 box, win;
+uniform vec2 view;
+uniform float focal, night, lit, useWin;
+void main() {
+  vec2 px = box.xy + uv * box.zw;
+  vec3 d = normalize(fwd * focal + rgt * (px.x - view.x * 0.5) - upv * (px.y - view.y * 0.5));
+  float b = dot(eye, d); vec3 q = eye - b * d; float disc = 1.0 - dot(q, q);
+  if (disc < 0.0 || -b < sqrt(disc)) discard;
+  vec3 p = normalize(q - sqrt(disc) * d);
+  float u = atan(p.y, p.x) / 6.2831853 + 0.5; float v = 0.5 - asin(clamp(p.z, -1.0, 1.0)) / 3.1415927;
+  float u2 = fract(u + 0.5) - 0.5; vec2 du = vec2(dFdx(u), dFdy(u)); vec2 du2 = vec2(dFdx(u2), dFdy(u2));
+  if (dot(du2, du2) < dot(du, du)) du = du2;
+  vec2 dv = vec2(dFdx(v), dFdy(v));
+  if (useWin > 0.5) {
+    float uw = u; if (uw < win.x) uw += 1.0; else if (uw > win.z) uw -= 1.0;
+    if (uw < win.x || uw > win.z || v < win.y || v > win.w) discard;
+    vec2 k = 1.0 / (win.zw - win.xy); u = (uw - win.x) * k.x; v = (v - win.y) * k.y; du *= k.x; dv *= k.y;
+  }
+  vec3 c = textureGrad(tex, vec2(u, v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;
+  if (lit > 0.5) { float s = dot(p, sun); c *= mix(1.0 - night, 1.0, smoothstep(-0.06, 0.3, s)) * (0.8 + 0.2 * max(s, 0.0)); }
+  o = vec4(c, 1.0);
+}
+)GLSL";
+
+bool sphereInit() {
+  if (g_sphereProg) return true;
+  GLuint vs = compile(GL_VERTEX_SHADER, SPHERE_VERT);
+  GLuint fs = compile(GL_FRAGMENT_SHADER, SPHERE_FRAG);
+  if (!vs || !fs) return false;
+  GLuint p = glCreateProgram();
+  glAttachShader(p, vs);
+  glAttachShader(p, fs);
+  glBindAttribLocation(p, 0, "aCorner");
+  glLinkProgram(p);
+  glDeleteShader(vs);
+  glDeleteShader(fs);
+  GLint ok = GL_FALSE;
+  glGetProgramiv(p, GL_LINK_STATUS, &ok);
+  if (ok != GL_TRUE) { std::fprintf(stderr, "[evggl] sphere link failed\n"); return false; }
+  g_sphereProg = p;
+  const char* names[] = {"tex", "eye", "rgt", "upv", "fwd", "sun", "box", "view", "focal", "night", "lit", "win", "useWin", "uRect", "uPage"};
+  for (int i = 0; i <= SU_PAGE; i++) g_su[i] = glGetUniformLocation(p, names[i]);
+  const float corners[] = {0, 0, 1, 0, 0, 1, 1, 1};
+  glGenVertexArrays(1, &g_sphereVao);
+  glBindVertexArray(g_sphereVao);
+  glGenBuffers(1, &g_sphereVbo);
+  glBindBuffer(GL_ARRAY_BUFFER, g_sphereVbo);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(corners), corners, GL_STATIC_DRAW);
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+  glBindVertexArray(0);
+  return true;
+}
+} // namespace
+
+static void studio_spheres_clear() { g_spheres.clear(); }
+
+static void studio_draw_sphere(int idx) {
+  if (idx < 0 || idx >= (int)g_spheres.size() || !sphereInit()) return;
+  const Sphere& s = g_spheres[(size_t)idx];
+  glUseProgram(g_sphereProg);
+  glBindVertexArray(g_sphereVao);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, s.tex);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, s.useWin ? GL_CLAMP_TO_EDGE : GL_REPEAT);
+  glUniform1i(g_su[SU_TEX], 0);
+  glUniform3f(g_su[SU_EYE], s.p[0], s.p[1], s.p[2]);
+  glUniform3f(g_su[SU_RGT], s.p[3], s.p[4], s.p[5]);
+  glUniform3f(g_su[SU_UPV], s.p[6], s.p[7], s.p[8]);
+  glUniform3f(g_su[SU_FWD], s.p[9], s.p[10], s.p[11]);
+  glUniform3f(g_su[SU_SUN], s.p[12], s.p[13], s.p[14]);
+  glUniform1f(g_su[SU_FOCAL], s.p[15]);
+  glUniform2f(g_su[SU_VIEW], s.p[16], s.p[17]);
+  glUniform1f(g_su[SU_NIGHT], s.p[18]);
+  glUniform1f(g_su[SU_LIT], s.p[19]);
+  glUniform4f(g_su[SU_BOX], s.box[0], s.box[1], s.box[2], s.box[3]);
+  glUniform4f(g_su[SU_WIN], s.win[0], s.win[1], s.win[2], s.win[3]);
+  glUniform1f(g_su[SU_USEWIN], s.useWin ? 1.f : 0.f);
+  glUniform4f(g_su[SU_RECT], s.x, s.y, s.w, s.h);
+  glUniform2f(g_su[SU_PAGE], (float)g_pageW, (float)g_pageH);
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+  glBindVertexArray(0);
+}
+
+extern "C" void evggl_sphere(float x, float y, float w, float h, int key,
+                             float bx, float by, float bw, float bh,
+                             const double* params, int n) {
+  auto it = g_cachedTex.find(key);
+  if (it == g_cachedTex.end() || n < 20) return;
+  flushQuadRun();
+  Sphere s{};
+  s.x = x; s.y = y; s.w = w; s.h = h;
+  s.box[0] = bx; s.box[1] = by; s.box[2] = bw; s.box[3] = bh;
+  for (int i = 0; i < 20; i++) s.p[i] = (float)params[i];
+  s.useWin = n >= 24 ? 1 : 0;
+  for (int i = 0; i < 4; i++) s.win[i] = s.useWin ? (float)params[20 + i] : 0.f;
+  s.tex = it->second;
+  g_spheres.push_back(s);
+  QuadRun run;
+  run.start = -1 - (int)(g_spheres.size() - 1);
+  run.count = 0;
+  run.isImage = 3;
+  run.clipOn = g_clipOn;
+  run.clipX = g_clipX; run.clipY = g_clipY;
+  run.clipW = g_clipW; run.clipH = g_clipH;
+  g_quadRuns.push_back(run);
+  g_runStart = (int)(g_rects.size() / 4);
 }

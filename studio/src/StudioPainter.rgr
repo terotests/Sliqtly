@@ -745,6 +745,15 @@ class StudioPainter {
                     drawn = (drawn + 1)
                 }
             }
+            if (c.kind == 8) {
+                if (this.rectInClip(c.x c.y c.w c.h)) {
+                    def globe:StudioImage (images.get(c.src ""))
+                    if (images.ensureUploaded(globe)) {
+                        evg_sphere c.x c.y c.w c.h globe.key c.cropX c.cropY c.cropW c.cropH c.pts
+                        drawn = (drawn + 1)
+                    }
+                }
+            }
             if (c.kind == 6) {
                 this.emitFill(c)
                 drawn = (drawn + 1)

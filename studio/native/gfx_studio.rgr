@@ -280,6 +280,11 @@ operators {
             cpp ( "sh_image_error()" (imp "\"studio_host.h\"") )
         }
     }
+    sh_rg_restyle _:int () {
+        templates {
+            cpp ( "sh_rg_restyle()" (imp "\"studio_host.h\"") )
+        }
+    }
     sh_screenshot _:int (p:string) {
         templates {
             cpp ( "sh_screenshot(" (e 1) ")" (imp "\"studio_host.h\"") )
@@ -358,6 +363,11 @@ operators {
     evg_image_key _:void (x:double y:double w:double h:double key:int u0:double v0:double u1:double v1:double alpha:double radius:double rot:double) {
         templates {
             cpp ( "evggl_image_key(" "(float)(" (e 1) ")" ", " "(float)(" (e 2) ")" ", " "(float)(" (e 3) ")" ", " "(float)(" (e 4) ")" ", " (e 5) ", " "(float)(" (e 6) ")" ", " "(float)(" (e 7) ")" ", " "(float)(" (e 8) ")" ", " "(float)(" (e 9) ")" ", " "(float)(" (e 10) ")" ", " "(float)(" (e 11) ")" ", " "(float)(" (e 12) ")" ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_sphere _:void (x:double y:double w:double h:double key:int bx:double by:double bw:double bh:double p:[double]) {
+        templates {
+            cpp ( "evggl_sphere(" "(float)(" (e 1) ")" ", " "(float)(" (e 2) ")" ", " "(float)(" (e 3) ")" ", " "(float)(" (e 4) ")" ", " (e 5) ", " "(float)(" (e 6) ")" ", " "(float)(" (e 7) ")" ", " "(float)(" (e 8) ")" ", " "(float)(" (e 9) ")" ", " (e 10) ".data(), (int)" (e 10) ".size()" ")" (imp "\"studio_host.h\"") )
         }
     }
     evg_image_forget_all _:void () {

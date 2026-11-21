@@ -67,6 +67,8 @@ int sh_rg_put_head(const std::string& vfsPath, const std::string& diskPath, int 
 void sh_rg_put_text(const std::string& vfsPath, const std::string& text);
 // a fresh engine (empty file system), for a full reload
 void sh_rg_reset();
+// the running game's style.css read again (after a put), no restart; 1 done
+int sh_rg_restyle();
 int sh_rg_start(const std::string& id);
 void sh_rg_resize(double w, double h);
 void sh_rg_pointer(int kind, int id, double x, double y);

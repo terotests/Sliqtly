@@ -52,6 +52,7 @@ ops = [
  ("sh_image_upload","int",[("key","int"),("bytes","buffer")]),
  ("sh_image_w","int",[]),("sh_image_h","int",[]),
  ("sh_image_error","string",[]),
+ ("sh_rg_restyle","int",[]),
  ("sh_screenshot","int",[("p","string")]),
  ("sh_print","void",[("t","string")]),
  # GL
@@ -69,6 +70,7 @@ ops = [
  ("evg_image_has","int",[("key","int")],"evggl_image_has"),
  ("evg_image_upload","void",[("key","int"),("px","buffer"),("w","int"),("h","int")],"evggl_image_upload"),
  ("evg_image_key","void",[("x","double"),("y","double"),("w","double"),("h","double"),("key","int"),("u0","double"),("v0","double"),("u1","double"),("v1","double"),("alpha","double"),("radius","double"),("rot","double")],"evggl_image_key"),
+ ("evg_sphere","void",[("x","double"),("y","double"),("w","double"),("h","double"),("key","int"),("bx","double"),("by","double"),("bw","double"),("bh","double"),("p","[double]")],"evggl_sphere"),
  ("evg_image_forget_all","void",[],"evggl_image_forget_all"),
 ]
 out = ["; SPDX-License-Identifier: AGPL-3.0-or-later",

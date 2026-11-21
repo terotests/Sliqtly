@@ -60,6 +60,9 @@ const uint8_t* rg_result_ptr();
 size_t rg_result_len();
 int32_t rg_eval(const uint8_t* p, size_t n);
 void rg_studio_reset();
+void rg_textures(int32_t on);
+void rg_detail(int32_t on);
+int32_t rg_restyle();
 }
 
 // ---------------------------------------------------------------------------
@@ -426,10 +429,16 @@ int sh_rg_put_head(const std::string& vfsPath, const std::string& diskPath, int 
     return 1;
 }
 void sh_rg_reset() { rg_studio_reset(); }
+int sh_rg_restyle() { return rg_restyle(); }
 void sh_rg_put_text(const std::string& vfsPath, const std::string& text) {
     put_bytes(vfsPath, (const uint8_t*)text.data(), text.size());
 }
-int sh_rg_start(const std::string& id) { return rg_start((const uint8_t*)id.data(), id.size()); }
+int sh_rg_start(const std::string& id) {
+    // the Studio draws textured globes and their detail pictures (kind 8)
+    rg_textures(1);
+    rg_detail(1);
+    return rg_start((const uint8_t*)id.data(), id.size());
+}
 void sh_rg_resize(double w, double h) { rg_resize(w, h); }
 void sh_rg_pointer(int kind, int id, double x, double y) { rg_pointer(kind, id, x, y); }
 void sh_rg_key(int down, const std::string& name) { rg_key(down, (const uint8_t*)name.data(), name.size()); }

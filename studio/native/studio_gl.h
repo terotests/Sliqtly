@@ -51,6 +51,12 @@ void evggl_image_key(float x, float y, float w, float h, int key,
                      float u0, float v0, float u1, float v1,
                      float alpha, float radius, float rotDeg);
 void evggl_image_forget_all(void);
+// Studio: a textured globe (RangerGames draw kind 8). (x,y,w,h) page units,
+// (bx,by,bw,bh) the same box in game units, params the command's 20 numbers
+// (24 with a detail window), texture `key` from evggl_image_upload.
+void evggl_sphere(float x, float y, float w, float h, int key,
+                  float bx, float by, float bw, float bh,
+                  const double* params, int n);
 
 // Flush batches, swap is caller's (SDL_GL_SwapWindow).
 void evggl_flush(void);

@@ -30,6 +30,7 @@ source if your release has no `libsdl3-dev`.
 
 ```
 sliqtly-studio <folder> [--game id] [--file rel] [--size WxH]
+               [--scene name] [--speed N]
                [--frames N] [--shot out.png] [--dump] [--hidden]
 ```
 
@@ -42,10 +43,36 @@ sliqtly-studio <folder> [--game id] [--file rel] [--size WxH]
   within a second. If you have unsaved edits in that file, the Studio keeps
   yours and says so in the status line.
 
+### Scenes, hot reload, fast forward
+
+A game can give the Studio jump points and keep its state across a code
+change. Other hosts never call these, so the game runs as before everywhere
+else:
+
+```ts
+const SCENES: { [name: string]: () => void } = {
+  "kuun-kiertorata": () => sceneOrbit("moon", 100),
+  "laskuvarjo": () => { start(); entryTest(-60, 12, 0.3); },
+};
+function hotSave() { return { screen, pos, vel, field: field ? field.id : "" }; }
+function hotLoad(s: any) { screen = s.screen; pos = s.pos; vel = s.vel; field = BODIES.find((b) => b.id === s.field) || null; }
+```
+
+- The bar above the game shows the scenes as buttons, plus **Tauko/Jatka**
+  (pause), **Askel** (one frame while paused) and **x1 x4 x16 x64** (game
+  frames per window frame; a frame stops early after 40 ms).
+- When files change on disk the Studio does as little as it takes. A change
+  to pictures or sounds only reads them again, with no restart. A change to
+  `style.css` only re-reads the style (`rg_restyle`) and the game goes on.
+  A code change restarts the game, then calls `hotLoad(hotSave())` if the game
+  has them. Otherwise it jumps back to the scene it was in, or else starts
+  from the beginning.
+- `--scene name` and `--speed N` do the same from the command line.
+
 ### For AI agents (headless)
 
 ```bash
-xvfb-run -a build/sliqtly-studio ~/games/my-game --frames 120 --shot shot.png --dump
+xvfb-run -a build/sliqtly-studio ~/games/my-game --scene laskuvarjo --frames 120 --shot shot.png --dump
 ```
 
 This runs 120 frames at a fixed 60 fps and saves the window as a PNG. The
@@ -80,14 +107,15 @@ private.
 | Ranger operators for the native calls (generated) | `native/gfx_studio.rgr` ← `native/gen_ops.py` |
 
 The engine gets every file in the mounted folders except pictures, sounds and
-videos over 256 kB. For those it gets only the first 64 kB, which is enough
+videos over 64 kB. For those it gets only the first 64 kB, which is enough
 for it to read a picture's size. The painter reads the whole file from disk.
 
 ## Not done yet
 
 - Sound and speech: the engine's `sound`/`say` commands are counted but not played.
-- 3D (`<scene3d>`, glTF) and textured globes (draw kind 8): globes are drawn
-  with the engine's flat fallback.
+- 3D (`<scene3d>`, glTF) is drawn with the engine's painter fallback (no
+  depth buffer). Textured globes (draw kind 8) and their detail pictures are
+  drawn natively.
 - SVG pictures and colour emoji. Emoji are drawn as outlines from Noto Emoji.
 - Shadows have no blur. Gradients are drawn as strips.
 - Paths with holes (even-odd) are filled as separate rings.

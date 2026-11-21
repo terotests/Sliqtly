@@ -19,7 +19,8 @@
 ; the game. Ctrl+S saves and restarts at once.
 ;
 ;   sliqtly-studio <folder> [--game id] [--file rel] [--frames N]
-;                           [--shot out.png] [--dump] [--hidden] [--size WxH]
+;                           [--shot out.png] [--dump] [--scene name]
+;                           [--speed N] [--hidden] [--size WxH]
 ;
 ; --frames N runs N frames at a fixed 60 fps and quits; --shot saves the
 ; window then, --dump prints the last frame's draw commands. With xvfb-run
@@ -42,6 +43,15 @@ class StudioFile {
     def rel:string ""
     def size:int 0
     def text:boolean false
+}
+
+; A clickable place drawn this frame, and what a click there does.
+class StudioHit {
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def action:string ""
 }
 
 class StudioApp {
@@ -76,6 +86,9 @@ class StudioApp {
     def lastFrameMs:double 0.0
     def frameMsAvg:double 16.0
     def hasWindow:boolean false
+    ; the bar above the game: speed, pause, step and the game's scenes
+    def toolH:int 34
+    def hits:[StudioHit]
 
     def bg:EVGColor (EVGColor.rgb(15 16 22))
     def panel:EVGColor (EVGColor.rgb(22 24 33))
@@ -237,7 +250,124 @@ class StudioApp {
             pw = 240
         }
         previewW = pw
-        preview.setPanel((to_double (W - pw)) (to_double topH) (to_double pw) (to_double (H - topH)))
+        toolH = (this.toolbarHeight())
+        preview.setPanel((to_double (W - pw)) (to_double (topH + toolH)) (to_double pw) (to_double ((H - topH) - toolH)))
+    }
+
+    ; --- the bar above the game ---------------------------------------------------------
+    fn chipW:double (label:string) {
+        return ((ctx.tr.measureWidth(label 12.0)) + 16.0)
+    }
+
+    ; Lays the bar out (paint false: only measures). Answers its height.
+    fn layoutToolbar:int (dl:EVGDisplayList paint:boolean) {
+        def x0:double (to_double ((W - previewW) + 6))
+        def xmax:double (to_double (W - 6))
+        def x:double x0
+        def y:double (to_double (topH + 5))
+        def labels:[string]
+        def actions:[string]
+        if preview.paused {
+            push labels "Jatka"
+            push actions "pause"
+            push labels "Askel"
+            push actions "step"
+        } {
+            push labels "Tauko"
+            push actions "pause"
+        }
+        def speeds:[int] ([] _:int (1 4 16 64))
+        def si:int 0
+        while (si < 4) {
+            def sp:int (itemAt speeds si)
+            push labels ("x" + (to_string sp))
+            push actions ("speed:" + (to_string sp))
+            si = (si + 1)
+        }
+        def ci:int 0
+        while (ci < (array_length preview.scenes)) {
+            def name:string (itemAt preview.scenes ci)
+            push labels name
+            push actions ("scene:" + name)
+            ci = (ci + 1)
+        }
+        def i:int 0
+        while (i < (array_length labels)) {
+            def label:string (itemAt labels i)
+            def act:string (itemAt actions i)
+            def cw:double (this.chipW(label))
+            if (((x + cw) > xmax) && (x > x0)) {
+                x = x0
+                y = (y + 28.0)
+            }
+            if paint {
+                def on:boolean false
+                if (act == ("speed:" + (to_string preview.speed))) {
+                    on = true
+                }
+                if ((act == "pause") && preview.paused) {
+                    on = true
+                }
+                if (act == ("scene:" + preview.currentScene)) {
+                    on = true
+                }
+                def col:EVGColor line
+                if (on) {
+                    col = (EVGColor.rgb(61 89 161))
+                }
+                if ((indexOf act "scene:") == 0) {
+                    if (on == false) {
+                        col = (EVGColor.rgb(38 64 52))
+                    }
+                }
+                this.roundRect(dl x y cw 22.0 col 4.0)
+                this.text(dl label (x + 8.0) (y + 3.0) 12.0 ink false)
+                def hit:StudioHit (new StudioHit)
+                hit.x = x
+                hit.y = y
+                hit.w = cw
+                hit.h = 22.0
+                hit.action = act
+                push hits hit
+            }
+            x = ((x + cw) + 6.0)
+            i = (i + 1)
+        }
+        return (to_int (((y + 22.0) + 6.0) - (to_double topH)))
+    }
+
+    fn toolbarHeight:int () {
+        def none:EVGDisplayList (new EVGDisplayList)
+        return (this.layoutToolbar(none false))
+    }
+
+    fn act:void (action:string) {
+        if (action == "save") {
+            this.save()
+            return
+        }
+        if (action == "restart") {
+            preview.restart()
+            status = "restarted"
+            return
+        }
+        if (action == "pause") {
+            preview.paused = (preview.paused == false)
+            return
+        }
+        if (action == "step") {
+            preview.stepOnce = true
+            return
+        }
+        if ((indexOf action "speed:") == 0) {
+            preview.speed = (?? (to_int (substring action 6 (strlen action))) 1)
+            return
+        }
+        if ((indexOf action "scene:") == 0) {
+            preview.jump((substring action 6 (strlen action)))
+            focus = "game"
+            editor.focused = false
+        }
     }
 
     fn editorX:int () {
@@ -389,14 +519,18 @@ class StudioApp {
     }
 
     fn clickChrome:void (mx:int my:int) {
+        def fx:double (to_double mx)
+        def fy:double (to_double my)
+        def hi:int 0
+        while (hi < (array_length hits)) {
+            def h:StudioHit (itemAt hits hi)
+            if ((fx >= h.x) && (fy >= h.y) && (fx < (h.x + h.w)) && (fy < (h.y + h.h))) {
+                this.act(h.action)
+                return
+            }
+            hi = (hi + 1)
+        }
         if (my < topH) {
-            if ((mx >= (this.buttonX(0))) && (mx < ((this.buttonX(0)) + 104))) {
-                this.save()
-            }
-            if ((mx >= (this.buttonX(1))) && (mx < ((this.buttonX(1)) + 104))) {
-                preview.restart()
-                status = "restarted"
-            }
             return
         }
         if (mx < leftW) {
@@ -506,6 +640,7 @@ class StudioApp {
 
     fn buildDisplayList:EVGDisplayList () {
         def dl:EVGDisplayList (new EVGDisplayList)
+        clear hits
         def fw:double (to_double W)
         def fh:double (to_double H)
         this.rect(dl 0.0 0.0 fw fh bg)
@@ -529,6 +664,16 @@ class StudioApp {
                 bcol = (EVGColor.rgb(61 89 161))
             }
             this.roundRect(dl bx 7.0 104.0 26.0 bcol 5.0)
+            def tb:StudioHit (new StudioHit)
+            tb.x = bx
+            tb.y = 7.0
+            tb.w = 104.0
+            tb.h = 26.0
+            tb.action = "restart"
+            if (bi == 0) {
+                tb.action = "save"
+            }
+            push hits tb
             this.text(dl (itemAt labels bi) (bx + 10.0) 11.0 12.0 ink false)
             bi = (bi + 1)
         }
@@ -616,14 +761,16 @@ class StudioApp {
         ; right: the game
         def gx:double (to_double (W - previewW))
         this.rect(dl (gx - 1.0) (to_double topH) 1.0 (fh - (to_double topH)) line)
+        this.rect(dl gx (to_double topH) (to_double previewW) (to_double toolH) panel)
+        this.layoutToolbar(dl true)
         preview.paint(dl ctx.tr)
         if (focus == "game") {
             def fc:EVGDrawCmd (new EVGDrawCmd)
             fc.kind = 1
             fc.x = gx
-            fc.y = (to_double topH)
+            fc.y = (to_double (topH + toolH))
             fc.w = (to_double previewW)
-            fc.h = (fh - (to_double topH))
+            fc.h = (fh - (to_double (topH + toolH)))
             fc.thickness = 2.0
             fc.r = (accent.red())
             fc.g = (accent.green())
@@ -632,7 +779,7 @@ class StudioApp {
             push dl.cmds fc
         }
         if (preview.running == false) {
-            this.text(dl preview.status (gx + 16.0) (to_double (topH + 16)) 12.0 warn false)
+            this.text(dl preview.status (gx + 16.0) (to_double ((topH + toolH) + 16)) 12.0 warn false)
         }
         return dl
     }
@@ -682,6 +829,8 @@ class StudioApp {
         def shot:string ""
         def hidden:int 0
         def dump:boolean false
+        def scene:string ""
+        def speed:int 1
         def i:int 0
         def n:int (shell_arg_cnt)
         while (i < n) {
@@ -708,6 +857,14 @@ class StudioApp {
                             if (a == "--dump") {
                                 dump = true
                             } {
+                            if (a == "--scene") {
+                                scene = (StudioApp.argValue(i))
+                                i = (i + 1)
+                            } {
+                            if (a == "--speed") {
+                                speed = (?? (to_int (StudioApp.argValue(i))) 1)
+                                i = (i + 1)
+                            } {
                                 if (a == "--size") {
                                     def wh:[string] (strsplit (StudioApp.argValue(i)) "x")
                                     if ((array_length wh) == 2) {
@@ -720,6 +877,8 @@ class StudioApp {
                                 }
                             }
                             }
+                            }
+                            }
                         }
                     }
                 }
@@ -727,7 +886,7 @@ class StudioApp {
             i = (i + 1)
         }
         if ((strlen folder) == 0) {
-            print "usage: sliqtly-studio <game or collection folder> [--game id] [--file rel] [--frames N] [--shot out.png] [--dump] [--hidden] [--size WxH]"
+            print "usage: sliqtly-studio <game or collection folder> [--game id] [--file rel] [--frames N] [--shot out.png] [--dump] [--scene name] [--speed N] [--hidden] [--size WxH]"
             return
         }
         if ((sh_is_dir folder) == 0) {
@@ -763,6 +922,11 @@ class StudioApp {
         app.layoutPreview()
         app.preview.restart()
         sh_print ("[studio] " + app.preview.status)
+        sh_print ("[studio] scenes: " + (join app.preview.scenes ", "))
+        app.preview.speed = speed
+        if ((strlen scene) > 0) {
+            app.preview.jump(scene)
+        }
         def mounts:string (app.preview.mountReport())
         sh_print ("[studio] mounts:\n" + mounts)
         def count:int 0
