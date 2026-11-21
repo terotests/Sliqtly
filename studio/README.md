@@ -27,6 +27,18 @@ when a source changed. The folder is remembered, so next time
 `npm run start:studio` alone opens it. Options after the folder go to the
 Studio (`--scene kuumoduli`, `--mcp`, ...); `--rebuild` forces a build.
 
+### An app icon on macOS
+
+```bash
+npm run studio:app
+```
+
+This puts **Sliqtly Game Studio.app** in `~/Applications` with the Studio's
+icon (`assets/icon.png`, drawn by `assets/make_icon.py`). Starting it runs
+`npm run start:studio` for this checkout and opens the game folder used last;
+the first time it asks for one. The output goes to
+`~/Library/Logs/sliqtly-studio.log`.
+
 ## Build
 
 ```bash

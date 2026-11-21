@@ -14,6 +14,7 @@
     "build:view": "node scripts/build-view.mjs",
     "start": "node scripts/start.mjs",
     "start:studio": "node studio/scripts/start.mjs",
+    "studio:app": "bash studio/scripts/make-app.sh",
     "serve": "node scripts/serve.mjs",
     "check": "node scripts/check.mjs",
     "check:web": "node scripts/check-web.mjs",
