@@ -102,6 +102,14 @@ int sh_append_text(const std::string& path, const std::string& text);
 std::string sh_local_time();
 // runs a shell command in the background (its own thread); 1 when started
 int sh_spawn(const std::string& cmd);
+// Nano Banana (Gemini image model): draws `out` (PNG) from prompt + ref PNG
+// on a thread, transparent outside `mask` (u,v,... of the picture, "" none);
+// writes out + ".err" on failure. 0 when no API key is set.
+int sh_nano_banana(const std::string& job, const std::string& model, const std::string& prompt,
+                   const std::string& ref, const std::string& out, const std::string& aspect,
+                   const std::string& mask);
+// where the Gemini API key comes from ("" when there is none)
+std::string sh_image_key();
 
 // --- MCP (stdio JSON-RPC, `sliqtly-studio --mcp <folder>`) ------------------------
 // Takes stdout for the protocol (the Studio's own prints go to stderr from

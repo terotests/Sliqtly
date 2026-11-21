@@ -61,6 +61,8 @@ ops = [
  ("sh_local_time","string",[]),
  ("sh_file_size","double",[("p","string")]),
  ("sh_spawn","int",[("cmd","string")]),
+ ("sh_nano_banana","int",[("job","string"),("model","string"),("prompt","string"),("ref","string"),("out","string"),("aspect","string"),("mask","string")]),
+ ("sh_image_key","string",[]),
  ("sh_mcp_start","int",[]),
  ("sh_mcp_next","string",[]),
  ("sh_mcp_arg","string",[("k","string")]),

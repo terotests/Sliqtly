@@ -325,6 +325,16 @@ operators {
             cpp ( "sh_spawn(" (e 1) ")" (imp "\"studio_host.h\"") )
         }
     }
+    sh_nano_banana _:int (job:string model:string prompt:string ref:string out:string aspect:string mask:string) {
+        templates {
+            cpp ( "sh_nano_banana(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_image_key _:string () {
+        templates {
+            cpp ( "sh_image_key()" (imp "\"studio_host.h\"") )
+        }
+    }
     sh_mcp_start _:int () {
         templates {
             cpp ( "sh_mcp_start()" (imp "\"studio_host.h\"") )

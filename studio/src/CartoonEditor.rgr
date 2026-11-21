@@ -92,6 +92,13 @@ class CartoonEditor {
     def clean:boolean false
     ; the open comments on this cartoon, from StudioApp
     def notes:[string]
+    ; Nano Banana pictures on their way: page box x y w h and panel per job,
+    ; the PNG's path in the game folder
+    def nbOut:[string]
+    def nbPanel:[int]
+    def nbBox:[double]
+    ; the panel (or -1 the page) the next Nano Banana screenshot shows
+    def nbShotPanel:int -1
 
     Constructor () {
     }
@@ -805,7 +812,15 @@ class CartoonEditor {
             this.undoLast()
             return
         }
-        if ((a == "ai") || (a == "comment") || (a == "note")) {
+        if ((a == "ai") || (a == "comment") || (a == "note") || (a == "nb")) {
+            ; a selected drawing or picture picks its panel
+            def was@(optional):CartoonItem (this.selected())
+            if (!null? was) {
+                def w:CartoonItem (unwrap was)
+                if (w.panel >= 0) {
+                    selPanel = w.panel
+                }
+            }
             inputMode = a
             inputText = ""
             if (a == "note") {
@@ -1191,6 +1206,172 @@ class CartoonEditor {
         pendingText = t
     }
 
+    ; --- Nano Banana ----------------------------------------------------------------
+    ; the box it draws into: the selected panel's bounds, or the whole page
+    fn nbTarget:[double] () {
+        def sc:CartoonScene (this.scene())
+        if ((selPanel >= 0) && (selPanel < (array_length sc.panels))) {
+            def p:CartoonPanel (itemAt sc.panels selPanel)
+            return ([] _:double ((p.minX()) (p.minY()) ((p.maxX()) - (p.minX())) ((p.maxY()) - (p.minY()))))
+        }
+        return ([] _:double (0.0 0.0 (sc.pageW()) (sc.pageH())))
+    }
+
+    ; the model's aspect ratio nearest to w/h
+    sfn nbAspect:string (w:double h:double) {
+        def names:[string] ([] _:string ("1:1" "2:3" "3:2" "3:4" "4:3" "4:5" "5:4" "9:16" "16:9" "21:9"))
+        def vals:[double] ([] _:double (1.0 0.6667 1.5 0.75 1.3333 0.8 1.25 0.5625 1.7778 2.3333))
+        def r:double (w / h)
+        def best:int 0
+        def bestD:double 1000.0
+        def i:int 0
+        while (i < (array_length vals)) {
+            def d:double (r / (itemAt vals i))
+            if (d < 1.0) {
+                d = (1.0 / d)
+            }
+            if (d < bestD) {
+                bestD = d
+                best = i
+            }
+            i = (i + 1)
+        }
+        return (itemAt names best)
+    }
+
+    sfn nbRatio:double (a:string) {
+        def k:int (indexOf a ":")
+        def w:double (?? (to_double (substring a 0 k)) 1.0)
+        def h:double (?? (to_double (substring a (k + 1) (strlen a))) 1.0)
+        return (w / h)
+    }
+
+    ; the picture's box: the model's aspect ratio covering the target box
+    sfn nbCover:[double] (bx:double by:double bw:double bh:double) {
+        def r:double (CartoonEditor.nbRatio((CartoonEditor.nbAspect(bw bh))))
+        def w:double bw
+        def h:double (bw / r)
+        if ((bw / bh) <= r) {
+            h = bh
+            w = (bh * r)
+        }
+        return ([] _:double ((bx + ((bw - w) / 2.0)) (by + ((bh - h) / 2.0)) w h))
+    }
+
+    ; the selected panel's outline as u,v pairs of the picture ("" the page)
+    fn nbMask:string () {
+        def sc:CartoonScene (this.scene())
+        if ((selPanel < 0) || (selPanel >= (array_length sc.panels))) {
+            return ""
+        }
+        def p:CartoonPanel (itemAt sc.panels selPanel)
+        def b:[double] (this.nbTarget())
+        def ib:[double] (CartoonEditor.nbCover((itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3)))
+        def out:string ""
+        def k:int 0
+        while ((k + 1) < (array_length p.pts)) {
+            if (k > 0) {
+                out = (out + ",")
+            }
+            def u:double (((itemAt p.pts k) - (itemAt ib 0)) / (itemAt ib 2))
+            def v:double (((itemAt p.pts (k + 1)) - (itemAt ib 1)) / (itemAt ib 3))
+            out = (out + (to_string u) + "," + (to_string v))
+            k = (k + 2)
+        }
+        return out
+    }
+
+    ; the screen rectangle of the box (the reference screenshot)
+    fn nbShotRect:[double] () {
+        this.placePage()
+        def b:[double] (this.nbTarget())
+        return ([] _:double ((render.X((itemAt b 0))) (render.Y((itemAt b 1))) ((itemAt b 2) * render.s) ((itemAt b 3) * render.s)))
+    }
+
+    fn nbPrompt:string (instructions:string) {
+        def sc:CartoonScene (this.scene())
+        def st:CartoonStyle doc.style
+        def out:string "Draw one comic panel as a finished illustration. "
+        out = (out + "What to draw (the author's words, Finnish or English): " + instructions + "\n\n")
+        out = (out + "Style: " + (st.brief()) + "\n")
+        if ((strlen sc.note) > 0) {
+            out = (out + "The scene: " + sc.note + "\n")
+        }
+        def says:string ""
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def it:CartoonItem (itemAt sc.items i)
+            if ((it.kind == "bubble") && ((selPanel < 0) || (it.panel == selPanel)) && ((strlen it.text) > 0)) {
+                says = (says + "- \"" + it.text + "\"\n")
+            }
+            i = (i + 1)
+        }
+        if ((strlen says) > 0) {
+            out = (out + "Speech in this panel (the editor adds the speech bubbles itself; leave room for them, do not draw bubbles or text):\n" + says)
+        }
+        out = (out + "\nThe attached picture is the panel as it is now in the editor: keep its composition, characters and any sketch lines the author drew, and redraw them as finished art. ")
+        out = (out + "Fill the whole picture edge to edge, no panel border, no frame, no letters, no captions, no signature.")
+        return out
+    }
+
+    ; a job started (StudioApp calls the model): remember where its picture goes
+    fn nbStarted:void (rel:string) {
+        def b:[double] (this.nbTarget())
+        push nbOut rel
+        push nbPanel selPanel
+        def k:int 0
+        while (k < 4) {
+            push nbBox (itemAt b k)
+            k = (k + 1)
+        }
+    }
+
+    ; pictures that arrived become image items in their box
+    fn nbCheck:void () {
+        def i:int 0
+        while (i < (array_length nbOut)) {
+            def rel:string (itemAt nbOut i)
+            def disk:string (gameDir + "/" + rel)
+            def done:boolean false
+            if ((sh_exists disk) == 1) {
+                def bx:double (itemAt nbBox (i * 4))
+                def by:double (itemAt nbBox ((i * 4) + 1))
+                def bw:double (itemAt nbBox ((i * 4) + 2))
+                def bh:double (itemAt nbBox ((i * 4) + 3))
+                def ib:[double] (CartoonEditor.nbCover(bx by bw bh))
+                def it:CartoonItem (new CartoonItem)
+                it.kind = "image"
+                it.src = rel
+                it.panel = (itemAt nbPanel i)
+                it.x = (itemAt ib 0)
+                it.y = (itemAt ib 1)
+                it.w = (itemAt ib 2)
+                it.h = (itemAt ib 3)
+                this.remember()
+                def sc:CartoonScene (this.scene())
+                ; over the panel's own lines (Del or undo brings them back), under the bubbles
+                push sc.items it
+                dirty = true
+                status = ("Nano Banana valmis: " + rel + " (valitse kuva: siirrä, muuta kokoa tai Del)")
+                done = true
+            }
+            if ((done == false) && ((sh_exists (disk + ".err")) == 1)) {
+                status = ("Nano Banana epäonnistui: " + (trim (sh_read_text (disk + ".err"))))
+                done = true
+            }
+            if done {
+                remove_index nbOut i
+                remove_index nbPanel i
+                remove_index nbBox (i * 4)
+                remove_index nbBox (i * 4)
+                remove_index nbBox (i * 4)
+                remove_index nbBox (i * 4)
+            } {
+                i = (i + 1)
+            }
+        }
+    }
+
     ; --- the brief an AI gets with the screenshot -------------------------------------
     fn aiBrief:string (instructions:string shot:string commentId:string) {
         def sc:CartoonScene (this.scene())
@@ -1443,6 +1624,8 @@ class CartoonEditor {
         this.chip(dl cur "Kommentoi" "comment" (inputMode == "comment"))
         this.chip(dl cur "Skenen kuvaus" "note" (inputMode == "note"))
         this.newline(cur)
+        this.chip(dl cur "Piirrä Nano Bananalla" "nb" (inputMode == "nb"))
+        this.newline(cur)
         this.chip(dl cur "Vie PNG" "png" false)
         this.chip(dl cur "Kumoa ^Z" "undo" false)
         this.chip(dl cur "Tyhjennä ruutu" "clearpanel" false)
@@ -1616,6 +1799,12 @@ class CartoonEditor {
             }
             if (inputMode == "note") {
                 prompt = "Skenen kuvaus:"
+            }
+            if (inputMode == "nb") {
+                prompt = "Nano Banana piirtää valittuun ruutuun (tai koko sivulle):"
+                if (selPanel >= 0) {
+                    prompt = ("Nano Banana piirtää ruutuun " + (to_string (selPanel + 1)) + ":")
+                }
             }
             def caret:string ""
             if (((to_int ((sh_now_ms) / 500.0)) % 2) == 0) {
