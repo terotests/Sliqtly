@@ -1288,29 +1288,65 @@ class CartoonEditor {
         return ([] _:double ((render.X((itemAt b 0))) (render.Y((itemAt b 1))) ((itemAt b 2) * render.s) ((itemAt b 3) * render.s)))
     }
 
+    sfn pct:int (v:int) {
+        if (v < 0) {
+            return 0
+        }
+        if (v > 100) {
+            return 100
+        }
+        return v
+    }
+
+    ; The model gets no speech: quoted lines make it draw bubbles and letters.
+    ; It gets where the bubbles will be, as areas to keep calm.
     fn nbPrompt:string (instructions:string) {
         def sc:CartoonScene (this.scene())
         def st:CartoonStyle doc.style
-        def out:string "Draw one comic panel as a finished illustration. "
+        def rules:string "RULES: pictures only. No text of any kind: no letters, words, numbers, speech bubbles, thought bubbles, captions, sound effects, onomatopoeia, signs with writing, logos, signatures or watermarks. No panel borders or frames. The comic editor adds all bubbles and text itself."
+        def out:string (rules + "\n\nDraw the illustration for one comic panel, filling the whole picture edge to edge.\n")
         out = (out + "What to draw (the author's words, Finnish or English): " + instructions + "\n\n")
-        out = (out + "Style: " + (st.brief()) + "\n")
-        if ((strlen sc.note) > 0) {
-            out = (out + "The scene: " + sc.note + "\n")
+        ; the style without its bubble lettering line
+        def brief:string ""
+        def lines:[string] (strsplit (st.brief()) "\n")
+        def k:int 0
+        while (k < (array_length lines)) {
+            def ln:string (itemAt lines k)
+            if (((indexOf ln "kupl") < 0) && ((strlen (trim ln)) > 0)) {
+                brief = (brief + ln + "\n")
+            }
+            k = (k + 1)
         }
-        def says:string ""
+        out = (out + "Style:\n" + brief)
+        if ((strlen sc.note) > 0) {
+            out = (out + "The situation in the scene: " + sc.note + "\n")
+        }
+        def b:[double] (this.nbTarget())
+        def bx:double (itemAt b 0)
+        def by:double (itemAt b 1)
+        def bw:double (itemAt b 2)
+        def bh:double (itemAt b 3)
+        def areas:string ""
         def i:int 0
         while (i < (array_length sc.items)) {
             def it:CartoonItem (itemAt sc.items i)
-            if ((it.kind == "bubble") && ((selPanel < 0) || (it.panel == selPanel)) && ((strlen it.text) > 0)) {
-                says = (says + "- \"" + it.text + "\"\n")
+            if ((it.kind == "bubble") && ((selPanel < 0) || (it.panel == selPanel))) {
+                def x0:int (to_int ((100.0 * (it.x - bx)) / bw))
+                def y0:int (to_int ((100.0 * (it.y - by)) / bh))
+                def x1:int (to_int ((100.0 * ((it.x + it.w) - bx)) / bw))
+                def y1:int (to_int ((100.0 * ((it.y + it.h) - by)) / bh))
+                x0 = (CartoonEditor.pct(x0))
+                y0 = (CartoonEditor.pct(y0))
+                x1 = (CartoonEditor.pct(x1))
+                y1 = (CartoonEditor.pct(y1))
+                areas = (areas + "- from " + (to_string x0) + "% to " + (to_string x1) + "% across, " + (to_string y0) + "% to " + (to_string y1) + "% down\n")
             }
             i = (i + 1)
         }
-        if ((strlen says) > 0) {
-            out = (out + "Speech in this panel (the editor adds the speech bubbles itself; leave room for them, do not draw bubbles or text):\n" + says)
+        if ((strlen areas) > 0) {
+            out = (out + "\nThe editor will put speech bubbles over these areas later; keep them free of faces and important details (plain background there, nothing written):\n" + areas)
         }
-        out = (out + "\nThe attached picture is the panel as it is now in the editor: keep its composition, characters and any sketch lines the author drew, and redraw them as finished art. ")
-        out = (out + "Fill the whole picture edge to edge, no panel border, no frame, no letters, no captions, no signature.")
+        out = (out + "\nThe attached picture is the panel as it is now in the editor (without bubbles): keep its composition, characters and any sketch lines the author drew, and redraw them as finished art.\n\n" + rules)
         return out
     }
 
