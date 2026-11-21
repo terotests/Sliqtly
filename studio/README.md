@@ -166,14 +166,33 @@ The AI gets it in one of two ways:
   calls `cartoon_get` (the brief and the whole JSON) and
   `screenshot` with `area: "cartoon"`, edits the file, looks again and marks
   the comment done. `cartoon_open` opens a cartoon or makes a new one.
-- With `SLIQTLY_STUDIO_AI` set, the Studio runs that command in the game
-  folder with the brief as its input, for example
-  `SLIQTLY_STUDIO_AI='claude -p --permission-mode acceptEdits'`. Its output
-  goes to `.studio/cartoon-requests/<id>.log`.
+- Otherwise the Studio runs a command in the game folder with the brief as
+  its input: `claude -p --permission-mode acceptEdits` (Claude Code's CLI)
+  unless `SLIQTLY_STUDIO_AI` names another one; `off` or `none` turns it off.
+  Its output goes to `.studio/cartoon-requests/<id>.log`.
 
 Either way the editor shows the change as soon as the file is written, so the
 person can look, comment again or redraw. A change to a `.cartoon.json` does
 not restart the game.
+
+#### Nano Banana: Gemini draws a panel
+
+**Piirrä Nano Bananalla** asks Google's image model to draw the selected
+panel (click it, or a drawing in it, with Valitse first; with nothing
+selected, the whole page). The Studio sends what you write, the style, the
+scene note and the panel's speech, with a screenshot of the panel as it is
+now (no bubbles), so sketch lines you drew guide the picture. The answer
+becomes `cartoons/<name>-nb-<n>.png`, transparent outside a slanted panel's
+outline, and an image item over that panel's own lines and under its bubbles.
+Del or Ctrl+Z takes it away. Each job keeps its prompt, screenshot and the
+model's answer in `.studio/nano-banana/<name>-nb-<n>/`.
+
+It calls the Gemini API with your own key, read from `SLIQTLY_STUDIO_GEMINI_KEY`,
+`GEMINI_API_KEY` or `GOOGLE_API_KEY`, or else from the file named by
+`SLIQTLY_STUDIO_GEMINI_KEY_FILE` or `~/.config/sliqtly-studio/gemini-api-key`
+(never from the game folder). The model is `gemini-3.1-flash-image` (Nano
+Banana 2) unless `SLIQTLY_STUDIO_IMAGE_MODEL` names another, such as
+`gemini-2.5-flash-image` or `gemini-3-pro-image-preview`. It needs `curl`.
 
 ### For AI agents: the Studio as an MCP server
 

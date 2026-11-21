@@ -23,6 +23,8 @@ class CartoonRender {
     def ox:double 0.0
     def oy:double 0.0
     def s:double 1.0
+    ; no speech bubbles (the reference picture Nano Banana gets)
+    def hideBubbles:boolean false
     def fontFamily:string "Open Sans"
     def style:CartoonStyle (new CartoonStyle)
 
@@ -1137,7 +1139,7 @@ class CartoonRender {
         i = 0
         while (i < (array_length sc.items)) {
             def it:CartoonItem (itemAt sc.items i)
-            if (it.kind == "bubble") {
+            if ((it.kind == "bubble") && (hideBubbles == false)) {
                 this.paintBubble(dl tr it)
             }
             i = (i + 1)

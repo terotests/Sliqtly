@@ -91,6 +91,10 @@ class StudioApp {
     ; the comic editor ("Sarjakuva" in the top bar)
     def cartoon:CartoonEditor (new CartoonEditor)
     def cartoonBrief:string ""
+    ; the Nano Banana job whose reference screenshot is taken this frame
+    def nbJob:string ""
+    def nbPromptText:string ""
+    def nbRel:string ""
 
     def files:[StudioFile]
     def fileScroll:int 0
@@ -858,6 +862,16 @@ class StudioApp {
             ok = (sh_screenshot_rect shotPath (itemAt pr 0) (itemAt pr 1) (itemAt pr 2) (itemAt pr 3))
             cartoon.clean = false
             this.afterCartoonShot(ok)
+        }
+        if (shotArea == "cartoon-nb") {
+            def nr:[double] (cartoon.nbShotRect())
+            ok = (sh_screenshot_rect shotPath (itemAt nr 0) (itemAt nr 1) (itemAt nr 2) (itemAt nr 3))
+            cartoon.clean = false
+            cartoon.render.hideBubbles = false
+            this.startNanoBanana(ok)
+            shotPath = ""
+            shotFor = ""
+            return
         }
         if ((shotArea != "window") && (shotArea != "cartoon")) {
             ok = (sh_screenshot_rect shotPath preview.px preview.py preview.pw preview.ph)
@@ -1833,6 +1847,7 @@ class StudioApp {
         cartoon.frameTick(lastMouseDown)
         if ((frameNo % 30) == 0) {
             cartoon.checkDisk()
+            cartoon.nbCheck()
             clear cartoon.notes
             def prefix:string ("cartoon:" + cartoon.doc.rel)
             def i:int 0
@@ -1869,6 +1884,10 @@ class StudioApp {
             cartoon.status = ("vienti: " + rel + " (pelissä rg.asset(\"" + rel + "\"))")
             return
         }
+        if (kind == "nb") {
+            this.queueNanoBanana(text)
+            return
+        }
         def label:string text
         if (kind == "ai") {
             label = ("[AI] " + text)
@@ -1903,17 +1922,80 @@ class StudioApp {
             cartoon.status = "kommentti tallennettu kuvakaappauksen kanssa"
         }
         if ((shotFor == "cartoon-ai") && ((strlen cartoonBrief) > 0)) {
+            ; SLIQTLY_STUDIO_AI, or by default Claude Code's own CLI. It runs in
+            ; a login shell with the usual install folders on PATH: a Studio
+            ; started from the Dock or Finder does not get the terminal's PATH.
             def cmd:string (sh_env "SLIQTLY_STUDIO_AI")
-            if ((strlen cmd) > 0) {
+            def how:string "SLIQTLY_STUDIO_AI"
+            if ((strlen cmd) == 0) {
+                cmd = "claude -p --permission-mode acceptEdits"
+                how = "claude -p"
+            }
+            if ((cmd != "off") && (cmd != "none")) {
                 def logPath:string ((substring cartoonBrief 0 ((strlen cartoonBrief) - 3)) + ".log")
-                def line:string ("cd '" + (this.gameDir()) + "' && " + cmd + " < '" + cartoonBrief + "' > '" + logPath + "' 2>&1")
+                def inner:string ("export PATH=\"$HOME/.claude/local:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; " + cmd + " < \"" + cartoonBrief + "\" > \"" + logPath + "\" 2>&1; echo \"[studio] exit $?\" >> \"" + logPath + "\"")
+                def line:string ("cd '" + (this.gameDir()) + "' && \"${SHELL:-/bin/sh}\" -lc '" + inner + "'")
                 sh_spawn line
-                cartoon.status = ("AI käynnistetty (SLIQTLY_STUDIO_AI), loki " + logPath + ". Muutokset näkyvät, kun se kirjoittaa tiedoston.")
+                cartoon.status = ("AI käynnistetty (" + how + "), loki " + logPath + ". Muutokset näkyvät, kun se kirjoittaa tiedoston.")
             } {
                 cartoon.status = ("pyyntö tallennettu: " + cartoonBrief + " · Studion MCP:hen liitetty agentti näkee sen (comments_list)")
             }
             cartoonBrief = ""
         }
+    }
+
+    ; Nano Banana (Gemini's image model) draws the selected panel: first a
+    ; screenshot of the panel without bubbles (this frame), then the call.
+    fn queueNanoBanana:void (text:string) {
+        if ((strlen (sh_image_key)) == 0) {
+            cartoon.status = "Nano Banana: Google API -avain puuttuu. Aseta GEMINI_API_KEY tai kirjoita avain tiedostoon ~/.config/sliqtly-studio/gemini-api-key ja yritä uudelleen."
+            return
+        }
+        def base:string (substring cartoon.doc.rel 0 (indexOf cartoon.doc.rel ".cartoon.json"))
+        def n:int 1
+        def rel:string (base + "-nb-" + (to_string n) + ".png")
+        while ((sh_exists (GamePreview.joinPath((this.gameDir()) rel))) == 1) {
+            n = (n + 1)
+            rel = (base + "-nb-" + (to_string n) + ".png")
+        }
+        def name:string (substring rel 0 ((strlen rel) - 4))
+        if ((indexOf name "cartoons/") == 0) {
+            name = (substring name 9 (strlen name))
+        }
+        nbJob = (GamePreview.joinPath((GamePreview.joinPath((this.studioDir()) "nano-banana")) name))
+        sh_mkdirs nbJob
+        nbRel = rel
+        nbPromptText = (cartoon.nbPrompt(text))
+        sh_write_text (GamePreview.joinPath(nbJob "prompt.txt")) nbPromptText
+        shotPath = (GamePreview.joinPath(nbJob "ref.png"))
+        shotArea = "cartoon-nb"
+        shotFor = "cartoon-nb"
+        cartoon.clean = true
+        cartoon.render.hideBubbles = true
+    }
+
+    fn startNanoBanana:void (ok:int) {
+        def model:string (sh_env "SLIQTLY_STUDIO_IMAGE_MODEL")
+        if ((strlen model) == 0) {
+            model = "gemini-3.1-flash-image"
+        }
+        def ref:string (GamePreview.joinPath(nbJob "ref.png"))
+        if (ok != 1) {
+            ref = ""
+        }
+        def b:[double] (cartoon.nbTarget())
+        def aspect:string (CartoonEditor.nbAspect((itemAt b 2) (itemAt b 3)))
+        def out:string (GamePreview.joinPath((this.gameDir()) nbRel))
+        def started:int (sh_nano_banana nbJob model nbPromptText ref out aspect (cartoon.nbMask()))
+        if (started == 1) {
+            cartoon.nbStarted(nbRel)
+            cartoon.status = ("Nano Banana piirtää (" + model + ", " + aspect + ")... kuva tulee ruutuun, kun se on valmis (noin 10-40 s)")
+        } {
+            cartoon.status = "Nano Banana: Google API -avain puuttuu"
+        }
+        nbJob = ""
+        nbRel = ""
+        nbPromptText = ""
     }
 
     fn cartoonInfo:string () {

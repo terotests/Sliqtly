@@ -35,6 +35,11 @@
 #define STBI_NO_HDR
 #define STBI_NO_LINEAR
 #include "third_party/stb_image.h"
+// stb_image_write v1.19 (public domain / MIT, Sean Barrett): compressed PNG
+// for the pictures Nano Banana draws (masked to their panel).
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STBI_WRITE_NO_STDIO
+#include "third_party/stb_image_write.h"
 
 namespace fs = std::filesystem;
 
@@ -627,5 +632,199 @@ std::string sh_local_time() {
 int sh_spawn(const std::string& cmd) {
     if (cmd.empty()) return 0;
     std::thread([cmd]() { int rc = std::system(cmd.c_str()); (void)rc; }).detach();
+    return 1;
+}
+
+// --- Nano Banana: Gemini's image model through the Gemini API ---------------
+// The key comes from the environment or a local file, never from the game
+// folder, so it does not end up next to the game's files.
+static std::string nb_trim(std::string s) {
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' ' || s.back() == '\t')) s.pop_back();
+    size_t i = 0;
+    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) i++;
+    return s.substr(i);
+}
+
+static std::string nb_key(std::string* from) {
+    for (const char* n : {"SLIQTLY_STUDIO_GEMINI_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"}) {
+        const char* v = std::getenv(n);
+        if (v && *v) { if (from) *from = n; return nb_trim(v); }
+    }
+    std::vector<std::string> files;
+    if (const char* f = std::getenv("SLIQTLY_STUDIO_GEMINI_KEY_FILE")) if (*f) files.push_back(f);
+    if (const char* h = std::getenv("HOME")) files.push_back(std::string(h) + "/.config/sliqtly-studio/gemini-api-key");
+    for (const auto& f : files) {
+        std::ifstream in(f);
+        if (!in) continue;
+        std::string k((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        k = nb_trim(k);
+        if (!k.empty()) { if (from) *from = f; return k; }
+    }
+    return "";
+}
+
+std::string sh_image_key() {
+    std::string from;
+    nb_key(&from);
+    return from;
+}
+
+static const char* NB_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static std::string nb_b64enc(const std::string& in) {
+    std::string out;
+    out.reserve((in.size() + 2) / 3 * 4);
+    size_t i = 0;
+    while (i + 2 < in.size()) {
+        unsigned v = ((unsigned char)in[i] << 16) | ((unsigned char)in[i + 1] << 8) | (unsigned char)in[i + 2];
+        out += NB_B64[(v >> 18) & 63]; out += NB_B64[(v >> 12) & 63]; out += NB_B64[(v >> 6) & 63]; out += NB_B64[v & 63];
+        i += 3;
+    }
+    if (i < in.size()) {
+        unsigned v = (unsigned char)in[i] << 16;
+        if (i + 1 < in.size()) v |= (unsigned char)in[i + 1] << 8;
+        out += NB_B64[(v >> 18) & 63]; out += NB_B64[(v >> 12) & 63];
+        out += (i + 1 < in.size()) ? NB_B64[(v >> 6) & 63] : '=';
+        out += '=';
+    }
+    return out;
+}
+
+static std::string nb_b64dec(const std::string& in) {
+    int t[256];
+    for (int& x : t) x = -1;
+    for (int k = 0; k < 64; k++) t[(unsigned char)NB_B64[k]] = k;
+    std::string out;
+    unsigned v = 0;
+    int bits = 0;
+    for (unsigned char c : in) {
+        if (t[c] < 0) continue;
+        v = (v << 6) | t[c];
+        bits += 6;
+        if (bits >= 8) { bits -= 8; out += (char)((v >> bits) & 255); }
+    }
+    return out;
+}
+
+static std::string nb_json(const std::string& s) {
+    std::string o = "\"";
+    for (unsigned char c : s) {
+        if (c == '"') o += "\\\"";
+        else if (c == '\\') o += "\\\\";
+        else if (c == '\n') o += "\\n";
+        else if (c == '\r') o += "\\r";
+        else if (c == '\t') o += "\\t";
+        else if (c < 32) { char b[8]; std::snprintf(b, sizeof b, "\\u%04x", c); o += b; }
+        else o += (char)c;
+    }
+    return o + "\"";
+}
+
+static std::string nb_slurp(const std::string& p) {
+    std::ifstream in(p, std::ios::binary);
+    if (!in) return "";
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+static void nb_spit(const std::string& p, const std::string& data) {
+    std::ofstream o(p, std::ios::binary);
+    o << data;
+}
+
+// the string value after `"key"` from pos (raw, escapes left as they are)
+static std::string nb_value(const std::string& j, const std::string& key, size_t from, size_t* at) {
+    size_t k = j.find("\"" + key + "\"", from);
+    if (k == std::string::npos) return "";
+    size_t c = j.find(':', k);
+    if (c == std::string::npos) return "";
+    size_t q = j.find('"', c);
+    if (q == std::string::npos) return "";
+    size_t e = q + 1;
+    while (e < j.size() && j[e] != '"') e += (j[e] == '\\') ? 2 : 1;
+    if (at) *at = e;
+    return j.substr(q + 1, e - q - 1);
+}
+
+// pixels outside the polygon (u,v pairs, 0..1 of the picture) turn transparent
+static std::string nb_mask(const std::string& png, const std::string& mask) {
+    std::vector<double> poly;
+    std::stringstream ss(mask);
+    std::string tok;
+    while (std::getline(ss, tok, ',')) poly.push_back(std::atof(tok.c_str()));
+    if (poly.size() < 6) return png;
+    int w = 0, h = 0, n = 0;
+    stbi_uc* px = stbi_load_from_memory((const stbi_uc*)png.data(), (int)png.size(), &w, &h, &n, 4);
+    if (!px) return png;
+    size_t m = poly.size() / 2;
+    auto inside = [&](double x, double y) {
+        bool in = false;
+        for (size_t a = 0, b = m - 1; a < m; b = a++) {
+            double xa = poly[a * 2] * w, ya = poly[a * 2 + 1] * h, xb = poly[b * 2] * w, yb = poly[b * 2 + 1] * h;
+            if (((ya > y) != (yb > y)) && (x < (xb - xa) * (y - ya) / (yb - ya) + xa)) in = !in;
+        }
+        return in;
+    };
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            // 2x2 samples: a soft edge along slanted borders
+            int c = inside(x + 0.25, y + 0.25) + inside(x + 0.75, y + 0.25) + inside(x + 0.25, y + 0.75) + inside(x + 0.75, y + 0.75);
+            stbi_uc* p = &px[((size_t)y * w + x) * 4];
+            p[3] = (stbi_uc)(p[3] * c / 4);
+        }
+    }
+    std::string outPng;
+    stbi_write_png_to_func([](void* ctx, void* data, int size) { ((std::string*)ctx)->append((const char*)data, size); },
+                           &outPng, w, h, 4, px, w * 4);
+    stbi_image_free(px);
+    return outPng.empty() ? png : outPng;
+}
+
+int sh_nano_banana(const std::string& job, const std::string& model, const std::string& prompt,
+                   const std::string& ref, const std::string& out, const std::string& aspect,
+                   const std::string& mask) {
+    std::string key = nb_key(nullptr);
+    if (key.empty()) return 0;
+    std::thread([=]() {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        fs::create_directories(job, ec);
+        std::string req = job + "/request.json", resp = job + "/response.json", hdr = job + "/.key-header";
+        std::string body = "{\"contents\":[{\"parts\":[{\"text\":" + nb_json(prompt) + "}";
+        std::string png = ref.empty() ? "" : nb_slurp(ref);
+        if (!png.empty()) body += ",{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"" + nb_b64enc(png) + "\"}}";
+        body += "]}],\"generationConfig\":{\"responseModalities\":[\"IMAGE\"]";
+        if (!aspect.empty()) body += ",\"imageConfig\":{\"aspectRatio\":" + nb_json(aspect) + "}";
+        body += "}}";
+        nb_spit(req, body);
+        // the key goes in a header file (not on the command line, where ps shows it)
+        nb_spit(hdr, "x-goog-api-key: " + key + "\n");
+        fs::permissions(hdr, fs::perms::owner_read | fs::perms::owner_write, ec);
+        const char* base = std::getenv("SLIQTLY_STUDIO_GEMINI_BASE");
+        std::string url = std::string(base && *base ? base : "https://generativelanguage.googleapis.com") + "/v1beta/models/" + model + ":generateContent";
+        std::string cmd = "curl -sS --max-time 240 -H @'" + hdr + "' -H 'Content-Type: application/json' --data-binary @'" + req + "' -o '" + resp + "' '" + url + "' 2> '" + job + "/curl.log'";
+        int rc = std::system(cmd.c_str());
+        fs::remove(hdr, ec);
+        std::string j = nb_slurp(resp);
+        // the last picture (thinking models send draft pictures first)
+        std::string data;
+        size_t pos = 0, at = 0;
+        while ((pos = j.find("\"inlineData\"", pos)) != std::string::npos) {
+            std::string d = nb_value(j, "data", pos, &at);
+            if (!d.empty()) data = d;
+            pos = at > pos ? at : pos + 1;
+        }
+        if (!data.empty()) {
+            std::string bytes = nb_mask(nb_b64dec(data), mask);
+            std::string tmp = out + ".part";
+            nb_spit(tmp, bytes);
+            fs::rename(tmp, out, ec);
+            if (!ec) return;
+        }
+        std::string msg = nb_value(j, "message", 0, nullptr);
+        if (msg.empty()) msg = nb_value(j, "finishReason", 0, nullptr);
+        if (msg.empty()) msg = nb_trim(nb_slurp(job + "/curl.log"));
+        if (msg.empty()) msg = "no picture in the answer (curl exit " + std::to_string(rc) + ")";
+        nb_spit(out + ".err", msg + "\n");
+    }).detach();
     return 1;
 }
