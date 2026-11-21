@@ -45,6 +45,22 @@ class StudioFile {
     def text:boolean false
 }
 
+; A comment left on the game: what the person (or an agent) saw and wants.
+; Kept in <project>/.studio/comments.jsonl, one JSON object per line, with a
+; screenshot of the game area in .studio/shots/ (a dot folder: never mounted
+; into the engine, never listed as a game file).
+class StudioComment {
+    def id:string ""
+    def time:string ""
+    def game:string ""
+    def scene:string ""
+    def frame:int 0
+    def text:string ""
+    def shot:string ""
+    def done:boolean false
+    def note:string ""
+}
+
 ; A clickable place drawn this frame, and what a click there does.
 class StudioHit {
     def x:double 0.0
@@ -90,6 +106,31 @@ class StudioApp {
     def toolH:int 34
     def hits:[StudioHit]
 
+    ; the asset view: a picture shown where the editor is
+    def viewSrc:string ""
+    def viewDisk:string ""
+    def viewTitle:string ""
+    def viewComment:string ""
+    ; resource folders (studio.json) opened in the left panel, and their files
+    def openMounts:[string:boolean]
+    def mountFiles:[string:[string]]
+
+    ; comments
+    def comments:[StudioComment]
+    def commentsStamp:double 0.0
+    def commentMode:boolean false
+    def commentText:string ""
+    def draft:StudioComment (new StudioComment)
+    ; a screenshot to take once this frame is drawn
+    def shotPath:string ""
+    def shotArea:string "game"
+    def shotFor:string ""
+    def frameNo:int 0
+
+    ; MCP over stdio
+    def mcp:boolean false
+    def mcpQuit:boolean false
+
     def bg:EVGColor (EVGColor.rgb(15 16 22))
     def panel:EVGColor (EVGColor.rgb(22 24 33))
     def bar:EVGColor (EVGColor.rgb(30 32 44))
@@ -123,6 +164,7 @@ class StudioApp {
 
     fn openProject:void (folder:string) {
         preview.open(folder)
+        this.loadComments()
         this.refreshFiles()
         this.openFirstFile()
         status = preview.status
@@ -284,6 +326,8 @@ class StudioApp {
             push actions ("speed:" + (to_string sp))
             si = (si + 1)
         }
+        push labels "Kommentoi"
+        push actions "comment"
         def ci:int 0
         while (ci < (array_length preview.scenes)) {
             def name:string (itemAt preview.scenes ci)
@@ -314,6 +358,12 @@ class StudioApp {
                 def col:EVGColor line
                 if (on) {
                     col = (EVGColor.rgb(61 89 161))
+                }
+                if ((act == "comment") && commentMode) {
+                    on = true
+                }
+                if ((act == "comment") && (on == false)) {
+                    col = (EVGColor.rgb(82 64 30))
                 }
                 if ((indexOf act "scene:") == 0) {
                     if (on == false) {
@@ -367,7 +417,441 @@ class StudioApp {
             preview.jump((substring action 6 (strlen action)))
             focus = "game"
             editor.focused = false
+            return
         }
+        if (action == "comment") {
+            this.startComment()
+            return
+        }
+        if (action == "closeview") {
+            this.closeView()
+            return
+        }
+        if ((indexOf action "game:") == 0) {
+            if (this.dirty()) {
+                this.save()
+            }
+            this.closeView()
+            preview.select((substring action 5 (strlen action)))
+            this.refreshFiles()
+            this.openFirstFile()
+            return
+        }
+        if ((indexOf action "file:") == 0) {
+            this.clickFile((substring action 5 (strlen action)))
+            return
+        }
+        if ((indexOf action "mount:") == 0) {
+            this.toggleMount((?? (to_int (substring action 6 (strlen action))) 0))
+            return
+        }
+        if ((indexOf action "res:") == 0) {
+            def rest:string (substring action 4 (strlen action))
+            def bar:int (indexOf rest ":")
+            def mi:int (?? (to_int (substring rest 0 bar)) 0)
+            def m:GameMount (itemAt preview.mounts mi)
+            def rel:string (substring rest (bar + 1) (strlen rest))
+            this.showAsset((m.vfs + "/" + rel) (GamePreview.joinPath(m.disk rel)) (m.label + " / " + rel) (sh_file_size (GamePreview.joinPath(m.disk rel))))
+            return
+        }
+        if ((indexOf action "cshow:") == 0) {
+            this.showComment((substring action 6 (strlen action)))
+            return
+        }
+        if ((indexOf action "cdone:") == 0) {
+            this.markDone((substring action 6 (strlen action)) "")
+            return
+        }
+    }
+
+    ; --- assets ----------------------------------------------------------------------
+    sfn isPicture:boolean (rel:string) {
+        def e:string (GamePreview.extOf(rel))
+        def kinds:[string] ([] _:string ("png" "jpg" "jpeg" "webp" "gif" "bmp"))
+        return ((indexOf kinds e) >= 0)
+    }
+
+    fn clickFile:void (rel:string) {
+        if (StudioApp.isTextFile(rel)) {
+            this.closeView()
+            this.openFile(rel)
+            return
+        }
+        def disk:string (GamePreview.joinPath((this.gameDir()) rel))
+        this.showAsset(("/games/" + preview.gameId + "/" + rel) disk rel (sh_file_size disk))
+    }
+
+    ; A picture in the editor's place; other files only tell their size.
+    fn showAsset:void (src:string disk:string title:string size:double) {
+        if ((StudioApp.isPicture(disk)) == false) {
+            status = (title + " · " + (StudioApp.kb(size)) + " (not a picture or text)")
+            return
+        }
+        viewSrc = src
+        viewDisk = disk
+        viewComment = ""
+        def img:StudioImage (preview.images.get(src disk))
+        viewTitle = (title + " · " + (StudioApp.kb(size)))
+        if img.ok {
+            viewTitle = (viewTitle + " · " + (to_string img.width) + " x " + (to_string img.height) + " px")
+        } {
+            viewTitle = (viewTitle + " · " + img.note)
+        }
+        editor.focused = false
+        status = viewTitle
+    }
+
+    fn closeView:void () {
+        viewSrc = ""
+        viewDisk = ""
+        viewComment = ""
+        if (focus == "editor") {
+            editor.focused = true
+        }
+    }
+
+    fn viewing:boolean () {
+        return ((strlen viewSrc) > 0)
+    }
+
+    fn toggleMount:void (index:int) {
+        if ((index < 0) || (index >= (array_length preview.mounts))) {
+            return
+        }
+        def m:GameMount (itemAt preview.mounts index)
+        if (has openMounts m.label) {
+            map_clear openMounts
+            return
+        }
+        map_clear openMounts
+        set openMounts m.label true
+        def rels:[string]
+        def lines:[string] (strsplit (sh_list_files m.disk) "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) "\t")
+            if ((array_length parts) >= 2) {
+                push rels (itemAt parts 0)
+            }
+            i = (i + 1)
+        }
+        set mountFiles m.label rels
+    }
+
+    ; --- comments --------------------------------------------------------------------
+    fn studioDir:string () {
+        return (GamePreview.joinPath(preview.root ".studio"))
+    }
+
+    fn commentsFile:string () {
+        return (GamePreview.joinPath((this.studioDir()) "comments.jsonl"))
+    }
+
+    sfn q:string (s:string) {
+        def out:string "\""
+        def start:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            def r:string ""
+            if (ch == 34) {
+                r = "\\\""
+            }
+            if (ch == 92) {
+                r = "\\\\"
+            }
+            if (ch == 10) {
+                r = "\\n"
+            }
+            if (ch == 13) {
+                r = "\\r"
+            }
+            if (ch == 9) {
+                r = "\\t"
+            }
+            if ((strlen r) > 0) {
+                out = (out + (substring s start i) + r)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return (out + (substring s start n) + "\"")
+    }
+
+    ; One field of a flat JSON object written by commentJson.
+    sfn jsonField:string (line:string key:string) {
+        def at:int (indexOf line ("\"" + key + "\":"))
+        if (at < 0) {
+            return ""
+        }
+        def i:int ((at + (strlen key)) + 3)
+        def n:int (strlen line)
+        if ((i < n) && ((charAt line i) == 34)) {
+            def out:string ""
+            i = (i + 1)
+            def start:int i
+            while ((i < n) && ((charAt line i) != 34)) {
+                if ((charAt line i) == 92) {
+                    out = (out + (substring line start i))
+                    def e:int (charAt line (i + 1))
+                    if (e == 110) {
+                        out = (out + "\n")
+                    } {
+                        if (e == 116) {
+                            out = (out + "\t")
+                        } {
+                            if (e != 114) {
+                                out = (out + (substring line (i + 1) (i + 2)))
+                            }
+                        }
+                    }
+                    i = (i + 2)
+                    start = i
+                } {
+                    i = (i + 1)
+                }
+            }
+            return (out + (substring line start i))
+        }
+        def st:int i
+        while ((i < n) && ((charAt line i) != 44) && ((charAt line i) != 125)) {
+            i = (i + 1)
+        }
+        return (trim (substring line st i))
+    }
+
+    fn commentJson:string (c:StudioComment) {
+        def done:string "false"
+        if c.done {
+            done = "true"
+        }
+        return ("{\"id\":" + (StudioApp.q(c.id)) + ",\"time\":" + (StudioApp.q(c.time)) + ",\"game\":" + (StudioApp.q(c.game)) + ",\"scene\":" + (StudioApp.q(c.scene)) + ",\"frame\":" + (to_string c.frame) + ",\"text\":" + (StudioApp.q(c.text)) + ",\"shot\":" + (StudioApp.q(c.shot)) + ",\"done\":" + done + ",\"note\":" + (StudioApp.q(c.note)) + "}")
+    }
+
+    fn loadComments:void () {
+        clear comments
+        def path:string (this.commentsFile())
+        commentsStamp = (sh_file_mtime path)
+        def lines:[string] (strsplit (sh_read_text path) "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            if ((indexOf line "\"id\":") >= 0) {
+                def c:StudioComment (new StudioComment)
+                c.id = (StudioApp.jsonField(line "id"))
+                c.time = (StudioApp.jsonField(line "time"))
+                c.game = (StudioApp.jsonField(line "game"))
+                c.scene = (StudioApp.jsonField(line "scene"))
+                c.frame = (?? (to_int (StudioApp.jsonField(line "frame"))) 0)
+                c.text = (StudioApp.jsonField(line "text"))
+                c.shot = (StudioApp.jsonField(line "shot"))
+                c.done = ((StudioApp.jsonField(line "done")) == "true")
+                c.note = (StudioApp.jsonField(line "note"))
+                push comments c
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn saveComments:void () {
+        sh_mkdirs (this.studioDir())
+        def out:string ""
+        def i:int 0
+        while (i < (array_length comments)) {
+            out = (out + (this.commentJson((itemAt comments i))) + "\n")
+            i = (i + 1)
+        }
+        sh_write_text (this.commentsFile()) out
+        commentsStamp = (sh_file_mtime (this.commentsFile()))
+    }
+
+    ; An agent or an editor changed comments.jsonl: read it again.
+    fn checkComments:void () {
+        def now:double (sh_file_mtime (this.commentsFile()))
+        if (now != commentsStamp) {
+            this.loadComments()
+        }
+    }
+
+    fn newCommentId:string () {
+        def t:string (sh_local_time)
+        def id:string ""
+        def i:int 0
+        while (i < (strlen t)) {
+            def ch:int (charAt t i)
+            if ((ch >= 48) && (ch <= 57)) {
+                id = (id + (substring t i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        def base:string id
+        def k:int 2
+        while ((this.commentIndex(id)) >= 0) {
+            id = (base + "-" + (to_string k))
+            k = (k + 1)
+        }
+        return id
+    }
+
+    fn commentIndex:int (id:string) {
+        def i:int 0
+        while (i < (array_length comments)) {
+            def c:StudioComment (itemAt comments i)
+            if (c.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; A new comment on the game as it is now; its screenshot is taken once
+    ; this frame is drawn.
+    fn newComment:StudioComment (text:string) {
+        def c:StudioComment (new StudioComment)
+        c.id = (this.newCommentId())
+        c.time = (sh_local_time)
+        c.game = preview.gameId
+        c.scene = preview.currentScene
+        c.frame = preview.frames
+        c.text = text
+        c.shot = (".studio/shots/" + c.id + ".png")
+        sh_mkdirs (GamePreview.joinPath((this.studioDir()) "shots"))
+        shotPath = (GamePreview.joinPath(preview.root c.shot))
+        shotArea = "game"
+        return c
+    }
+
+    ; "Kommentoi": the game stops, its picture is kept, and the keys write the comment.
+    fn startComment:void () {
+        if commentMode {
+            return
+        }
+        preview.paused = true
+        draft = (this.newComment(""))
+        commentMode = true
+        commentText = ""
+        focus = "comment"
+        editor.focused = false
+        status = "write the comment: Enter saves, Esc cancels"
+    }
+
+    fn finishComment:void (keep:boolean) {
+        commentMode = false
+        focus = "editor"
+        if ((this.viewing()) == false) {
+            editor.focused = true
+        }
+        if (keep && ((strlen (trim commentText)) > 0)) {
+            draft.text = (trim commentText)
+            push comments draft
+            this.saveComments()
+            status = ("comment saved (" + draft.id + ")")
+        } {
+            status = "comment cancelled"
+        }
+        commentText = ""
+    }
+
+    fn commentKey:void (k:int) {
+        if (k == 2) {
+            this.finishComment(true)
+            return
+        }
+        if (k == 4) {
+            this.finishComment(false)
+            return
+        }
+        if ((k == 1) && ((strlen commentText) > 0)) {
+            ; drop the last character, with its UTF-8 continuation bytes
+            def n:int ((strlen commentText) - 1)
+            def going:boolean true
+            while going {
+                def b:int (charAt commentText n)
+                if (b < 0) {
+                    b = (b + 256)
+                }
+                if ((n > 0) && (b >= 128) && (b < 192)) {
+                    n = (n - 1)
+                } {
+                    going = false
+                }
+            }
+            commentText = (substring commentText 0 n)
+        }
+    }
+
+    fn showComment:void (id:string) {
+        def ci:int (this.commentIndex(id))
+        if (ci < 0) {
+            return
+        }
+        def c:StudioComment (itemAt comments ci)
+        if (((strlen c.game) > 0) && (c.game != preview.gameId) && ((indexOf preview.games c.game) >= 0)) {
+            preview.select(c.game)
+            this.refreshFiles()
+        }
+        if ((strlen c.scene) > 0) {
+            preview.jump(c.scene)
+        }
+        def disk:string (GamePreview.joinPath(preview.root c.shot))
+        this.showAsset(("disk:" + disk) disk ("comment " + c.id) (sh_file_size disk))
+        viewComment = c.id
+        viewTitle = (c.time + "  " + c.scene + "  frame " + (to_string c.frame))
+    }
+
+    fn markDone:boolean (id:string note:string) {
+        def ci:int (this.commentIndex(id))
+        if (ci < 0) {
+            return false
+        }
+        def c:StudioComment (itemAt comments ci)
+        c.done = (c.done == false)
+        if ((strlen note) > 0) {
+            c.done = true
+            c.note = note
+        }
+        this.saveComments()
+        return true
+    }
+
+    fn openComments:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length comments)) {
+            def c:StudioComment (itemAt comments i)
+            if (c.done == false) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Take the screenshot asked for this frame (after evg_flush).
+    fn afterFlush:void () {
+        if ((strlen shotPath) == 0) {
+            return
+        }
+        def ok:int 0
+        if (shotArea == "window") {
+            ok = (sh_screenshot shotPath)
+        } {
+            ok = (sh_screenshot_rect shotPath preview.px preview.py preview.pw preview.ph)
+        }
+        if (shotFor == "mcp") {
+            if (ok == 1) {
+                sh_mcp_reply_image shotPath ("game " + preview.gameId + " scene " + preview.currentScene + " frame " + (to_string preview.frames) + " · " + shotPath)
+            } {
+                sh_mcp_reply ("screenshot failed: " + shotPath) 1
+            }
+        }
+        if (shotFor == "mcp-comment") {
+            sh_mcp_reply ("comment saved with screenshot " + shotPath) 0
+        }
+        shotPath = ""
+        shotFor = ""
     }
 
     fn editorX:int () {
@@ -411,7 +895,7 @@ class StudioApp {
                 focus = "game"
                 editor.focused = false
             } {
-                if (editor.insideRect(mx my)) {
+                if ((editor.insideRect(mx my)) && ((this.viewing()) == false) && (commentMode == false)) {
                     focus = "editor"
                     editor.focused = true
                     editor.pointerDown(ctx.tr mx my shift)
@@ -456,6 +940,23 @@ class StudioApp {
         if (focus == "game") {
             preview.keys(gameKeys)
         }
+        if (commentMode) {
+            if ((strlen text) > 0) {
+                if ctrl {
+                    if ((indexOf text "v") >= 0) {
+                        commentText = (commentText + (sh_get_clipboard))
+                    }
+                } {
+                    commentText = (commentText + text)
+                }
+            }
+            def ck:int (sh_pop_key)
+            while (ck != 0) {
+                this.commentKey(ck)
+                ck = (sh_pop_key)
+            }
+            return
+        }
         if ((strlen text) > 0) {
             if ctrl {
                 def i:int 0
@@ -464,7 +965,7 @@ class StudioApp {
                     i = (i + 1)
                 }
             } {
-                if (focus == "editor") {
+                if ((focus == "editor") && ((this.viewing()) == false)) {
                     editor.handleText(text)
                 }
             }
@@ -475,8 +976,14 @@ class StudioApp {
                 preview.restart()
                 status = "restarted"
             } {
-                if (focus == "editor") {
-                    editor.handleKey(k shift ctrl)
+                if (this.viewing()) {
+                    if (k == 4) {
+                        this.closeView()
+                    }
+                } {
+                    if (focus == "editor") {
+                        editor.handleKey(k shift ctrl)
+                    }
                 }
             }
             k = (sh_pop_key)
@@ -529,35 +1036,6 @@ class StudioApp {
                 return
             }
             hi = (hi + 1)
-        }
-        if (my < topH) {
-            return
-        }
-        if (mx < leftW) {
-            def row:int ((idiv (my - (topH + 8)) rowH) + fileScroll)
-            def games:int 0
-            if (preview.single == false) {
-                games = ((array_length preview.games) + 1)
-            }
-            if ((preview.single == false) && (row >= 1) && (row < games)) {
-                def id:string (itemAt preview.games (row - 1))
-                if (this.dirty()) {
-                    this.save()
-                }
-                preview.select(id)
-                this.refreshFiles()
-                this.openFirstFile()
-                return
-            }
-            def fi:int ((row - games) - 1)
-            if ((fi >= 0) && (fi < (array_length files))) {
-                def f:StudioFile (itemAt files fi)
-                if f.text {
-                    this.openFile(f.rel)
-                } {
-                    status = (f.rel + " is not a text file (" + (to_string (idiv f.size 1024)) + " kB)")
-                }
-            }
         }
     }
 
@@ -638,6 +1116,104 @@ class StudioApp {
         return ((to_string (to_int (bytes / 1024.0))) + " kB")
     }
 
+    fn paintStatus:void (dl:EVGDisplayList ex:double sy:double) {
+        def caret:string ("L" + (to_string (editor.sel.caret.line + 1)) + ":" + (to_string (editor.sel.caret.col + 1)))
+        def sx:double ((ex + 10.0) + (this.text(dl caret (ex + 10.0) (sy + 5.0) 12.0 accent false)) + 12.0)
+        def fname:string openRel
+        if (this.dirty()) {
+            fname = (fname + " ●")
+        }
+        sx = (sx + (this.text(dl fname sx (sy + 5.0) 12.0 ink false)) + 12.0)
+        def problems:int (editor.problemCount())
+        if (problems > 0) {
+            sx = (sx + (this.text(dl ((to_string problems) + " problem(s)") sx (sy + 5.0) 12.0 warn false)) + 12.0)
+        }
+        this.text(dl status sx (sy + 5.0) 12.0 muted false)
+    }
+
+    ; A picture in the editor's place, fitted, with its name and size above it.
+    fn paintView:void (dl:EVGDisplayList) {
+        def ex:double (to_double (this.editorX()))
+        def ey:double (to_double topH)
+        def ew:double (to_double (this.editorW()))
+        def eh:double (to_double (this.editorH()))
+        this.rect(dl ex ey ew eh (EVGColor.rgb(12 13 18)))
+        this.rect(dl ex ey ew 34.0 bar)
+        this.clip(dl ex ey ew eh)
+        def bx:double ((ex + ew) - 74.0)
+        this.roundRect(dl bx (ey + 6.0) 66.0 22.0 line 4.0)
+        this.text(dl "Sulje" (bx + 9.0) (ey + 9.0) 12.0 ink false)
+        def hit:StudioHit (new StudioHit)
+        hit.x = bx
+        hit.y = (ey + 6.0)
+        hit.w = 66.0
+        hit.h = 22.0
+        hit.action = "closeview"
+        push hits hit
+        def titleW:double ((bx - ex) - 20.0)
+        if ((strlen viewComment) > 0) {
+            def ci:int (this.commentIndex(viewComment))
+            if (ci >= 0) {
+                def c:StudioComment (itemAt comments ci)
+                def label:string "Merkitse tehdyksi"
+                if c.done {
+                    label = "Avaa uudelleen"
+                }
+                def cw:double (this.chipW(label))
+                def cx:double ((bx - cw) - 8.0)
+                this.roundRect(dl cx (ey + 6.0) cw 22.0 (EVGColor.rgb(38 64 52)) 4.0)
+                this.text(dl label (cx + 8.0) (ey + 9.0) 12.0 ink false)
+                def dh:StudioHit (new StudioHit)
+                dh.x = cx
+                dh.y = (ey + 6.0)
+                dh.w = cw
+                dh.h = 22.0
+                dh.action = ("cdone:" + c.id)
+                push hits dh
+                titleW = ((cx - ex) - 20.0)
+                this.text(dl c.text (ex + 12.0) (ey + 44.0) 14.0 ink true)
+                if ((strlen c.note) > 0) {
+                    this.text(dl ("> " + c.note) (ex + 12.0) (ey + 64.0) 12.0 good false)
+                }
+            }
+        }
+        this.clip(dl ex ey titleW 34.0)
+        this.text(dl viewTitle (ex + 12.0) (ey + 10.0) 12.0 muted false)
+        this.unclip(dl)
+        def top:double (ey + 44.0)
+        if ((strlen viewComment) > 0) {
+            top = (ey + 86.0)
+        }
+        def img:StudioImage (preview.images.get(viewSrc viewDisk))
+        if (img.ok && (img.width > 0) && (img.height > 0)) {
+            def aw:double (ew - 24.0)
+            def ah:double ((eh - (top - ey)) - 12.0)
+            def k:double (aw / (to_double img.width))
+            if (((to_double img.height) * k) > ah) {
+                k = (ah / (to_double img.height))
+            }
+            if (k > 4.0) {
+                k = 4.0
+            }
+            def iw:double ((to_double img.width) * k)
+            def ih:double ((to_double img.height) * k)
+            def ix:double (ex + ((ew - iw) / 2.0))
+            this.rect(dl (ix - 1.0) (top - 1.0) (iw + 2.0) (ih + 2.0) line)
+            def c2:EVGDrawCmd (new EVGDrawCmd)
+            c2.kind = 2
+            c2.src = viewSrc
+            c2.x = ix
+            c2.y = top
+            c2.w = iw
+            c2.h = ih
+            c2.a = 1.0
+            push dl.cmds c2
+        } {
+            this.text(dl ("cannot show: " + img.note) (ex + 12.0) top 12.0 warn false)
+        }
+        this.unclip(dl)
+    }
+
     fn buildDisplayList:EVGDisplayList () {
         def dl:EVGDisplayList (new EVGDisplayList)
         clear hits
@@ -678,25 +1254,24 @@ class StudioApp {
             bi = (bi + 1)
         }
 
-        ; left: games and files
+        ; left: games, files, resource folders, comments
         def lx:double 0.0
         this.rect(dl lx (to_double topH) (to_double leftW) (fh - (to_double topH)) panel)
         this.rect(dl (to_double (leftW - 1)) (to_double topH) 1.0 (fh - (to_double topH)) line)
         this.clip(dl 0.0 (to_double topH) (to_double (leftW - 1)) (fh - (to_double topH)))
         def row:int 0
-        def y0:double (to_double (topH + 8))
         if (preview.single == false) {
-            this.row(dl row "PELIT" muted true false)
+            this.row(dl row "PELIT" muted true false "")
             row = (row + 1)
             def gi:int 0
             while (gi < (array_length preview.games)) {
                 def gid:string (itemAt preview.games gi)
-                this.row(dl row ("  " + gid) ink false (gid == preview.gameId))
+                this.row(dl row ("  " + gid) ink false (gid == preview.gameId) ("game:" + gid))
                 row = (row + 1)
                 gi = (gi + 1)
             }
         }
-        this.row(dl row "TIEDOSTOT" muted true false)
+        this.row(dl row "TIEDOSTOT" muted true false "")
         row = (row + 1)
         def fi:int 0
         while (fi < (array_length files)) {
@@ -709,9 +1284,74 @@ class StudioApp {
             if (f.text == false) {
                 label = (label + "  " + (StudioApp.kb((to_double f.size))))
             }
-            this.row(dl row label col false (f.rel == openRel))
+            def sel:boolean ((f.rel == openRel) && ((this.viewing()) == false))
+            if ((strlen viewDisk) > 0) {
+                if (viewDisk == (GamePreview.joinPath((this.gameDir()) f.rel))) {
+                    sel = true
+                }
+            }
+            this.row(dl row label col false sel ("file:" + f.rel))
             row = (row + 1)
             fi = (fi + 1)
+        }
+        def mi:int 0
+        def shownRes:boolean false
+        while (mi < (array_length preview.mounts)) {
+            def m:GameMount (itemAt preview.mounts mi)
+            if ((indexOf m.label "resource ") == 0) {
+                if (shownRes == false) {
+                    this.row(dl row "RESURSSIT (studio.json)" muted true false "")
+                    row = (row + 1)
+                    shownRes = true
+                }
+                def opened:boolean (has openMounts m.label)
+                def arrow:string "+ "
+                if opened {
+                    arrow = "- "
+                }
+                this.row(dl row ("  " + arrow + (substring m.label 9 (strlen m.label))) accent false false ("mount:" + (to_string mi)))
+                row = (row + 1)
+                if opened {
+                    def rels@(optional):[string] (get mountFiles m.label)
+                    if (!null? rels) {
+                        def list:[string] (unwrap rels)
+                        def ri:int 0
+                        def cap:int (array_length list)
+                        if (cap > 400) {
+                            cap = 400
+                        }
+                        while (ri < cap) {
+                            def rel:string (itemAt list ri)
+                            def rdisk:string (GamePreview.joinPath(m.disk rel))
+                            this.row(dl row ("      " + rel) muted false (rdisk == viewDisk) ("res:" + (to_string mi) + ":" + rel))
+                            row = (row + 1)
+                            ri = (ri + 1)
+                        }
+                        if ((array_length list) > cap) {
+                            this.row(dl row ("      ... " + (to_string ((array_length list) - cap)) + " more") muted false false "")
+                            row = (row + 1)
+                        }
+                    }
+                }
+            }
+            mi = (mi + 1)
+        }
+        if ((array_length comments) > 0) {
+            this.row(dl row ("KOMMENTIT (" + (to_string (this.openComments())) + " avoinna)") muted true false "")
+            row = (row + 1)
+            def ci:int ((array_length comments) - 1)
+            while (ci >= 0) {
+                def c:StudioComment (itemAt comments ci)
+                def mark:string "[ ]  "
+                def ccol:EVGColor warn
+                if c.done {
+                    mark = "[x]  "
+                    ccol = muted
+                }
+                this.row(dl row ("  " + mark + c.text) ccol false (c.id == viewComment) ("cshow:" + c.id))
+                row = (row + 1)
+                ci = (ci - 1)
+            }
         }
         this.unclip(dl)
 
@@ -719,23 +1359,28 @@ class StudioApp {
         def ex:double (to_double (this.editorX()))
         def ew:double (to_double (this.editorW()))
         editor.setBounds((this.editorX()) topH (this.editorW()) (this.editorH()))
-        editor.ensureTokens()
-        def blink:int (to_int ((sh_now_ms) / 500.0))
-        editor.paint(dl ctx.tr blink)
+        if (this.viewing()) {
+            this.paintView(dl)
+        } {
+            editor.ensureTokens()
+            def blink:int (to_int ((sh_now_ms) / 500.0))
+            editor.paint(dl ctx.tr blink)
+        }
         def sy:double (to_double (topH + (this.editorH())))
         this.rect(dl ex sy ew 24.0 bar)
-        def caret:string ("L" + (to_string (editor.sel.caret.line + 1)) + ":" + (to_string (editor.sel.caret.col + 1)))
-        def sx:double ((ex + 10.0) + (this.text(dl caret (ex + 10.0) (sy + 5.0) 12.0 accent false)) + 12.0)
-        def fname:string openRel
-        if (this.dirty()) {
-            fname = (fname + " ●")
+        if commentMode {
+            this.rect(dl ex sy ew 24.0 (EVGColor.rgb(52 44 22)))
+            def cursor:string ""
+            if (((to_int ((sh_now_ms) / 500.0)) % 2) == 0) {
+                cursor = "|"
+            }
+            def pw2:double (this.text(dl "Kommentti (Enter tallentaa, Esc peruu):" (ex + 10.0) (sy + 5.0) 12.0 warn true))
+            this.text(dl (commentText + cursor) ((ex + 18.0) + pw2) (sy + 5.0) 12.0 ink false)
         }
-        sx = (sx + (this.text(dl fname sx (sy + 5.0) 12.0 ink false)) + 12.0)
-        def problems:int (editor.problemCount())
-        if (problems > 0) {
-            sx = (sx + (this.text(dl ((to_string problems) + " problem(s)") sx (sy + 5.0) 12.0 warn false)) + 12.0)
+        if (commentMode == false) {
+            this.paintStatus(dl ex sy)
         }
-        this.text(dl status sx (sy + 5.0) 12.0 muted false)
+
 
         def ly:double (sy + 24.0)
         this.rect(dl ex ly ew (fh - ly) panel)
@@ -784,7 +1429,7 @@ class StudioApp {
         return dl
     }
 
-    fn row:void (dl:EVGDisplayList index:int label:string col:EVGColor bold:boolean selected:boolean) {
+    fn row:void (dl:EVGDisplayList index:int label:string col:EVGColor bold:boolean selected:boolean action:string) {
         def r:int (index - fileScroll)
         if (r < 0) {
             return
@@ -792,6 +1437,15 @@ class StudioApp {
         def y:double (to_double ((topH + 8) + (r * rowH)))
         if (y > (to_double H)) {
             return
+        }
+        if ((strlen action) > 0) {
+            def hit:StudioHit (new StudioHit)
+            hit.x = 0.0
+            hit.y = y
+            hit.w = (to_double (leftW - 1))
+            hit.h = (to_double rowH)
+            hit.action = action
+            push hits hit
         }
         if selected {
             this.rect(dl 0.0 y (to_double (leftW - 1)) (to_double rowH) (EVGColor.rgb(40 46 70)))
@@ -803,12 +1457,245 @@ class StudioApp {
         this.text(dl label 10.0 (y + 3.0) size col bold)
     }
 
+    ; --- MCP: an agent drives the Studio ---------------------------------------------
+    fn logTail:string (n:int) {
+        def total:int (array_length preview.logLines)
+        def first:int (total - n)
+        if (first < 0) {
+            first = 0
+        }
+        def out:string ""
+        def i:int first
+        while (i < total) {
+            out = (out + (itemAt preview.logLines i) + "\n")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn statusText:string () {
+        def out:string ("project: " + preview.root + "\n")
+        out = (out + "game: " + preview.gameId + " (" + preview.status + ")\n")
+        if (preview.single == false) {
+            out = (out + "games: " + (join preview.games ", ") + "\n")
+        }
+        out = (out + "game size: " + (to_string (to_int (sh_rg_view 3))) + " x " + (to_string (to_int (sh_rg_view 4))) + "\n")
+        out = (out + "scene: " + preview.currentScene + "\n")
+        out = (out + "scenes: " + (join preview.scenes ", ") + "\n")
+        out = (out + "speed: x" + (to_string preview.speed) + ", paused: " + (to_string preview.paused) + ", frames: " + (to_string preview.frames) + "\n")
+        out = (out + "open comments: " + (to_string (this.openComments())) + "\n")
+        out = (out + "mounts:\n" + (preview.mountReport()))
+        out = (out + "\nlog (last 12):\n" + (this.logTail(12)))
+        return out
+    }
+
+    fn assetList:string (filter:string) {
+        def out:string ""
+        def mi:int 0
+        while (mi < (array_length preview.mounts)) {
+            def m:GameMount (itemAt preview.mounts mi)
+            def lines:[string] (strsplit (sh_list_files m.disk) "\n")
+            def i:int 0
+            while (i < (array_length lines)) {
+                def parts:[string] (strsplit (itemAt lines i) "\t")
+                if ((array_length parts) >= 2) {
+                    def rel:string (itemAt parts 0)
+                    def vfs:string (m.vfs + "/" + rel)
+                    def keep:boolean (((StudioApp.isTextFile(rel)) == false) || ((strlen filter) > 0))
+                    if ((strlen filter) > 0) {
+                        keep = ((indexOf vfs filter) >= 0)
+                    }
+                    if keep {
+                        def line:string (vfs + "\t" + (StudioApp.kb((?? (to_double (itemAt parts 1)) 0.0))) + "\t" + (GamePreview.joinPath(m.disk rel)))
+                        if (preview.images.known(vfs)) {
+                            def img:StudioImage (preview.images.get(vfs ""))
+                            if img.ok {
+                                line = (line + "\t" + (to_string img.width) + "x" + (to_string img.height))
+                            }
+                        }
+                        out = (out + line + "\n")
+                    }
+                }
+                i = (i + 1)
+            }
+            mi = (mi + 1)
+        }
+        if ((strlen out) == 0) {
+            return "no assets"
+        }
+        return ("engine path\tsize\tdisk path\tpixels (when drawn)\n" + out)
+    }
+
+    fn commentLines:string (all:boolean) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length comments)) {
+            def c:StudioComment (itemAt comments i)
+            if (all || (c.done == false)) {
+                def line:string (this.commentJson(c))
+                out = (out + line + "\n")
+            }
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            return ("no comments (file " + (this.commentsFile()) + ")")
+        }
+        return ("screenshots are relative to " + preview.root + "\n" + out)
+    }
+
+    ; One waiting tool call per window frame. A screenshot is answered after
+    ; the frame is drawn (afterFlush).
+    fn mcpPoll:void () {
+        def name:string (sh_mcp_next)
+        if ((strlen name) == 0) {
+            return
+        }
+        if (name == "__quit") {
+            mcpQuit = true
+            return
+        }
+        if (name == "status") {
+            sh_mcp_reply (this.statusText()) 0
+            return
+        }
+        if (name == "jump_scene") {
+            def scene:string (sh_mcp_arg "name")
+            if (preview.jump(scene)) {
+                sh_mcp_reply ("scene " + scene + " · frame " + (to_string preview.frames) + "\n" + (this.logTail(8))) 0
+            } {
+                sh_mcp_reply ("no scene " + scene + "; scenes: " + (join preview.scenes ", ")) 1
+            }
+            return
+        }
+        if (name == "restart") {
+            preview.syncFiles(false)
+            preview.restart()
+            sh_mcp_reply (preview.status + "\n" + (this.logTail(8))) 0
+            return
+        }
+        if (name == "run_frames") {
+            def n:int (?? (to_int (sh_mcp_arg "frames")) 60)
+            if (n > 36000) {
+                n = 36000
+            }
+            def before:int (array_length preview.logLines)
+            def ran:int (preview.advance(n))
+            def total:int (array_length preview.logLines)
+            def news:int (total - before)
+            if (news > 60) {
+                news = 60
+            }
+            sh_mcp_reply ("ran " + (to_string ran) + " frames, now frame " + (to_string preview.frames) + " · " + preview.status + "\n" + (this.logTail(news))) 0
+            return
+        }
+        if (name == "screenshot") {
+            sh_mkdirs (GamePreview.joinPath((this.studioDir()) "shots"))
+            shotArea = (sh_mcp_arg "area")
+            shotPath = (GamePreview.joinPath((this.studioDir()) "shots/mcp-last.png"))
+            shotFor = "mcp"
+            return
+        }
+        if (name == "eval") {
+            def r:string (preview.evalJs((sh_mcp_arg "code")))
+            sh_mcp_reply r 0
+            return
+        }
+        if (name == "log") {
+            def n2:int (?? (to_int (sh_mcp_arg "lines")) 40)
+            sh_mcp_reply (this.logTail(n2)) 0
+            return
+        }
+        if (name == "set_speed") {
+            def sp:string (sh_mcp_arg "speed")
+            if ((strlen sp) > 0) {
+                preview.speed = (?? (to_int sp) 1)
+                if (preview.speed < 1) {
+                    preview.speed = 1
+                }
+                if (preview.speed > 256) {
+                    preview.speed = 256
+                }
+            }
+            def pa:string (sh_mcp_arg "paused")
+            if ((strlen pa) > 0) {
+                preview.paused = (pa == "true")
+            }
+            sh_mcp_reply ("speed x" + (to_string preview.speed) + ", paused " + (to_string preview.paused)) 0
+            return
+        }
+        if (name == "press_key") {
+            def key:string (sh_mcp_arg "key")
+            def mode:string (sh_mcp_arg "mode")
+            def hold:int (?? (to_int (sh_mcp_arg "frames")) 1)
+            if ((strlen mode) == 0) {
+                mode = "tap"
+            }
+            if (mode == "down") {
+                sh_rg_key 1 key
+            } {
+                if (mode == "up") {
+                    sh_rg_key 0 key
+                } {
+                    sh_rg_key 1 key
+                    preview.advance(hold)
+                    sh_rg_key 0 key
+                    preview.advance(1)
+                }
+            }
+            sh_mcp_reply ("key " + key + " " + mode + " · frame " + (to_string preview.frames) + "\n" + (this.logTail(6))) 0
+            return
+        }
+        if (name == "tap") {
+            def x:double (?? (to_double (sh_mcp_arg "x")) 0.0)
+            def y:double (?? (to_double (sh_mcp_arg "y")) 0.0)
+            preview.tapGame(x y)
+            sh_mcp_reply ("tapped " + (to_string x) + "," + (to_string y) + "\n" + (this.logTail(6))) 0
+            return
+        }
+        if (name == "comments_list") {
+            sh_mcp_reply (this.commentLines(((sh_mcp_arg "all") == "true"))) 0
+            return
+        }
+        if (name == "comment_add") {
+            def c:StudioComment (this.newComment((sh_mcp_arg "text")))
+            push comments c
+            this.saveComments()
+            shotFor = "mcp-comment"
+            return
+        }
+        if (name == "comment_done") {
+            def cid:string (sh_mcp_arg "id")
+            def note:string (sh_mcp_arg "note")
+            if ((strlen note) == 0) {
+                note = "done"
+            }
+            if (this.markDone(cid note)) {
+                sh_mcp_reply ("comment " + cid + " marked done") 0
+            } {
+                sh_mcp_reply ("no comment " + cid) 1
+            }
+            return
+        }
+        if (name == "list_assets") {
+            sh_mcp_reply (this.assetList((sh_mcp_arg "filter"))) 0
+            return
+        }
+        sh_mcp_reply ("unknown tool " + name) 1
+    }
+
     ; --- the loop ------------------------------------------------------------------
     fn frame:void (dt:double) {
+        frameNo = (frameNo + 1)
         this.handleInput()
         preview.watch()
         this.checkOpenFile()
+        if ((frameNo % 30) == 0) {
+            this.checkComments()
+        }
         preview.step(dt)
+        if mcp {
+            this.mcpPoll()
+        }
         def dl:EVGDisplayList (this.buildDisplayList())
         painter.draw(dl W H ctx.tr preview.images)
     }
@@ -854,6 +1741,9 @@ class StudioApp {
                             if (a == "--hidden") {
                                 hidden = 1
                             } {
+                            if (a == "--mcp") {
+                                app.mcp = true
+                            } {
                             if (a == "--dump") {
                                 dump = true
                             } {
@@ -879,14 +1769,18 @@ class StudioApp {
                             }
                             }
                             }
+                            }
                         }
                     }
                 }
             }
             i = (i + 1)
         }
+        if app.mcp {
+            sh_mcp_start
+        }
         if ((strlen folder) == 0) {
-            print "usage: sliqtly-studio <game or collection folder> [--game id] [--file rel] [--frames N] [--shot out.png] [--dump] [--scene name] [--speed N] [--hidden] [--size WxH]"
+            print "usage: sliqtly-studio <game or collection folder> [--game id] [--file rel] [--frames N] [--shot out.png] [--dump] [--scene name] [--speed N] [--hidden] [--size WxH] [--mcp]"
             return
         }
         if ((sh_is_dir folder) == 0) {
@@ -917,7 +1811,11 @@ class StudioApp {
             }
         }
         if ((strlen file) > 0) {
-            app.openFile(file)
+            if ((indexOf file "comment:") == 0) {
+                app.showComment((substring file 8 (strlen file)))
+            } {
+                app.clickFile(file)
+            }
         }
         app.layoutPreview()
         app.preview.restart()
@@ -957,6 +1855,13 @@ class StudioApp {
             clear app.preview.outbox
             if ((frames > 0) && ((count + 1) == frames) && dump) {
                 app.preview.dumpNext = true
+            }
+            if ((strlen app.shotPath) > 0) {
+                evg_flush
+                app.afterFlush()
+            }
+            if app.mcpQuit {
+                running = false
             }
             if ((frames > 0) && (count >= frames)) {
                 evg_flush

@@ -688,6 +688,36 @@ class GamePreview {
         }
     }
 
+    ; n frames at 60 fps right now, also while paused: an agent moving time on.
+    fn advance:int (n:int) {
+        def k:int 0
+        while ((k < n) && running) {
+            def r:int (sh_rg_frame (1000.0 / 60.0))
+            frames = (frames + 1)
+            this.takeLog()
+            this.takeCommands()
+            if (r != 0) {
+                running = false
+                status = "the game stopped on an error (see the log)"
+            }
+            k = (k + 1)
+        }
+        return k
+    }
+
+    ; A tap at x,y in the game's own coordinates (its width and height).
+    fn tapGame:void (x:double y:double) {
+        if (running == false) {
+            return
+        }
+        def lx:double ((sh_rg_view 1) + (x * (sh_rg_view 0)))
+        def ly:double ((sh_rg_view 2) + (y * (sh_rg_view 0)))
+        sh_rg_pointer 0 1 lx ly
+        this.advance(1)
+        sh_rg_pointer 2 1 lx ly
+        this.advance(1)
+    }
+
     ; --- the draw stream → EVG commands --------------------------------------------
     fn color:void (c:EVGDrawCmd r:double g:double b:double a:double) {
         c.r = (to_int r)

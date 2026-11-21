@@ -56,7 +56,7 @@ fi
 # shellcheck disable=SC2046,SC2086
 "$CXX" ${CXX_OPT:--O2} -std=c++17 -w \
   -I"$HERE/native" -I"$GEN" \
-  "$GEN/studio_app.cpp" "$HERE/native/studio_host.cpp" "$HERE/native/studio_gl.cpp" \
+  "$GEN/studio_app.cpp" "$HERE/native/studio_host.cpp" "$HERE/native/studio_mcp.cpp" "$HERE/native/studio_gl.cpp" \
   "$LIB" $(pkg-config --cflags --libs sdl3) $GL $EXTRA \
   -o "$OUT/sliqtly-studio"
 

@@ -295,6 +295,56 @@ operators {
             cpp ( "sh_print(" (e 1) ")" (imp "\"studio_host.h\"") )
         }
     }
+    sh_screenshot_rect _:int (p:string x:double y:double w:double h:double) {
+        templates {
+            cpp ( "sh_screenshot_rect(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mkdirs _:int (p:string) {
+        templates {
+            cpp ( "sh_mkdirs(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_append_text _:int (p:string t:string) {
+        templates {
+            cpp ( "sh_append_text(" (e 1) ", " (e 2) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_local_time _:string () {
+        templates {
+            cpp ( "sh_local_time()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_file_size _:double (p:string) {
+        templates {
+            cpp ( "sh_file_size(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mcp_start _:int () {
+        templates {
+            cpp ( "sh_mcp_start()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mcp_next _:string () {
+        templates {
+            cpp ( "sh_mcp_next()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mcp_arg _:string (k:string) {
+        templates {
+            cpp ( "sh_mcp_arg(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mcp_reply _:void (t:string err:int) {
+        templates {
+            cpp ( "sh_mcp_reply(" (e 1) ", " (e 2) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mcp_reply_image _:void (p:string t:string) {
+        templates {
+            cpp ( "sh_mcp_reply_image(" (e 1) ", " (e 2) ")" (imp "\"studio_host.h\"") )
+        }
+    }
     evg_begin _:void (pw:int ph:int dw:int dh:int) {
         templates {
             cpp ( "evggl_begin(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" (imp "\"studio_host.h\"") )

@@ -31,7 +31,7 @@ source if your release has no `libsdl3-dev`.
 ```
 sliqtly-studio <folder> [--game id] [--file rel] [--size WxH]
                [--scene name] [--speed N]
-               [--frames N] [--shot out.png] [--dump] [--hidden]
+               [--frames N] [--shot out.png] [--dump] [--hidden] [--mcp]
 ```
 
 - The folder is either **one game** (it holds `game.json`) or **a collection**
@@ -79,6 +79,58 @@ This runs 120 frames at a fixed 60 fps and saves the window as a PNG. The
 game's log, and with `--dump` the last frame's draw commands, go to stdout.
 On Linux, `xvfb-run` means no screen is needed.
 
+### Pictures and resource folders
+
+Click a picture in the file list (PNG, JPEG, WebP, GIF, BMP) and it is shown
+where the editor is, fitted, with its size in bytes and pixels. The folders
+from `studio.json` are listed under **RESURSSIT**: click one to open it and
+click a file to see it. `--file img/moon.jpg` does the same from the command
+line. **Sulje** or Esc goes back to the editor.
+
+### Comments
+
+**Kommentoi** in the bar above the game pauses it and keeps a picture of the
+game area. Write the comment in the line under the editor; Enter saves it and
+Esc cancels. Comments go to `<project>/.studio/comments.jsonl` (one JSON object
+per line: id, time, game, scene, frame, text, shot, done, note) and the
+pictures to `.studio/shots/`. The dot folder is never given to the engine.
+
+Comments are listed under **KOMMENTIT**. Clicking one jumps to its scene and
+shows its picture and text; **Merkitse tehdyksi** marks it handled. An agent
+can read and answer them too (below), or edit the file: the Studio reads it
+again when it changes.
+
+### For AI agents: the Studio as an MCP server
+
+```bash
+sliqtly-studio ~/games/my-game --mcp
+```
+
+The window stays open, so you can watch what the agent does. The protocol is
+MCP over stdio (JSON-RPC, one message per line); the Studio's own messages go
+to stderr. In Claude Code:
+
+```bash
+claude mcp add sliqtly-studio -- /path/to/build/sliqtly-studio ~/games/my-game --mcp
+```
+
+| Tool | What it does |
+| --- | --- |
+| `status` | project, game, scene, scenes, speed, frames, mounts, last log lines |
+| `jump_scene` | restart and jump to a scene of the game's `SCENES` |
+| `restart` | sync files from disk and restart |
+| `run_frames` | run N frames at 60 fps right away (also when paused), answers the log |
+| `screenshot` | PNG of the game area or the whole window |
+| `eval` | JavaScript in the game's global scope, result as text |
+| `log` | the last lines of the log |
+| `set_speed` | speed (1–256 frames per window frame) and pause |
+| `press_key`, `tap` | a key (KeyboardEvent.key name) or a tap in game coordinates |
+| `comments_list`, `comment_add`, `comment_done` | the comments above |
+| `list_assets` | files of the game and its resource folders, with pixel sizes |
+
+The agent edits the game's files on disk as usual; the Studio reloads them
+(hot reload when the game has `hotSave`/`hotLoad`).
+
 ### Big shared resources: `studio.json`
 
 Put `studio.json` beside `game.json` (or at the top of a collection) to mount
@@ -102,6 +154,7 @@ private.
 | EVG display list to OpenGL (text atlas, pictures on the GPU, paths) | `src/StudioPainter.rgr` |
 | Picture cache (stb_image natively, WebP with Ranger's decoder) | `src/StudioImages.rgr` |
 | SDL3 window, files, engine C ABI, PNG screenshot | `native/studio_host.cpp` |
+| MCP server over stdio (reader thread, JSON, tool list) | `native/studio_mcp.cpp` |
 | GL drawer (from EVGSheets `evg_gl_native.cpp`, plus a texture cache) | `native/studio_gl.cpp` |
 | The engine as a static library (RangerGames `rg_web` ABI) | `native/rg_studio/` |
 | Ranger operators for the native calls (generated) | `native/gfx_studio.rgr` ← `native/gen_ops.py` |
@@ -119,6 +172,7 @@ for it to read a picture's size. The painter reads the whole file from disk.
 - SVG pictures and colour emoji. Emoji are drawn as outlines from Noto Emoji.
 - Shadows have no blur. Gradients are drawn as strips.
 - Paths with holes (even-odd) are filled as separate rings.
+- Creating assets (drawing, vectorizing, generating pictures) inside the Studio.
 - Building and installing Android/iOS packages, Git operations, publishing
   to Sliqtly Games, and starting an AI CLI from inside the Studio: these are
   the next steps in the plan (Sliqtly deck "Sliqtly Studio").

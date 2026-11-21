@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -531,12 +532,19 @@ static void chunk(std::vector<uint8_t>& o, const char* type, const std::vector<u
     be32(o, crc(&o[at], data.size() + 4) ^ 0xFFFFFFFFu);
 }
 
-int sh_screenshot(const std::string& path) {
-    int w = sh_drawable_w(), h = sh_drawable_h();
+// Part of the back buffer, in window coordinates, as a PNG file.
+int sh_screenshot_rect(const std::string& path, double lx, double ly, double lw, double lh) {
+    int dw = sh_drawable_w(), dh = sh_drawable_h();
+    int ww = sh_window_w(), wh = sh_window_h();
+    if (dw <= 0 || dh <= 0) return 0;
+    double sx = ww > 0 ? (double)dw / ww : 1.0, sy = wh > 0 ? (double)dh / wh : 1.0;
+    int x0 = std::max(0, (int)(lx * sx)), y0 = std::max(0, (int)(ly * sy));
+    int w = std::min(dw - x0, (int)(lw * sx)), h = std::min(dh - y0, (int)(lh * sy));
     if (w <= 0 || h <= 0) return 0;
     std::vector<uint8_t> px((size_t)w * h * 4);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    // GL rows count from the bottom
+    glReadPixels(x0, dh - (y0 + h), w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
     crc_init();
     std::vector<uint8_t> raw;
     raw.reserve((size_t)(w * 3 + 1) * h);
@@ -575,4 +583,36 @@ int sh_screenshot(const std::string& path) {
     if (!f) return 0;
     f.write((const char*)out.data(), (std::streamsize)out.size());
     return f ? 1 : 0;
+}
+
+int sh_screenshot(const std::string& path) {
+    return sh_screenshot_rect(path, 0, 0, sh_window_w(), sh_window_h());
+}
+
+double sh_file_size(const std::string& path) {
+    std::error_code ec;
+    auto n = fs::file_size(path, ec);
+    return ec ? 0.0 : (double)n;
+}
+
+int sh_mkdirs(const std::string& path) {
+    std::error_code ec;
+    fs::create_directories(path, ec);
+    return fs::is_directory(path, ec) ? 1 : 0;
+}
+
+int sh_append_text(const std::string& path, const std::string& text) {
+    std::ofstream f(path, std::ios::binary | std::ios::app);
+    if (!f) return 0;
+    f.write(text.data(), (std::streamsize)text.size());
+    return f ? 1 : 0;
+}
+
+std::string sh_local_time() {
+    std::time_t t = std::time(nullptr);
+    std::tm tmv{};
+    localtime_r(&t, &tmv);
+    char buf[32];
+    std::strftime(buf, sizeof buf, "%Y-%m-%dT%H:%M:%S", &tmv);
+    return buf;
 }

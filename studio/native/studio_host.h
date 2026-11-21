@@ -92,3 +92,24 @@ int sh_image_h();
 std::string sh_image_error();
 // the window's pixels as a PNG file; 1 written, 0 not
 int sh_screenshot(const std::string& path);
+// part of the window (window coordinates) as a PNG file; 1 written, 0 not
+int sh_screenshot_rect(const std::string& path, double x, double y, double w, double h);
+// bytes, 0 when missing
+double sh_file_size(const std::string& path);
+int sh_mkdirs(const std::string& path);
+int sh_append_text(const std::string& path, const std::string& text);
+// "2026-11-21T14:05:09", local time
+std::string sh_local_time();
+
+// --- MCP (stdio JSON-RPC, `sliqtly-studio --mcp <folder>`) ------------------------
+// Takes stdout for the protocol (the Studio's own prints go to stderr from
+// then on) and starts reading requests from stdin. initialize, tools/list and
+// ping are answered here; a tools/call waits for the Studio's loop.
+int sh_mcp_start();
+// the next tool call's name, "" when none waits, "__quit" when stdin closed
+std::string sh_mcp_next();
+// an argument of the current call as text ("" when missing)
+std::string sh_mcp_arg(const std::string& key);
+void sh_mcp_reply(const std::string& text, int isError);
+// a PNG file as an image, with a line of text
+void sh_mcp_reply_image(const std::string& path, const std::string& text);
