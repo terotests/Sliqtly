@@ -84,6 +84,13 @@ class CartoonEditor {
     ; the line at the bottom: "", ai, comment, note
     def inputMode:string ""
     def inputText:string ""
+    ; the line's caret (a byte index into inputText), how far it is scrolled,
+    ; where its text starts on screen, and when it last changed (the caret
+    ; stays lit while typing and blinks when idle)
+    def caret:int 0
+    def inputScroll:double 0.0
+    def inputX:double 0.0
+    def inputEdited:double 0.0
     def status:string ""
     ; what StudioApp should do after this frame: ai, comment, png
     def pendingKind:string ""
@@ -593,6 +600,21 @@ class CartoonEditor {
             dirty = true
             return
         }
+        if (a == "copyscene") {
+            ; a deep copy through the file format, right after this scene
+            def twin:CartoonDoc (CartoonDoc.parse((doc.toJson()) doc.rel))
+            if (sceneIx < (array_length twin.scenes)) {
+                def cp:CartoonScene (itemAt twin.scenes sceneIx)
+                cp.name = (sc.name + " (kopio)")
+                insert doc.scenes (sceneIx + 1) cp
+                sceneIx = (sceneIx + 1)
+                sel = -1
+                clear undo
+                dirty = true
+                status = ("skene kopioitu: " + cp.name)
+            }
+            return
+        }
         if (a == "delscene") {
             if ((array_length doc.scenes) > 1) {
                 remove_index doc.scenes sceneIx
@@ -826,6 +848,9 @@ class CartoonEditor {
             if (a == "note") {
                 inputText = sc.note
             }
+            caret = (strlen inputText)
+            inputScroll = 0.0
+            inputEdited = (sh_now_ms)
             sel = -1
             return
         }
@@ -858,6 +883,11 @@ class CartoonEditor {
                     hit = true
                 }
                 hi = (hi + 1)
+            }
+            if ((hit == false) && ((strlen inputMode) > 0) && (fy >= ((Y0 + H) - barH)) && (fx >= inputX)) {
+                caret = (this.caretAt((fx - inputX) + inputScroll))
+                inputEdited = (sh_now_ms)
+                hit = true
             }
             if ((hit == false) && hasDoc && (this.insideCanvas(fx fy))) {
                 if ((inputMode == "note") || (inputMode == "comment")) {
@@ -1093,12 +1123,101 @@ class CartoonEditor {
         return (substring t 0 n)
     }
 
+    sfn oneLine:string (t:string) {
+        def out:string ""
+        def start:int 0
+        def i:int 0
+        def n:int (strlen t)
+        while (i < n) {
+            def b:int (charAt t i)
+            if ((b == 10) || (b == 13)) {
+                out = ((out + (substring t start i)) + " ")
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return (out + (substring t start n))
+    }
+
+    ; UTF-8 steps: the start of the character before / after byte i
+    sfn prevChar:int (t:string i:int) {
+        if (i <= 0) {
+            return 0
+        }
+        def n:int (i - 1)
+        def going:boolean true
+        while going {
+            def b:int (charAt t n)
+            if (b < 0) {
+                b = (b + 256)
+            }
+            if ((n > 0) && (b >= 128) && (b < 192)) {
+                n = (n - 1)
+            } {
+                going = false
+            }
+        }
+        return n
+    }
+
+    sfn nextChar:int (t:string i:int) {
+        def len:int (strlen t)
+        if (i >= len) {
+            return len
+        }
+        def n:int (i + 1)
+        def going:boolean true
+        while going {
+            if (n >= len) {
+                going = false
+            } {
+                def b:int (charAt t n)
+                if (b < 0) {
+                    b = (b + 256)
+                }
+                if ((b >= 128) && (b < 192)) {
+                    n = (n + 1)
+                } {
+                    going = false
+                }
+            }
+        }
+        return n
+    }
+
+    ; the caret index nearest to x (pixels from the text's start)
+    fn caretAt:int (x:double) {
+        def best:int 0
+        def bestD:double 100000.0
+        def i:int 0
+        def len:int (strlen inputText)
+        def going:boolean true
+        while going {
+            def w:double (tr.measureWidth((substring inputText 0 i) 12.0))
+            def d:double (fabs (w - x))
+            if (d < bestD) {
+                bestD = d
+                best = i
+            }
+            if ((i >= len) || (w > x)) {
+                going = false
+            } {
+                i = (CartoonEditor.nextChar(inputText i))
+            }
+        }
+        return best
+    }
+
     fn addText:void (t:string) {
         if ((strlen t) == 0) {
             return
         }
         if ((strlen inputMode) > 0) {
-            inputText = (inputText + t)
+            ; one line: a pasted line break becomes a space
+            def clean:string (CartoonEditor.oneLine(t))
+            inputText = (((substring inputText 0 caret) + clean) + (substring inputText caret (strlen inputText)))
+            caret = (caret + (strlen clean))
+            inputEdited = (sh_now_ms)
             return
         }
         def cur@(optional):CartoonItem (this.selected())
@@ -1117,8 +1236,28 @@ class CartoonEditor {
 
     fn key:void (k:int shift:boolean) {
         if ((strlen inputMode) > 0) {
-            if (k == 1) {
-                inputText = (CartoonEditor.dropLast(inputText))
+            inputEdited = (sh_now_ms)
+            def n:int (strlen inputText)
+            if ((k == 1) && (caret > 0)) {
+                def p0:int (CartoonEditor.prevChar(inputText caret))
+                inputText = ((substring inputText 0 p0) + (substring inputText caret n))
+                caret = p0
+            }
+            if ((k == 9) && (caret < n)) {
+                def p1:int (CartoonEditor.nextChar(inputText caret))
+                inputText = ((substring inputText 0 caret) + (substring inputText p1 n))
+            }
+            if (k == 5) {
+                caret = (CartoonEditor.prevChar(inputText caret))
+            }
+            if (k == 6) {
+                caret = (CartoonEditor.nextChar(inputText caret))
+            }
+            if ((k == 10) || (k == 7)) {
+                caret = 0
+            }
+            if ((k == 11) || (k == 8)) {
+                caret = (strlen inputText)
             }
             if (k == 4) {
                 inputMode = ""
@@ -1706,6 +1845,7 @@ class CartoonEditor {
                 i = (i + 1)
             }
             y = (this.row(dl y "  + Uusi skene" accent false false "newscene"))
+            y = (this.row(dl y "  + Kopioi tämä skene" accent false false "copyscene"))
             if ((array_length doc.scenes) > 1) {
                 y = (this.row(dl y "  − Poista tämä skene" (EVGColor.rgb(224 120 104)) false false "delscene"))
             }
@@ -1831,23 +1971,42 @@ class CartoonEditor {
         if ((strlen inputMode) > 0) {
             def prompt:string "Kommentti:"
             if (inputMode == "ai") {
-                prompt = "Ohje AI:lle (saa kuvakaappauksen):"
+                prompt = "Ohje AI:lle:"
             }
             if (inputMode == "note") {
                 prompt = "Skenen kuvaus:"
             }
             if (inputMode == "nb") {
-                prompt = "Nano Banana piirtää valittuun ruutuun (tai koko sivulle):"
+                prompt = "Nano Banana, koko sivu:"
                 if (selPanel >= 0) {
-                    prompt = ("Nano Banana piirtää ruutuun " + (to_string (selPanel + 1)) + ":")
+                    prompt = ("Nano Banana, ruutu " + (to_string (selPanel + 1)) + ":")
                 }
             }
-            def caret:string ""
-            if (((to_int ((sh_now_ms) / 500.0)) % 2) == 0) {
-                caret = "|"
-            }
             def pw:double (this.label(dl prompt (bx + 10.0) (by + 6.0) 12.0 (EVGColor.rgb(224 175 104)) true))
-            this.label(dl (inputText + caret) ((bx + 18.0) + pw) (by + 6.0) 12.0 (EVGColor.rgb(230 230 240)) false)
+            ; the text field: its own box, scrolled so the caret stays in view
+            ; measureWidth is the regular face; the label is bold, so a margin
+            def fx0:double ((bx + 22.0) + (pw * 1.1))
+            def fw:double (((bx + bw) - 10.0) - fx0)
+            this.box(dl fx0 (by + 3.0) fw (barH - 6.0) (EVGColor.rgb(24 22 14)) 3.0)
+            inputX = (fx0 + 6.0)
+            def room:double (fw - 14.0)
+            if (caret > (strlen inputText)) {
+                caret = (strlen inputText)
+            }
+            def cx:double (tr.measureWidth((substring inputText 0 caret) 12.0))
+            if ((cx - inputScroll) > room) {
+                inputScroll = (cx - room)
+            }
+            if ((cx - inputScroll) < 0.0) {
+                inputScroll = cx
+            }
+            render.clip(dl inputX (by + 3.0) room (barH - 6.0))
+            this.label(dl inputText (inputX - inputScroll) (by + 6.0) 12.0 (EVGColor.rgb(230 230 240)) false)
+            def idle:double ((sh_now_ms) - inputEdited)
+            if ((idle < 600.0) || (((to_int (idle / 530.0)) % 2) == 0)) {
+                this.box(dl ((inputX + cx) - inputScroll) (by + 5.0) 1.5 (barH - 10.0) (EVGColor.rgb(244 200 120)) 0.0)
+            }
+            render.unclip(dl)
         } {
             def info:string status
             def cur@(optional):CartoonItem (this.selected())
