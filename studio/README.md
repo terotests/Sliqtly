@@ -179,9 +179,11 @@ not restart the game.
 
 **Piirrä Nano Bananalla** asks Google's image model to draw the selected
 panel (click it, or a drawing in it, with Valitse first; with nothing
-selected, the whole page). The Studio sends what you write, the style, the
-scene note and the panel's speech, with a screenshot of the panel as it is
-now (no bubbles), so sketch lines you drew guide the picture. The answer
+selected, the whole page). The Studio sends what you write, the style and the
+scene note, with a screenshot of the panel as it is now (no bubbles), so
+sketch lines you drew guide the picture. The prompt opens and ends with a
+rule against any text, letters, bubbles or sound effects; the speech itself is
+not sent, only the areas the bubbles cover, to keep free of faces. The answer
 becomes `cartoons/<name>-nb-<n>.png`, transparent outside a slanted panel's
 outline, and an image item over that panel's own lines and under its bubbles.
 Del or Ctrl+Z takes it away. Each job keeps its prompt, screenshot and the
