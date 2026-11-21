@@ -13,6 +13,20 @@ Big pictures are read from the disk directly and never uploaded anywhere.
 License: AGPL-3.0-or-later (see `LICENSE`). The code editor (EVGSheets),
 Ranger's gallery and the RangerGames engine are AGPL too.
 
+## Start
+
+From the top of the Sliqtly repository:
+
+```bash
+npm run start:studio -- ~/games/solarpilot
+```
+
+The first run fetches what the Studio is built from (`scripts/setup.sh`) and
+builds it (`scripts/build.sh`, about 2 minutes). Later runs build again only
+when a source changed. The folder is remembered, so next time
+`npm run start:studio` alone opens it. Options after the folder go to the
+Studio (`--scene kuumoduli`, `--mcp`, ...); `--rebuild` forces a build.
+
 ## Build
 
 ```bash
