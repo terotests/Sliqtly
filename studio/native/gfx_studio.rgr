@@ -1,0 +1,428 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; gfx_studio.rgr — Ranger operators over the Studio's native side
+; (native/studio_host.h: SDL3 window, files, the RangerGames engine, GL drawer).
+; Written by native/gen_ops.py: change the list there and run it
+; (python3 native/gen_ops.py from studio/), never this file by hand.
+
+operators {
+    sh_open _:int (title:string w:int h:int hidden:int) {
+        templates {
+            cpp ( "sh_open(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_close _:void () {
+        templates {
+            cpp ( "sh_close()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_poll _:void () {
+        templates {
+            cpp ( "sh_poll()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_should_close _:int () {
+        templates {
+            cpp ( "sh_should_close()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_window_w _:int () {
+        templates {
+            cpp ( "sh_window_w()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_window_h _:int () {
+        templates {
+            cpp ( "sh_window_h()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_drawable_w _:int () {
+        templates {
+            cpp ( "sh_drawable_w()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_drawable_h _:int () {
+        templates {
+            cpp ( "sh_drawable_h()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_swap _:void () {
+        templates {
+            cpp ( "sh_swap()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_delay _:void (ms:int) {
+        templates {
+            cpp ( "sh_delay(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_now_ms _:double () {
+        templates {
+            cpp ( "sh_now_ms()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_set_title _:void (t:string) {
+        templates {
+            cpp ( "sh_set_title(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_set_clipboard _:void (t:string) {
+        templates {
+            cpp ( "sh_set_clipboard(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_get_clipboard _:string () {
+        templates {
+            cpp ( "sh_get_clipboard()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mouse_x _:int () {
+        templates {
+            cpp ( "sh_mouse_x()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mouse_y _:int () {
+        templates {
+            cpp ( "sh_mouse_y()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mouse_buttons _:int () {
+        templates {
+            cpp ( "sh_mouse_buttons()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_wheel_y _:int () {
+        templates {
+            cpp ( "sh_wheel_y()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_wheel_x _:int () {
+        templates {
+            cpp ( "sh_wheel_x()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_shift _:int () {
+        templates {
+            cpp ( "sh_shift()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_ctrl _:int () {
+        templates {
+            cpp ( "sh_ctrl()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_pop_key _:int () {
+        templates {
+            cpp ( "sh_pop_key()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_take_text _:string () {
+        templates {
+            cpp ( "sh_take_text()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_take_game_keys _:string () {
+        templates {
+            cpp ( "sh_take_game_keys()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_list_files _:string (root:string) {
+        templates {
+            cpp ( "sh_list_files(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_is_dir _:int (p:string) {
+        templates {
+            cpp ( "sh_is_dir(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_exists _:int (p:string) {
+        templates {
+            cpp ( "sh_exists(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_read_text _:string (p:string) {
+        templates {
+            cpp ( "sh_read_text(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_write_text _:int (p:string t:string) {
+        templates {
+            cpp ( "sh_write_text(" (e 1) ", " (e 2) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_read_bytes _:buffer (p:string) {
+        templates {
+            cpp ( "sh_read_bytes(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_real_path _:string (p:string) {
+        templates {
+            cpp ( "sh_real_path(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_env _:string (n:string) {
+        templates {
+            cpp ( "sh_env(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_base_path _:string () {
+        templates {
+            cpp ( "sh_base_path()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_file_mtime _:double (p:string) {
+        templates {
+            cpp ( "sh_file_mtime(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_put_file _:int (vfs:string disk:string) {
+        templates {
+            cpp ( "sh_rg_put_file(" (e 1) ", " (e 2) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_put_head _:int (vfs:string disk:string max:int) {
+        templates {
+            cpp ( "sh_rg_put_head(" (e 1) ", " (e 2) ", " (e 3) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_put_text _:void (vfs:string t:string) {
+        templates {
+            cpp ( "sh_rg_put_text(" (e 1) ", " (e 2) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_start _:int (id:string) {
+        templates {
+            cpp ( "sh_rg_start(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_resize _:void (w:double h:double) {
+        templates {
+            cpp ( "sh_rg_resize(" (e 1) ", " (e 2) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_pointer _:void (kind:int id:int x:double y:double) {
+        templates {
+            cpp ( "sh_rg_pointer(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_key _:void (down:int name:string) {
+        templates {
+            cpp ( "sh_rg_key(" (e 1) ", " (e 2) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_frame _:int (dt:double) {
+        templates {
+            cpp ( "sh_rg_frame(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_draw_len _:int () {
+        templates {
+            cpp ( "sh_rg_draw_len()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_draw_at _:double (i:int) {
+        templates {
+            cpp ( "sh_rg_draw_at(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_string _:string (i:int) {
+        templates {
+            cpp ( "sh_rg_string(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_log _:string () {
+        templates {
+            cpp ( "sh_rg_log()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_cmds _:string () {
+        templates {
+            cpp ( "sh_rg_cmds()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_view _:double (i:int) {
+        templates {
+            cpp ( "sh_rg_view(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_read _:buffer (p:string) {
+        templates {
+            cpp ( "sh_rg_read(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_eval _:string (src:string) {
+        templates {
+            cpp ( "sh_rg_eval(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_reset _:void () {
+        templates {
+            cpp ( "sh_rg_reset()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_image_upload _:int (key:int bytes:buffer) {
+        templates {
+            cpp ( "sh_image_upload(" (e 1) ", " (e 2) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_image_w _:int () {
+        templates {
+            cpp ( "sh_image_w()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_image_h _:int () {
+        templates {
+            cpp ( "sh_image_h()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_image_error _:string () {
+        templates {
+            cpp ( "sh_image_error()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_rg_restyle _:int () {
+        templates {
+            cpp ( "sh_rg_restyle()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_screenshot _:int (p:string) {
+        templates {
+            cpp ( "sh_screenshot(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_print _:void (t:string) {
+        templates {
+            cpp ( "sh_print(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_screenshot_rect _:int (p:string x:double y:double w:double h:double) {
+        templates {
+            cpp ( "sh_screenshot_rect(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mkdirs _:int (p:string) {
+        templates {
+            cpp ( "sh_mkdirs(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_append_text _:int (p:string t:string) {
+        templates {
+            cpp ( "sh_append_text(" (e 1) ", " (e 2) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_local_time _:string () {
+        templates {
+            cpp ( "sh_local_time()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_file_size _:double (p:string) {
+        templates {
+            cpp ( "sh_file_size(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mcp_start _:int () {
+        templates {
+            cpp ( "sh_mcp_start()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mcp_next _:string () {
+        templates {
+            cpp ( "sh_mcp_next()" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mcp_arg _:string (k:string) {
+        templates {
+            cpp ( "sh_mcp_arg(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mcp_reply _:void (t:string err:int) {
+        templates {
+            cpp ( "sh_mcp_reply(" (e 1) ", " (e 2) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    sh_mcp_reply_image _:void (p:string t:string) {
+        templates {
+            cpp ( "sh_mcp_reply_image(" (e 1) ", " (e 2) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_begin _:void (pw:int ph:int dw:int dh:int) {
+        templates {
+            cpp ( "evggl_begin(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_set_atlas _:void (px:buffer w:int h:int) {
+        templates {
+            cpp ( "evggl_set_atlas(" (e 1) ".data()" ", " (e 2) ", " (e 3) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_rect _:void (x:double y:double w:double h:double r:double g:double b:double a:double radius:double) {
+        templates {
+            cpp ( "evggl_rect(" "(float)(" (e 1) ")" ", " "(float)(" (e 2) ")" ", " "(float)(" (e 3) ")" ", " "(float)(" (e 4) ")" ", " "(float)(" (e 5) ")" ", " "(float)(" (e 6) ")" ", " "(float)(" (e 7) ")" ", " "(float)(" (e 8) ")" ", " "(float)(" (e 9) ")" ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_border _:void (x:double y:double w:double h:double t:double r:double g:double b:double a:double radius:double) {
+        templates {
+            cpp ( "evggl_border(" "(float)(" (e 1) ")" ", " "(float)(" (e 2) ")" ", " "(float)(" (e 3) ")" ", " "(float)(" (e 4) ")" ", " "(float)(" (e 5) ")" ", " "(float)(" (e 6) ")" ", " "(float)(" (e 7) ")" ", " "(float)(" (e 8) ")" ", " "(float)(" (e 9) ")" ", " "(float)(" (e 10) ")" ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_rect_rot _:void (x:double y:double w:double h:double r:double g:double b:double a:double radius:double rot:double) {
+        templates {
+            cpp ( "evggl_rect_rot(" "(float)(" (e 1) ")" ", " "(float)(" (e 2) ")" ", " "(float)(" (e 3) ")" ", " "(float)(" (e 4) ")" ", " "(float)(" (e 5) ")" ", " "(float)(" (e 6) ")" ", " "(float)(" (e 7) ")" ", " "(float)(" (e 8) ")" ", " "(float)(" (e 9) ")" ", " "(float)(" (e 10) ")" ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_border_rot _:void (x:double y:double w:double h:double t:double r:double g:double b:double a:double radius:double rot:double) {
+        templates {
+            cpp ( "evggl_border_rot(" "(float)(" (e 1) ")" ", " "(float)(" (e 2) ")" ", " "(float)(" (e 3) ")" ", " "(float)(" (e 4) ")" ", " "(float)(" (e 5) ")" ", " "(float)(" (e 6) ")" ", " "(float)(" (e 7) ")" ", " "(float)(" (e 8) ")" ", " "(float)(" (e 9) ")" ", " "(float)(" (e 10) ")" ", " "(float)(" (e 11) ")" ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_text _:void (x:double y:double w:double h:double u0:double v0:double u1:double v1:double r:double g:double b:double a:double rot:double) {
+        templates {
+            cpp ( "evggl_text(" "(float)(" (e 1) ")" ", " "(float)(" (e 2) ")" ", " "(float)(" (e 3) ")" ", " "(float)(" (e 4) ")" ", " "(float)(" (e 5) ")" ", " "(float)(" (e 6) ")" ", " "(float)(" (e 7) ")" ", " "(float)(" (e 8) ")" ", " "(float)(" (e 9) ")" ", " "(float)(" (e 10) ")" ", " "(float)(" (e 11) ")" ", " "(float)(" (e 12) ")" ", " "(float)(" (e 13) ")" ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_clip _:void (x:double y:double w:double h:double) {
+        templates {
+            cpp ( "evggl_clip(" "(float)(" (e 1) ")" ", " "(float)(" (e 2) ")" ", " "(float)(" (e 3) ")" ", " "(float)(" (e 4) ")" ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_flush _:void () {
+        templates {
+            cpp ( "evggl_flush()" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_clip_off _:void () {
+        templates {
+            cpp ( "evggl_clip_off()" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_tris _:void (pts:[double] r:double g:double b:double a:double) {
+        templates {
+            cpp ( "evggl_tris_doubles(" (e 1) ".data(), (int)" (e 1) ".size()" ", " "(float)(" (e 2) ")" ", " "(float)(" (e 3) ")" ", " "(float)(" (e 4) ")" ", " "(float)(" (e 5) ")" ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_image_has _:int (key:int) {
+        templates {
+            cpp ( "evggl_image_has(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_image_upload _:void (key:int px:buffer w:int h:int) {
+        templates {
+            cpp ( "evggl_image_upload(" (e 1) ", " (e 2) ".data()" ", " (e 3) ", " (e 4) ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_image_key _:void (x:double y:double w:double h:double key:int u0:double v0:double u1:double v1:double alpha:double radius:double rot:double) {
+        templates {
+            cpp ( "evggl_image_key(" "(float)(" (e 1) ")" ", " "(float)(" (e 2) ")" ", " "(float)(" (e 3) ")" ", " "(float)(" (e 4) ")" ", " (e 5) ", " "(float)(" (e 6) ")" ", " "(float)(" (e 7) ")" ", " "(float)(" (e 8) ")" ", " "(float)(" (e 9) ")" ", " "(float)(" (e 10) ")" ", " "(float)(" (e 11) ")" ", " "(float)(" (e 12) ")" ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_sphere _:void (x:double y:double w:double h:double key:int bx:double by:double bw:double bh:double p:[double]) {
+        templates {
+            cpp ( "evggl_sphere(" "(float)(" (e 1) ")" ", " "(float)(" (e 2) ")" ", " "(float)(" (e 3) ")" ", " "(float)(" (e 4) ")" ", " (e 5) ", " "(float)(" (e 6) ")" ", " "(float)(" (e 7) ")" ", " "(float)(" (e 8) ")" ", " "(float)(" (e 9) ")" ", " (e 10) ".data(), (int)" (e 10) ".size()" ")" (imp "\"studio_host.h\"") )
+        }
+    }
+    evg_image_forget_all _:void () {
+        templates {
+            cpp ( "evggl_image_forget_all()" (imp "\"studio_host.h\"") )
+        }
+    }
+}
