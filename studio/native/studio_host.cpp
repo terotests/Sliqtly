@@ -790,8 +790,13 @@ int sh_nano_banana(const std::string& job, const std::string& model, const std::
         fs::create_directories(job, ec);
         std::string req = job + "/request.json", resp = job + "/response.json", hdr = job + "/.key-header";
         std::string body = "{\"contents\":[{\"parts\":[{\"text\":" + nb_json(prompt) + "}";
-        std::string png = ref.empty() ? "" : nb_slurp(ref);
-        if (!png.empty()) body += ",{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"" + nb_b64enc(png) + "\"}}";
+        // ref: one or more PNG paths, one per line (the panel, then a style reference)
+        std::stringstream refs(ref);
+        std::string one;
+        while (std::getline(refs, one)) {
+            std::string png = one.empty() ? "" : nb_slurp(one);
+            if (!png.empty()) body += ",{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"" + nb_b64enc(png) + "\"}}";
+        }
         body += "]}],\"generationConfig\":{\"responseModalities\":[\"IMAGE\"]";
         if (!aspect.empty()) body += ",\"imageConfig\":{\"aspectRatio\":" + nb_json(aspect) + "}";
         body += "}}";

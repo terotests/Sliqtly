@@ -1888,6 +1888,21 @@ class StudioApp {
             this.queueNanoBanana(text)
             return
         }
+        if (kind == "styleshot") {
+            ; the whole page without bubbles: Nano Banana's style reference
+            def sbase:string (substring cartoon.doc.rel 0 (indexOf cartoon.doc.rel ".cartoon.json"))
+            if ((indexOf sbase "cartoons/") == 0) {
+                sbase = (substring sbase 9 (strlen sbase))
+            }
+            def sdir:string (GamePreview.joinPath((this.studioDir()) "nano-banana"))
+            sh_mkdirs sdir
+            shotPath = (GamePreview.joinPath(sdir (sbase + "-style.png")))
+            shotArea = "cartoon"
+            shotFor = "cartoon-style"
+            cartoon.clean = true
+            cartoon.render.hideBubbles = true
+            return
+        }
         def label:string text
         if (kind == "ai") {
             label = ("[AI] " + text)
@@ -1920,6 +1935,23 @@ class StudioApp {
         }
         if (shotFor == "cartoon-comment") {
             cartoon.status = "kommentti tallennettu kuvakaappauksen kanssa"
+        }
+        if (shotFor == "cartoon-style") {
+            cartoon.render.hideBubbles = false
+            if (ok == 1) {
+                def gd:string ((this.gameDir()) + "/")
+                def srel:string shotPath
+                if ((indexOf srel gd) == 0) {
+                    srel = (substring srel (strlen gd) (strlen srel))
+                }
+                cartoon.doc.styleRef = srel
+                def ssc:CartoonScene (cartoon.scene())
+                cartoon.doc.styleName = ssc.name
+                cartoon.dirty = true
+                cartoon.status = ("Nano Banana piirtää nyt skenen \"" + cartoon.doc.styleName + "\" tyyliin")
+            } {
+                cartoon.status = "tyylikuvan otto epäonnistui"
+            }
         }
         if ((shotFor == "cartoon-ai") && ((strlen cartoonBrief) > 0)) {
             ; SLIQTLY_STUDIO_AI, or by default Claude Code's own CLI. It runs in
@@ -1982,6 +2014,14 @@ class StudioApp {
         def ref:string (GamePreview.joinPath(nbJob "ref.png"))
         if (ok != 1) {
             ref = ""
+        }
+        ; the style reference goes second (the prompt says so)
+        def styleDisk:string (GamePreview.joinPath((this.gameDir()) cartoon.doc.styleRef))
+        if ((indexOf cartoon.doc.styleRef "/") == 0) {
+            styleDisk = cartoon.doc.styleRef
+        }
+        if (((strlen cartoon.doc.styleRef) > 0) && ((sh_exists styleDisk) == 1) && ((strlen ref) > 0)) {
+            ref = (ref + "\n" + styleDisk)
         }
         def b:[double] (cartoon.nbTarget())
         def aspect:string (CartoonEditor.nbAspect((itemAt b 2) (itemAt b 3)))

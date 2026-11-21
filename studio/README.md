@@ -186,7 +186,11 @@ rule against any text, letters, bubbles or sound effects; the speech itself is
 not sent, only the areas the bubbles cover, to keep free of faces. The answer
 becomes `cartoons/<name>-nb-<n>.png`, transparent outside a slanted panel's
 outline, and an image item over that panel's own lines and under its bubbles.
-Del or Ctrl+Z takes it away. Each job keeps its prompt, screenshot and the
+Del or Ctrl+Z takes it away. **+ Käytä tätä tyylinä** in the scene list saves a picture of
+the open scene (no bubbles) as the cartoon's style reference
+(`styleRef` in the file); every Nano Banana call then sends it as a second
+picture, so new panels keep that scene's look and characters. The × beside
+"Tyyli:" removes it. Each job keeps its prompt, screenshot and the
 model's answer in `.studio/nano-banana/<name>-nb-<n>/`.
 
 It calls the Gemini API with your own key, read from `SLIQTLY_STUDIO_GEMINI_KEY`,
