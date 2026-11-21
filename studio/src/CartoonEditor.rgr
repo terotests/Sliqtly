@@ -1,0 +1,1640 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; CartoonEditor — the Studio's comic editor ("Sarjakuva")
+; ==============================================================================
+;
+;   ┌──────────────┬───────────────────────────────────┬──────────────────┐
+;   │ SARJAKUVAT   │                                   │ POHJA            │
+;   │  briefing    │       the page: panels,           │ TYÖKALU / KYNÄ   │
+;   │ SKENET       │       pen lines, bubbles          │ KUPLA            │
+;   │  1 Lähtö     │                                   │ TYYLI            │
+;   │ PYYNNÖT      │                                   │ AI JA KOMMENTIT  │
+;   ├──────────────┴───────────────────────────────────┴──────────────────┤
+;   │ status / the line being typed (bubble text, AI instructions, note)    │
+;   └────────────────────────────────────────────────────────────────────────┘
+;
+; Templates start empty: pick a format (page, strip, square, phone), 1-6
+; panels, a layout variant and how slanted the gutters are. The pen draws
+; with the mouse or a finger and is inked in the cartoon's style. Bubbles are
+; placed with a click, dragged by the body, the tail tip and the corner, and
+; take what is typed while selected.
+;
+; Everything is saved at once to <game>/cartoons/<name>.cartoon.json. An AI
+; agent (Studio MCP, or SLIQTLY_STUDIO_AI) edits that same file; the editor
+; notices and shows the change. "Pyydä AI:ta" leaves a comment with a
+; screenshot of the page and writes a brief beside it (see StudioApp).
+; ==============================================================================
+
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "../../game_engine/ui/UIContext.rgr"
+Import "../native/gfx_studio.rgr"
+Import "StudioImages.rgr"
+Import "CartoonModel.rgr"
+Import "CartoonRender.rgr"
+
+class CartoonHit {
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def action:string ""
+}
+
+class CartoonEditor {
+    def active:boolean false
+    def gameDir:string ""
+    def docs:[string]
+    def doc:CartoonDoc (new CartoonDoc)
+    def hasDoc:boolean false
+    def sceneIx:int 0
+    def docStamp:double 0.0
+    def dirty:boolean false
+    def render:CartoonRender (new CartoonRender)
+    def tr:UITextRenderer (new UITextRenderer)
+    def hasTr:boolean false
+
+    ; area below the Studio's top bar
+    def X0:double 0.0
+    def Y0:double 40.0
+    def W:double 1280.0
+    def H:double 760.0
+    def listW:double 210.0
+    def sideW:double 330.0
+    def barH:double 28.0
+    def sideScroll:double 0.0
+    def hits:[CartoonHit]
+
+    ; tools: valitse, kyna, tayta, kupla, kumi
+    def tool:string "kyna"
+    def penWidth:double 4.0
+    def penColor:string "#1a1a1a"
+    def bubbleShape:string "puhe"
+    def sel:int -1
+    def selPanel:int -1
+    ; drag: "", draw, move, tail, resize, poly
+    def drag:string ""
+    def lastX:double 0.0
+    def lastY:double 0.0
+    def drawing:[double]
+    def moved:boolean false
+    def undo:[string]
+
+    ; the line at the bottom: "", ai, comment, note
+    def inputMode:string ""
+    def inputText:string ""
+    def status:string ""
+    ; what StudioApp should do after this frame: ai, comment, png
+    def pendingKind:string ""
+    def pendingText:string ""
+    ; no selection marks (an export or an AI screenshot is being taken)
+    def clean:boolean false
+    ; the open comments on this cartoon, from StudioApp
+    def notes:[string]
+
+    Constructor () {
+    }
+
+    fn setText:void (t:UITextRenderer) {
+        tr = t
+        hasTr = true
+    }
+
+    fn scene:CartoonScene () {
+        if ((array_length doc.scenes) == 0) {
+            def sc:CartoonScene (new CartoonScene)
+            sc.name = "Skene 1"
+            sc.buildPanels()
+            push doc.scenes sc
+        }
+        if (sceneIx >= (array_length doc.scenes)) {
+            sceneIx = ((array_length doc.scenes) - 1)
+        }
+        if (sceneIx < 0) {
+            sceneIx = 0
+        }
+        def s:CartoonScene (itemAt doc.scenes sceneIx)
+        return s
+    }
+
+    ; --- files ----------------------------------------------------------------------
+    fn dirOf:string () {
+        return (gameDir + "/cartoons")
+    }
+
+    fn docDisk:string () {
+        return (gameDir + "/" + doc.rel)
+    }
+
+    fn open:void (dir:string) {
+        if ((dir == gameDir) && hasDoc) {
+            this.refreshDocs()
+            return
+        }
+        gameDir = dir
+        hasDoc = false
+        sel = -1
+        clear undo
+        this.refreshDocs()
+        if ((array_length docs) > 0) {
+            this.openDoc((itemAt docs 0))
+        }
+    }
+
+    fn refreshDocs:void () {
+        clear docs
+        def listing:string (sh_list_files (this.dirOf()))
+        def lines:[string] (strsplit listing "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) "\t")
+            def rel:string (itemAt parts 0)
+            if ((indexOf rel ".cartoon.json") > 0) {
+                push docs ("cartoons/" + rel)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn openDoc:void (rel:string) {
+        def disk:string (gameDir + "/" + rel)
+        doc = (CartoonDoc.parse((sh_read_text disk) rel))
+        docStamp = (sh_file_mtime disk)
+        hasDoc = true
+        sceneIx = 0
+        sel = -1
+        selPanel = -1
+        clear undo
+        render.style = doc.style
+        ; bubbles an agent wrote without a size get one around their text
+        ; (x,y is then the centre)
+        if hasTr {
+            def si:int 0
+            while (si < (array_length doc.scenes)) {
+                def scn:CartoonScene (itemAt doc.scenes si)
+                def ii:int 0
+                while (ii < (array_length scn.items)) {
+                    def it:CartoonItem (itemAt scn.items ii)
+                    if ((it.kind == "bubble") && ((it.w <= 1.0) || (it.h <= 1.0))) {
+                        render.fit(tr it)
+                    }
+                    ii = (ii + 1)
+                }
+                si = (si + 1)
+            }
+        }
+        status = ("avattu " + rel)
+    }
+
+    fn newDoc:void () {
+        sh_mkdirs (this.dirOf())
+        def k:int 1
+        def rel:string "cartoons/sarjakuva-1.cartoon.json"
+        while ((sh_exists (gameDir + "/" + rel)) == 1) {
+            k = (k + 1)
+            rel = ("cartoons/sarjakuva-" + (to_string k) + ".cartoon.json")
+        }
+        def d:CartoonDoc (new CartoonDoc)
+        d.name = ("sarjakuva-" + (to_string k))
+        d.rel = rel
+        def sc:CartoonScene (new CartoonScene)
+        sc.name = "Skene 1"
+        sc.buildPanels()
+        push d.scenes sc
+        doc = d
+        hasDoc = true
+        sceneIx = 0
+        sel = -1
+        clear undo
+        render.style = doc.style
+        this.save()
+        this.refreshDocs()
+        status = ("uusi sarjakuva " + rel)
+    }
+
+    fn save:void () {
+        if (hasDoc == false) {
+            return
+        }
+        sh_mkdirs (this.dirOf())
+        sh_write_text (this.docDisk()) (doc.toJson())
+        docStamp = (sh_file_mtime (this.docDisk()))
+        dirty = false
+    }
+
+    ; the file changed on disk (an agent wrote it): read it again
+    fn checkDisk:void () {
+        if (hasDoc == false) {
+            return
+        }
+        def now:double (sh_file_mtime (this.docDisk()))
+        if ((now != docStamp) && (now != 0.0)) {
+            def keep:int sceneIx
+            this.openDoc(doc.rel)
+            sceneIx = keep
+            status = "tiedosto muuttui levyllä: luettu uudelleen"
+        }
+    }
+
+    fn frameTick:void (mouseDown:boolean) {
+        if (dirty && (mouseDown == false)) {
+            this.save()
+        }
+    }
+
+    fn remember:void () {
+        push undo (CartoonDoc.sceneJson((this.scene())))
+        if ((array_length undo) > 60) {
+            remove_index undo 0
+        }
+    }
+
+    fn undoLast:void () {
+        def n:int (array_length undo)
+        if (n == 0) {
+            status = "ei kumottavaa"
+            return
+        }
+        def last:string (itemAt undo (n - 1))
+        remove_index undo (n - 1)
+        def sc:CartoonScene (CartoonDoc.readScene((CJParser.parse(last))))
+        set doc.scenes sceneIx sc
+        sel = -1
+        dirty = true
+        status = "kumottu"
+    }
+
+    fn sceneRef:string () {
+        return ("cartoon:" + doc.rel + "#" + (to_string sceneIx))
+    }
+
+    ; --- view -----------------------------------------------------------------------
+    fn canvasX:double () {
+        return (X0 + listW)
+    }
+
+    fn canvasW:double () {
+        return ((W - listW) - sideW)
+    }
+
+    fn canvasH:double () {
+        return (H - barH)
+    }
+
+    fn placePage:void () {
+        def sc:CartoonScene (this.scene())
+        def pw:double (sc.pageW())
+        def ph:double (sc.pageH())
+        def cw:double ((this.canvasW()) - 40.0)
+        def ch:double ((this.canvasH()) - 40.0)
+        def s:double (cw / pw)
+        if ((ch / ph) < s) {
+            s = (ch / ph)
+        }
+        if (s < 0.05) {
+            s = 0.05
+        }
+        render.s = s
+        render.ox = ((this.canvasX()) + (((this.canvasW()) - (pw * s)) / 2.0))
+        render.oy = (Y0 + (((this.canvasH()) - (ph * s)) / 2.0))
+    }
+
+    ; the page on screen: x y w h (for screenshots)
+    fn pageRect:[double] () {
+        this.placePage()
+        def sc:CartoonScene (this.scene())
+        return ([] _:double (render.ox render.oy ((sc.pageW()) * render.s) ((sc.pageH()) * render.s)))
+    }
+
+    fn toPageX:double (mx:double) {
+        return ((mx - render.ox) / render.s)
+    }
+
+    fn toPageY:double (my:double) {
+        return ((my - render.oy) / render.s)
+    }
+
+    fn insideCanvas:boolean (mx:double my:double) {
+        return ((mx >= (this.canvasX())) && (mx < ((this.canvasX()) + (this.canvasW()))) && (my >= Y0) && (my < (Y0 + (this.canvasH()))))
+    }
+
+    ; --- items ----------------------------------------------------------------------
+    sfn segDist:double (px:double py:double x1:double y1:double x2:double y2:double) {
+        def dx:double (x2 - x1)
+        def dy:double (y2 - y1)
+        def l2:double ((dx * dx) + (dy * dy))
+        def t:double 0.0
+        if (l2 > 0.0001) {
+            t = ((((px - x1) * dx) + ((py - y1) * dy)) / l2)
+        }
+        if (t < 0.0) {
+            t = 0.0
+        }
+        if (t > 1.0) {
+            t = 1.0
+        }
+        def ex:double ((x1 + (dx * t)) - px)
+        def ey:double ((y1 + (dy * t)) - py)
+        return (sqrt ((ex * ex) + (ey * ey)))
+    }
+
+    sfn inPoly:boolean (px:double py:double pts:[double]) {
+        def n:int (idiv (array_length pts) 2)
+        def inside:boolean false
+        def i:int 0
+        def j:int (n - 1)
+        while (i < n) {
+            def xi:double (itemAt pts (i * 2))
+            def yi:double (itemAt pts ((i * 2) + 1))
+            def xj:double (itemAt pts (j * 2))
+            def yj:double (itemAt pts ((j * 2) + 1))
+            if (((yi > py) != (yj > py)) && (px < ((((xj - xi) * (py - yi)) / ((yj - yi) + 0.0000001)) + xi))) {
+                inside = (inside == false)
+            }
+            j = i
+            i = (i + 1)
+        }
+        return inside
+    }
+
+    fn hitItem:boolean (it:CartoonItem px:double py:double) {
+        def slack:double (8.0 / render.s)
+        if ((it.kind == "bubble") || (it.kind == "image")) {
+            return ((px >= it.x) && (px <= (it.x + it.w)) && (py >= it.y) && (py <= (it.y + it.h)))
+        }
+        if (it.kind == "fill") {
+            return (CartoonEditor.inPoly(px py it.pts))
+        }
+        def n:int (idiv (array_length it.pts) 2)
+        if (n == 1) {
+            def dx:double ((itemAt it.pts 0) - px)
+            def dy:double ((itemAt it.pts 1) - py)
+            return ((sqrt ((dx * dx) + (dy * dy))) < ((it.width / 2.0) + slack))
+        }
+        def i:int 0
+        while (i < (n - 1)) {
+            def d:double (CartoonEditor.segDist(px py (itemAt it.pts (i * 2)) (itemAt it.pts ((i * 2) + 1)) (itemAt it.pts ((i + 1) * 2)) (itemAt it.pts (((i + 1) * 2) + 1))))
+            if (d < ((it.width / 2.0) + slack)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; topmost first: bubbles are drawn last
+    fn itemAt:int (px:double py:double) {
+        def sc:CartoonScene (this.scene())
+        def i:int ((array_length sc.items) - 1)
+        while (i >= 0) {
+            def it:CartoonItem (itemAt sc.items i)
+            if ((it.kind == "bubble") && (this.hitItem(it px py))) {
+                return i
+            }
+            i = (i - 1)
+        }
+        i = ((array_length sc.items) - 1)
+        while (i >= 0) {
+            def it2:CartoonItem (itemAt sc.items i)
+            if ((it2.kind != "bubble") && (this.hitItem(it2 px py))) {
+                return i
+            }
+            i = (i - 1)
+        }
+        return -1
+    }
+
+    fn selected@(optional):CartoonItem () {
+        def sc:CartoonScene (this.scene())
+        def none@(optional):CartoonItem
+        if ((sel < 0) || (sel >= (array_length sc.items))) {
+            return none
+        }
+        def it@(optional):CartoonItem (itemAt sc.items sel)
+        return it
+    }
+
+    fn shiftItem:void (it:CartoonItem dx:double dy:double) {
+        it.x = (it.x + dx)
+        it.y = (it.y + dy)
+        if (it.kind == "bubble") {
+            it.tx = (it.tx + dx)
+            it.ty = (it.ty + dy)
+        }
+        def k:int 0
+        while ((k + 1) < (array_length it.pts)) {
+            set it.pts k ((itemAt it.pts k) + dx)
+            set it.pts (k + 1) ((itemAt it.pts (k + 1)) + dy)
+            k = (k + 2)
+        }
+    }
+
+    ; Chaikin once: a hand-drawn line without the jitter of the mouse
+    sfn smooth:[double] (pts:[double]) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 3) {
+            return pts
+        }
+        def out:[double]
+        push out (itemAt pts 0)
+        push out (itemAt pts 1)
+        def i:int 0
+        while (i < (n - 1)) {
+            def x1:double (itemAt pts (i * 2))
+            def y1:double (itemAt pts ((i * 2) + 1))
+            def x2:double (itemAt pts ((i + 1) * 2))
+            def y2:double (itemAt pts (((i + 1) * 2) + 1))
+            push out ((x1 * 0.75) + (x2 * 0.25))
+            push out ((y1 * 0.75) + (y2 * 0.25))
+            push out ((x1 * 0.25) + (x2 * 0.75))
+            push out ((y1 * 0.25) + (y2 * 0.75))
+            i = (i + 1)
+        }
+        push out (itemAt pts ((n - 1) * 2))
+        push out (itemAt pts (((n - 1) * 2) + 1))
+        return out
+    }
+
+    fn newBubble:CartoonItem (px:double py:double) {
+        def it:CartoonItem (new CartoonItem)
+        it.kind = "bubble"
+        it.shape = bubbleShape
+        it.text = ""
+        it.size = 22.0
+        if (bubbleShape == "efekti") {
+            it.text = "KOP KOP"
+            it.color = "#2f6fd6"
+            it.fill = "#ffd23f"
+        }
+        if (bubbleShape == "kerronta") {
+            it.size = 19.0
+        }
+        it.x = px
+        it.y = py
+        it.w = 0.0
+        it.h = 0.0
+        if hasTr {
+            render.fit(tr it)
+        }
+        it.tx = (it.x + (it.w * 0.25))
+        it.ty = ((it.y + it.h) + 60.0)
+        def sc:CartoonScene (this.scene())
+        it.panel = (sc.panelAt(px py))
+        return it
+    }
+
+    fn refit:void (it:CartoonItem) {
+        if (it.fixed || (hasTr == false)) {
+            return
+        }
+        def ox:double (it.tx - (it.x + (it.w / 2.0)))
+        def oy:double (it.ty - (it.y + (it.h / 2.0)))
+        render.fit(tr it)
+        ; the tail stays where it pointed
+        def nx:double (it.x + (it.w / 2.0))
+        def ny:double (it.y + (it.h / 2.0))
+        if ((ox != 0.0) || (oy != 0.0)) {
+            it.tx = (nx + ox)
+            it.ty = (ny + oy)
+        }
+    }
+
+    ; --- template --------------------------------------------------------------------
+    fn rebuild:void () {
+        this.remember()
+        def sc:CartoonScene (this.scene())
+        def oldW:double (sc.pageW())
+        def oldH:double (sc.pageH())
+        sc.buildPanels()
+        ; items follow a format change proportionally
+        def fx:double ((sc.pageW()) / oldW)
+        def fy:double ((sc.pageH()) / oldH)
+        if ((fx != 1.0) || (fy != 1.0)) {
+            def i:int 0
+            while (i < (array_length sc.items)) {
+                def it:CartoonItem (itemAt sc.items i)
+                it.x = (it.x * fx)
+                it.y = (it.y * fy)
+                it.tx = (it.tx * fx)
+                it.ty = (it.ty * fy)
+                if (it.kind == "image") {
+                    it.w = (it.w * fx)
+                    it.h = (it.h * fy)
+                }
+                def k:int 0
+                while ((k + 1) < (array_length it.pts)) {
+                    set it.pts k ((itemAt it.pts k) * fx)
+                    set it.pts (k + 1) ((itemAt it.pts (k + 1)) * fy)
+                    k = (k + 2)
+                }
+                i = (i + 1)
+            }
+        }
+        def j:int 0
+        while (j < (array_length sc.items)) {
+            def it2:CartoonItem (itemAt sc.items j)
+            if (it2.panel >= (array_length sc.panels)) {
+                it2.panel = -1
+            }
+            j = (j + 1)
+        }
+        dirty = true
+    }
+
+    ; --- actions ---------------------------------------------------------------------
+    fn act:void (a:string) {
+        def sc:CartoonScene (this.scene())
+        def st:CartoonStyle doc.style
+        if ((indexOf a "doc:") == 0) {
+            if dirty {
+                this.save()
+            }
+            this.openDoc((substring a 4 (strlen a)))
+            return
+        }
+        if (a == "newdoc") {
+            if dirty {
+                this.save()
+            }
+            this.newDoc()
+            return
+        }
+        if (hasDoc == false) {
+            status = "tee ensin uusi sarjakuva (+ Uusi sarjakuva)"
+            return
+        }
+        if ((indexOf a "scene:") == 0) {
+            sceneIx = (?? (to_int (substring a 6 (strlen a))) 0)
+            sel = -1
+            selPanel = -1
+            clear undo
+            return
+        }
+        if (a == "newscene") {
+            def ns:CartoonScene (new CartoonScene)
+            ns.name = ("Skene " + (to_string ((array_length doc.scenes) + 1)))
+            ns.format = sc.format
+            ns.count = sc.count
+            ns.slant = sc.slant
+            ns.variant = sc.variant
+            ns.buildPanels()
+            push doc.scenes ns
+            sceneIx = ((array_length doc.scenes) - 1)
+            sel = -1
+            clear undo
+            dirty = true
+            return
+        }
+        if (a == "delscene") {
+            if ((array_length doc.scenes) > 1) {
+                remove_index doc.scenes sceneIx
+                if (sceneIx > 0) {
+                    sceneIx = (sceneIx - 1)
+                }
+                sel = -1
+                clear undo
+                dirty = true
+                status = "skene poistettu"
+            }
+            return
+        }
+        if ((indexOf a "fmt:") == 0) {
+            sc.format = (substring a 4 (strlen a))
+            sc.variant = 0
+            this.rebuild()
+            return
+        }
+        if ((indexOf a "count:") == 0) {
+            sc.count = (?? (to_int (substring a 6 (strlen a))) 4)
+            sc.variant = 0
+            this.rebuild()
+            return
+        }
+        if ((indexOf a "slant:") == 0) {
+            sc.slant = (?? (to_int (substring a 6 (strlen a))) 0)
+            this.rebuild()
+            return
+        }
+        if (a == "variant") {
+            sc.variant = (sc.variant + 1)
+            this.rebuild()
+            return
+        }
+        if ((indexOf a "tool:") == 0) {
+            tool = (substring a 5 (strlen a))
+            drag = ""
+            clear drawing
+            if (tool != "valitse") {
+                sel = -1
+            }
+            return
+        }
+        if ((indexOf a "pen:") == 0) {
+            penWidth = (?? (to_double (substring a 4 (strlen a))) 4.0)
+            return
+        }
+        if ((indexOf a "color:") == 0) {
+            penColor = (substring a 6 (strlen a))
+            def cur@(optional):CartoonItem (this.selected())
+            if (!null? cur) {
+                def it:CartoonItem (unwrap cur)
+                this.remember()
+                if (it.kind == "bubble") {
+                    if ((it.shape == "efekti") || (penColor != "#ffffff")) {
+                        it.fill = penColor
+                    }
+                } {
+                    it.color = penColor
+                }
+                dirty = true
+            }
+            return
+        }
+        if ((indexOf a "shape:") == 0) {
+            bubbleShape = (substring a 6 (strlen a))
+            def cur2@(optional):CartoonItem (this.selected())
+            if (!null? cur2) {
+                def it2:CartoonItem (unwrap cur2)
+                if (it2.kind == "bubble") {
+                    this.remember()
+                    it2.shape = bubbleShape
+                    this.refit(it2)
+                    dirty = true
+                    return
+                }
+            }
+            tool = "kupla"
+            return
+        }
+        if ((indexOf a "size:") == 0) {
+            def cur3@(optional):CartoonItem (this.selected())
+            if (!null? cur3) {
+                def it3:CartoonItem (unwrap cur3)
+                this.remember()
+                if (a == "size:+") {
+                    it3.size = (it3.size + 3.0)
+                    it3.width = (it3.width * 1.3)
+                } {
+                    it3.size = (it3.size - 3.0)
+                    it3.width = (it3.width / 1.3)
+                    if (it3.size < 8.0) {
+                        it3.size = 8.0
+                    }
+                }
+                this.refit(it3)
+                dirty = true
+            }
+            return
+        }
+        if (a == "caps") {
+            def cur4@(optional):CartoonItem (this.selected())
+            if (!null? cur4) {
+                def it4:CartoonItem (unwrap cur4)
+                this.remember()
+                it4.caps = (it4.caps == false)
+                this.refit(it4)
+            } {
+                st.caps = (st.caps == false)
+            }
+            dirty = true
+            return
+        }
+        if (a == "delete") {
+            if ((sel >= 0) && (sel < (array_length sc.items))) {
+                this.remember()
+                remove_index sc.items sel
+                sel = -1
+                dirty = true
+            }
+            return
+        }
+        if (a == "front") {
+            if ((sel >= 0) && (sel < (array_length sc.items))) {
+                this.remember()
+                def it5:CartoonItem (itemAt sc.items sel)
+                remove_index sc.items sel
+                push sc.items it5
+                sel = ((array_length sc.items) - 1)
+                dirty = true
+            }
+            return
+        }
+        if (a == "clearpanel") {
+            this.remember()
+            def keep:[CartoonItem]
+            def i:int 0
+            while (i < (array_length sc.items)) {
+                def it6:CartoonItem (itemAt sc.items i)
+                if ((selPanel >= 0) && (it6.panel != selPanel)) {
+                    push keep it6
+                }
+                i = (i + 1)
+            }
+            sc.items = keep
+            sel = -1
+            dirty = true
+            return
+        }
+        if ((indexOf a "preset:") == 0) {
+            st.applyPreset((substring a 7 (strlen a)))
+            dirty = true
+            return
+        }
+        if ((indexOf a "detail:") == 0) {
+            st.detail = (?? (to_int (substring a 7 (strlen a))) 3)
+            st.preset = "oma"
+            dirty = true
+            return
+        }
+        if ((indexOf a "tone:") == 0) {
+            st.tone = (substring a 5 (strlen a))
+            st.preset = "oma"
+            dirty = true
+            return
+        }
+        if ((indexOf a "filler:") == 0) {
+            st.filler = (substring a 7 (strlen a))
+            st.preset = "oma"
+            dirty = true
+            return
+        }
+        if ((indexOf a "mood:") == 0) {
+            st.mood = (substring a 5 (strlen a))
+            st.preset = "oma"
+            dirty = true
+            return
+        }
+        if ((indexOf a "audience:") == 0) {
+            st.audience = (substring a 9 (strlen a))
+            st.preset = "oma"
+            dirty = true
+            return
+        }
+        if ((indexOf a "line:") == 0) {
+            st.line = (substring a 5 (strlen a))
+            st.preset = "oma"
+            dirty = true
+            return
+        }
+        if (a == "speed") {
+            st.speedLines = (st.speedLines == false)
+            st.preset = "oma"
+            dirty = true
+            return
+        }
+        if (a == "colormode") {
+            st.color = (st.color == false)
+            st.preset = "oma"
+            dirty = true
+            return
+        }
+        if (a == "shading") {
+            st.shading = (st.shading == false)
+            st.preset = "oma"
+            dirty = true
+            return
+        }
+        if (a == "random") {
+            st.randomize()
+            dirty = true
+            status = "uusi tyyliyhdistelmä (Arvo uudelleen tai kumoa valitsemalla esiasetus)"
+            return
+        }
+        if (a == "undo") {
+            this.undoLast()
+            return
+        }
+        if ((a == "ai") || (a == "comment") || (a == "note")) {
+            inputMode = a
+            inputText = ""
+            if (a == "note") {
+                inputText = sc.note
+            }
+            sel = -1
+            return
+        }
+        if (a == "png") {
+            pendingKind = "png"
+            pendingText = ""
+            return
+        }
+    }
+
+    ; --- input ------------------------------------------------------------------------
+    ; keys: the Studio's key codes this frame; text: what was typed
+    fn input:void (mx:int my:int down:boolean pressed:boolean released:boolean wheel:int shift:boolean ctrl:boolean text:string keys:[int]) {
+        def fx:double (to_double mx)
+        def fy:double (to_double my)
+        if ((wheel != 0) && (fx > ((X0 + W) - sideW))) {
+            sideScroll = (sideScroll - ((to_double wheel) * 40.0))
+            if (sideScroll < 0.0) {
+                sideScroll = 0.0
+            }
+        }
+        this.placePage()
+        if pressed {
+            def hit:boolean false
+            def hi:int 0
+            while ((hi < (array_length hits)) && (hit == false)) {
+                def h:CartoonHit (itemAt hits hi)
+                if ((fx >= h.x) && (fy >= h.y) && (fx < (h.x + h.w)) && (fy < (h.y + h.h))) {
+                    this.act(h.action)
+                    hit = true
+                }
+                hi = (hi + 1)
+            }
+            if ((hit == false) && hasDoc && (this.insideCanvas(fx fy))) {
+                if ((inputMode == "note") || (inputMode == "comment")) {
+                    inputMode = ""
+                }
+                this.pointerDown((this.toPageX(fx)) (this.toPageY(fy)) shift)
+            }
+        } {
+            if (down && ((strlen drag) > 0)) {
+                this.pointerDrag((this.toPageX(fx)) (this.toPageY(fy)))
+            }
+        }
+        if (released && ((strlen drag) > 0)) {
+            this.pointerUp()
+        }
+        this.typing(text keys shift ctrl)
+    }
+
+    fn pointerDown:void (px:double py:double shift:boolean) {
+        def sc:CartoonScene (this.scene())
+        lastX = px
+        lastY = py
+        moved = false
+        if ((tool == "kyna") || (tool == "tayta")) {
+            clear drawing
+            push drawing px
+            push drawing py
+            drag = "draw"
+            return
+        }
+        if (tool == "kupla") {
+            ; a click on a bubble selects it; elsewhere makes a new one
+            def at:int (this.itemAt(px py))
+            if (at >= 0) {
+                def hitIt:CartoonItem (itemAt sc.items at)
+                if (hitIt.kind == "bubble") {
+                    sel = at
+                    drag = "move"
+                    this.remember()
+                    return
+                }
+            }
+            this.remember()
+            def b:CartoonItem (this.newBubble(px py))
+            push sc.items b
+            sel = ((array_length sc.items) - 1)
+            drag = "move"
+            dirty = true
+            status = "kirjoita kuplan teksti (Shift+Enter = uusi rivi, Enter = valmis)"
+            return
+        }
+        if (tool == "kumi") {
+            def at2:int (this.itemAt(px py))
+            if (at2 >= 0) {
+                this.remember()
+                remove_index sc.items at2
+                sel = -1
+                dirty = true
+            }
+            drag = "erase"
+            return
+        }
+        ; valitse: handles of the selected item first
+        def cur@(optional):CartoonItem (this.selected())
+        if (!null? cur) {
+            def it:CartoonItem (unwrap cur)
+            def hs:double (12.0 / render.s)
+            if ((it.kind == "bubble") && (it.shape != "kerronta") && (it.shape != "efekti")) {
+                if (((fabs (px - it.tx)) < hs) && ((fabs (py - it.ty)) < hs)) {
+                    this.remember()
+                    drag = "tail"
+                    return
+                }
+            }
+            if ((it.kind == "bubble") || (it.kind == "image")) {
+                if (((fabs (px - (it.x + it.w))) < hs) && ((fabs (py - (it.y + it.h))) < hs)) {
+                    this.remember()
+                    drag = "resize"
+                    return
+                }
+            }
+        }
+        def at3:int (this.itemAt(px py))
+        if (at3 >= 0) {
+            sel = at3
+            this.remember()
+            drag = "move"
+            return
+        }
+        sel = -1
+        selPanel = (sc.panelAt(px py))
+        drag = ""
+    }
+
+    fn pointerDrag:void (px:double py:double) {
+        def sc:CartoonScene (this.scene())
+        def dx:double (px - lastX)
+        def dy:double (py - lastY)
+        if (drag == "draw") {
+            def n:int (array_length drawing)
+            def lx:double (itemAt drawing (n - 2))
+            def ly:double (itemAt drawing (n - 1))
+            def ddx:double (px - lx)
+            def ddy:double (py - ly)
+            if ((sqrt ((ddx * ddx) + (ddy * ddy))) >= (1.5 / render.s)) {
+                push drawing px
+                push drawing py
+            }
+            return
+        }
+        if (drag == "erase") {
+            def at:int (this.itemAt(px py))
+            if (at >= 0) {
+                remove_index sc.items at
+                dirty = true
+            }
+            return
+        }
+        def cur@(optional):CartoonItem (this.selected())
+        if (null? cur) {
+            return
+        }
+        def it:CartoonItem (unwrap cur)
+        if (((fabs dx) + (fabs dy)) > 0.0) {
+            moved = true
+        }
+        if (drag == "move") {
+            this.shiftItem(it dx dy)
+        }
+        if (drag == "tail") {
+            it.tx = px
+            it.ty = py
+        }
+        if (drag == "resize") {
+            it.w = (px - it.x)
+            it.h = (py - it.y)
+            if (it.w < 30.0) {
+                it.w = 30.0
+            }
+            if (it.h < 24.0) {
+                it.h = 24.0
+            }
+            it.fixed = true
+        }
+        lastX = px
+        lastY = py
+        dirty = true
+    }
+
+    fn pointerUp:void () {
+        def sc:CartoonScene (this.scene())
+        if (drag == "draw") {
+            if ((array_length drawing) >= 2) {
+                this.remember()
+                def it:CartoonItem (new CartoonItem)
+                it.color = penColor
+                it.width = penWidth
+                it.panel = (sc.panelAt((itemAt drawing 0) (itemAt drawing 1)))
+                if ((tool == "tayta") && ((array_length drawing) >= 6)) {
+                    it.kind = "fill"
+                    it.pts = drawing
+                    ; the fill goes under the pen lines of its panel
+                    def at:int 0
+                    def scanning:boolean true
+                    while (scanning && (at < (array_length sc.items))) {
+                        def under:CartoonItem (itemAt sc.items at)
+                        if (under.kind == "fill") {
+                            at = (at + 1)
+                        } {
+                            scanning = false
+                        }
+                    }
+                    insert sc.items at it
+                } {
+                    it.kind = "stroke"
+                    it.pts = (CartoonEditor.smooth(drawing))
+                    push sc.items it
+                }
+                dirty = true
+            }
+            def fresh:[double]
+            drawing = fresh
+        }
+        if ((drag == "move") && (moved == false)) {
+            ; a click without moving: drop the undo step it made
+            def n:int (array_length undo)
+            if (n > 0) {
+                remove_index undo (n - 1)
+            }
+        }
+        drag = ""
+    }
+
+    fn typing:void (text:string keys:[int] shift:boolean ctrl:boolean) {
+        if ctrl {
+            if (((indexOf text "z") >= 0) && ((strlen inputMode) == 0)) {
+                this.undoLast()
+            }
+            if ((indexOf text "v") >= 0) {
+                def clip:string (sh_get_clipboard)
+                this.addText(clip)
+            }
+            return
+        }
+        if ((strlen text) > 0) {
+            this.addText(text)
+        }
+        def i:int 0
+        while (i < (array_length keys)) {
+            def k:int (itemAt keys i)
+            this.key(k shift)
+            i = (i + 1)
+        }
+    }
+
+    sfn dropLast:string (t:string) {
+        if ((strlen t) == 0) {
+            return t
+        }
+        def n:int ((strlen t) - 1)
+        def going:boolean true
+        while going {
+            def b:int (charAt t n)
+            if (b < 0) {
+                b = (b + 256)
+            }
+            if ((n > 0) && (b >= 128) && (b < 192)) {
+                n = (n - 1)
+            } {
+                going = false
+            }
+        }
+        return (substring t 0 n)
+    }
+
+    fn addText:void (t:string) {
+        if ((strlen t) == 0) {
+            return
+        }
+        if ((strlen inputMode) > 0) {
+            inputText = (inputText + t)
+            return
+        }
+        def cur@(optional):CartoonItem (this.selected())
+        if (!null? cur) {
+            def it:CartoonItem (unwrap cur)
+            if (it.kind == "bubble") {
+                if ((it.shape == "efekti") && (it.text == "KOP KOP") && (drag == "")) {
+                    it.text = ""
+                }
+                it.text = (it.text + t)
+                this.refit(it)
+                dirty = true
+            }
+        }
+    }
+
+    fn key:void (k:int shift:boolean) {
+        if ((strlen inputMode) > 0) {
+            if (k == 1) {
+                inputText = (CartoonEditor.dropLast(inputText))
+            }
+            if (k == 4) {
+                inputMode = ""
+                inputText = ""
+                status = "peruttu"
+            }
+            if (k == 2) {
+                this.finishInput()
+            }
+            return
+        }
+        def cur@(optional):CartoonItem (this.selected())
+        if (k == 4) {
+            sel = -1
+            return
+        }
+        if (null? cur) {
+            return
+        }
+        def it:CartoonItem (unwrap cur)
+        if (k == 9) {
+            this.act("delete")
+            return
+        }
+        if (it.kind == "bubble") {
+            if (k == 1) {
+                it.text = (CartoonEditor.dropLast(it.text))
+                this.refit(it)
+                dirty = true
+            }
+            if (k == 2) {
+                if shift {
+                    it.text = (it.text + "\n")
+                    this.refit(it)
+                    dirty = true
+                } {
+                    sel = -1
+                }
+            }
+        } {
+            if (k == 1) {
+                this.act("delete")
+            }
+        }
+        ; arrows nudge
+        def step:double 2.0
+        if shift {
+            step = 10.0
+        }
+        if (k == 5) {
+            this.shiftItem(it (0.0 - step) 0.0)
+            dirty = true
+        }
+        if (k == 6) {
+            this.shiftItem(it step 0.0)
+            dirty = true
+        }
+        if (k == 7) {
+            this.shiftItem(it 0.0 (0.0 - step))
+            dirty = true
+        }
+        if (k == 8) {
+            this.shiftItem(it 0.0 step)
+            dirty = true
+        }
+    }
+
+    fn finishInput:void () {
+        def t:string (trim inputText)
+        def mode:string inputMode
+        inputMode = ""
+        inputText = ""
+        if (mode == "note") {
+            def sc:CartoonScene (this.scene())
+            sc.note = t
+            dirty = true
+            status = "skenen kuvaus tallennettu"
+            return
+        }
+        if ((strlen t) == 0) {
+            status = "tyhjä: ei lähetetty"
+            return
+        }
+        pendingKind = mode
+        pendingText = t
+    }
+
+    ; --- the brief an AI gets with the screenshot -------------------------------------
+    fn aiBrief:string (instructions:string shot:string commentId:string) {
+        def sc:CartoonScene (this.scene())
+        def out:string "# Sarjakuvapyyntö (Sliqtly Game Studio)\n\n"
+        out = (out + "Pyyntö " + commentId + ":\n\n> " + instructions + "\n\n")
+        out = (out + "- sarjakuvatiedosto: " + (this.docDisk()) + "\n")
+        out = (out + "- skene: " + (to_string sceneIx) + " (\"" + sc.name + "\"), formaatti " + sc.format + ", sivu " + (CartoonDoc.num((sc.pageW()))) + " x " + (CartoonDoc.num((sc.pageH()))) + " yksikköä\n")
+        if (selPanel >= 0) {
+            out = (out + "- valittu ruutu: " + (to_string selPanel) + " (indeksi panels-listassa)\n")
+        }
+        if ((strlen sc.note) > 0) {
+            out = (out + "- skenen kuvaus: " + sc.note + "\n")
+        }
+        out = (out + "- kuvakaappaus sivusta nyt: " + shot + "\n\n")
+        out = (out + "## Tyyli\n\n" + (doc.style.brief()) + "\n")
+        out = (out + "## Ruudut (page units)\n\n")
+        def i:int 0
+        while (i < (array_length sc.panels)) {
+            def p:CartoonPanel (itemAt sc.panels i)
+            out = (out + "- ruutu " + (to_string i) + ": " + (CartoonDoc.nums(p.pts)) + "\n")
+            i = (i + 1)
+        }
+        out = (out + "\n## Näin muutat sarjakuvaa\n\n")
+        out = (out + "Muokkaa yllä olevaa JSON-tiedostoa suoraan; Studio lukee sen heti uudelleen. Lisää scenes[" + (to_string sceneIx) + "].items-listaan:\n\n")
+        out = (out + "- puhekupla: {\"kind\":\"bubble\",\"shape\":\"puhe|ajatus|huuto|kuiskaus|kerronta|efekti|radio\",\"x\":..,\"y\":..,\"w\":..,\"h\":..,\"tx\":..,\"ty\":..,\"text\":\"...\",\"size\":22,\"panel\":N} (tx,ty = hännän kärki, puhujan suun luona)\n")
+        out = (out + "- viiva (piirros): {\"kind\":\"stroke\",\"pts\":[x,y,x,y,...],\"width\":4,\"color\":\"#1a1a1a\",\"panel\":N} — piirrä hahmot ääriviivoina useina viivoina, pisteet tiheästi (2-6 yksikön välein)\n")
+        out = (out + "- väripinta: {\"kind\":\"fill\",\"pts\":[x,y,...],\"color\":\"#f2c9a0\",\"panel\":N} (täytöt piirretään viivojen alle; laita ne listan alkuun)\n")
+        out = (out + "- kuva: {\"kind\":\"image\",\"src\":\"cartoons/kuva.png\",\"x\":..,\"y\":..,\"w\":..,\"h\":..,\"panel\":N} (PNG pelin kansioon)\n\n")
+        out = (out + "Pidä käyttäjän omat viivat (stroke) ellei pyydetä muuta: niitä voi siistiä, korvata valitulla tyylillä tai täydentää. Pysy ruudun sisällä. Tyylin voi vaihtaa style-objektissa (tone, filler, mood, speedLines, color, shading, detail, line, audience, caps).\n")
+        out = (out + "Kun olet valmis, merkitse kommentti " + commentId + " tehdyksi (Studion MCP: comment_done) ja ota screenshot (area cartoon) tarkistaaksesi tuloksen.\n")
+        return out
+    }
+
+    ; --- painting -----------------------------------------------------------------------
+    fn box:void (dl:EVGDisplayList x:double y:double w:double h:double c:EVGColor radius:double) {
+        render.rect(dl x y w h c 1.0 radius)
+    }
+
+    fn label:double (dl:EVGDisplayList t:string x:double y:double size:double c:EVGColor bold:boolean) {
+        if ((strlen t) == 0) {
+            return 0.0
+        }
+        render.text(dl tr t x y size c bold 0.0)
+        return (tr.measureWidth(t size))
+    }
+
+    fn hit:void (x:double y:double w:double h:double action:string) {
+        def h2:CartoonHit (new CartoonHit)
+        h2.x = x
+        h2.y = y
+        h2.w = w
+        h2.h = h
+        h2.action = action
+        push hits h2
+    }
+
+    ; flowing chips in the side panel: [x y] of the next one in cur
+    fn chip:void (dl:EVGDisplayList cur:[double] label:string action:string on:boolean) {
+        def x0:double (((X0 + W) - sideW) + 10.0)
+        def xmax:double ((X0 + W) - 10.0)
+        def cw:double ((tr.measureWidth(label 11.0)) + 14.0)
+        def x:double (itemAt cur 0)
+        def y:double (itemAt cur 1)
+        if (((x + cw) > xmax) && (x > x0)) {
+            x = x0
+            y = (y + 24.0)
+        }
+        def col:EVGColor (EVGColor.rgb(46 50 68))
+        if on {
+            col = (EVGColor.rgb(61 89 161))
+        }
+        if ((y > (Y0 + 2.0)) && (y < ((Y0 + H) - 22.0))) {
+            this.box(dl x y cw 20.0 col 4.0)
+            this.label(dl label (x + 7.0) (y + 2.0) 11.0 (EVGColor.rgb(214 220 238)) false)
+            this.hit(x y cw 20.0 action)
+        }
+        set cur 0 ((x + cw) + 5.0)
+        set cur 1 y
+    }
+
+    fn swatch:void (dl:EVGDisplayList cur:[double] hex:string) {
+        def x0:double (((X0 + W) - sideW) + 10.0)
+        def xmax:double ((X0 + W) - 10.0)
+        def x:double (itemAt cur 0)
+        def y:double (itemAt cur 1)
+        if (((x + 22.0) > xmax) && (x > x0)) {
+            x = x0
+            y = (y + 24.0)
+        }
+        if ((y > (Y0 + 2.0)) && (y < ((Y0 + H) - 22.0))) {
+            def rgb:[int] (CartoonRender.rgbOf(hex))
+            if (hex == penColor) {
+                this.box(dl (x - 2.0) (y - 2.0) 24.0 24.0 (EVGColor.rgb(122 162 247)) 5.0)
+            }
+            this.box(dl x y 20.0 20.0 (EVGColor.rgb((itemAt rgb 0) (itemAt rgb 1) (itemAt rgb 2))) 4.0)
+            this.hit(x y 20.0 20.0 ("color:" + hex))
+        }
+        set cur 0 (x + 26.0)
+        set cur 1 y
+    }
+
+    fn heading:void (dl:EVGDisplayList cur:[double] t:string) {
+        def x0:double (((X0 + W) - sideW) + 10.0)
+        def y:double ((itemAt cur 1) + 30.0)
+        if ((y > (Y0 + 2.0)) && (y < ((Y0 + H) - 16.0))) {
+            this.label(dl t x0 y 11.0 (EVGColor.rgb(118 128 154)) true)
+        }
+        set cur 0 x0
+        set cur 1 (y + 18.0)
+    }
+
+    fn newline:void (cur:[double]) {
+        set cur 0 (((X0 + W) - sideW) + 10.0)
+        set cur 1 ((itemAt cur 1) + 24.0)
+    }
+
+    fn paintSide:void (dl:EVGDisplayList) {
+        def sx:double ((X0 + W) - sideW)
+        this.box(dl sx Y0 sideW H (EVGColor.rgb(22 24 33)) 0.0)
+        this.box(dl sx Y0 1.0 H (EVGColor.rgb(48 52 70)) 0.0)
+        render.clip(dl sx Y0 sideW H)
+        def sc:CartoonScene (this.scene())
+        def st:CartoonStyle doc.style
+        def cur:[double]
+        push cur (sx + 10.0)
+        push cur ((Y0 - 22.0) - sideScroll)
+        this.heading(dl cur "POHJA")
+        def fmts:[string] ([] _:string ("sivu" "strippi" "ruutu" "puhelin"))
+        def fl:[string] ([] _:string ("Sivu" "Strippi" "Ruutu" "Puhelin"))
+        def i:int 0
+        while (i < 4) {
+            this.chip(dl cur (itemAt fl i) ("fmt:" + (itemAt fmts i)) (sc.format == (itemAt fmts i)))
+            i = (i + 1)
+        }
+        this.newline(cur)
+        this.label(dl "Ruutuja" (itemAt cur 0) ((itemAt cur 1) + 3.0) 11.0 (EVGColor.rgb(160 168 190)) false)
+        set cur 0 ((itemAt cur 0) + 52.0)
+        i = 1
+        while (i <= 6) {
+            this.chip(dl cur (to_string i) ("count:" + (to_string i)) (sc.count == i))
+            i = (i + 1)
+        }
+        this.newline(cur)
+        this.chip(dl cur "Suorat" "slant:0" (sc.slant == 0))
+        this.chip(dl cur "Vähän vinot" "slant:1" (sc.slant == 1))
+        this.chip(dl cur "Vinot" "slant:2" (sc.slant == 2))
+        this.chip(dl cur ("Asettelu " + (sc.layoutText())) "variant" false)
+
+        this.heading(dl cur "TYÖKALU")
+        this.chip(dl cur "Valitse" "tool:valitse" (tool == "valitse"))
+        this.chip(dl cur "Kynä" "tool:kyna" (tool == "kyna"))
+        this.chip(dl cur "Väripinta" "tool:tayta" (tool == "tayta"))
+        this.chip(dl cur "Kupla" "tool:kupla" (tool == "kupla"))
+        this.chip(dl cur "Kumi" "tool:kumi" (tool == "kumi"))
+        this.newline(cur)
+        def widths:[string] ([] _:string ("2" "4" "7" "12"))
+        def wl:[string] ([] _:string ("Ohut" "Normaali" "Paksu" "Tussi"))
+        i = 0
+        while (i < 4) {
+            this.chip(dl cur (itemAt wl i) ("pen:" + (itemAt widths i)) ((to_string (to_int penWidth)) == (itemAt widths i)))
+            i = (i + 1)
+        }
+        this.newline(cur)
+        def colors:[string] ([] _:string ("#1a1a1a" "#ffffff" "#f2c9a0" "#8a5a3c" "#e8453c" "#ff9f1c" "#ffd23f" "#3fae4a" "#2f6fd6" "#7b4bc4" "#ff6fb5" "#9aa0a8"))
+        i = 0
+        while (i < (array_length colors)) {
+            this.swatch(dl cur (itemAt colors i))
+            i = (i + 1)
+        }
+
+        this.heading(dl cur "KUPLA")
+        def shapes:[string] ([] _:string ("puhe" "ajatus" "huuto" "kuiskaus" "kerronta" "efekti" "radio"))
+        def sl:[string] ([] _:string ("Puhe" "Ajatus" "Huuto" "Kuiskaus" "Kerronta" "Ääniefekti" "Radio"))
+        i = 0
+        while (i < 7) {
+            this.chip(dl cur (itemAt sl i) ("shape:" + (itemAt shapes i)) (bubbleShape == (itemAt shapes i)))
+            i = (i + 1)
+        }
+        this.newline(cur)
+        this.chip(dl cur "Versaali" "caps" st.caps)
+        this.chip(dl cur "Koko -" "size:-" false)
+        this.chip(dl cur "Koko +" "size:+" false)
+        this.chip(dl cur "Eteen" "front" false)
+        this.chip(dl cur "Poista" "delete" false)
+
+        this.heading(dl cur "TYYLI")
+        def presets:[string] (CartoonStyle.presetNames())
+        i = 0
+        while (i < (array_length presets)) {
+            this.chip(dl cur (itemAt presets i) ("preset:" + (itemAt presets i)) (st.preset == (itemAt presets i)))
+            i = (i + 1)
+        }
+        this.chip(dl cur "Arvo tyyli" "random" (st.preset == "oma"))
+        this.newline(cur)
+        this.label(dl "Yksityiskohdat" (itemAt cur 0) ((itemAt cur 1) + 3.0) 11.0 (EVGColor.rgb(160 168 190)) false)
+        set cur 0 ((itemAt cur 0) + 90.0)
+        i = 1
+        while (i <= 5) {
+            this.chip(dl cur (to_string i) ("detail:" + (to_string i)) (st.detail == i))
+            i = (i + 1)
+        }
+        this.newline(cur)
+        def tones:[string] ([] _:string ("neutraali" "lämmin" "kylmä" "pastelli" "neon" "seepia"))
+        i = 0
+        while (i < 6) {
+            this.chip(dl cur (itemAt tones i) ("tone:" + (itemAt tones i)) (st.tone == (itemAt tones i)))
+            i = (i + 1)
+        }
+        this.newline(cur)
+        this.chip(dl cur "Väri" "colormode" st.color)
+        this.chip(dl cur "Mustavalko" "colormode" (st.color == false))
+        this.chip(dl cur "Varjostus" "shading" st.shading)
+        this.chip(dl cur "Vauhtiviivat" "speed" st.speedLines)
+        this.newline(cur)
+        this.label(dl "Täyte" (itemAt cur 0) ((itemAt cur 1) + 3.0) 11.0 (EVGColor.rgb(160 168 190)) false)
+        set cur 0 ((itemAt cur 0) + 40.0)
+        def fills:[string] ([] _:string ("ei" "pisteet" "viivat" "ristiviivat"))
+        i = 0
+        while (i < 4) {
+            this.chip(dl cur (itemAt fills i) ("filler:" + (itemAt fills i)) (st.filler == (itemAt fills i)))
+            i = (i + 1)
+        }
+        this.newline(cur)
+        def moods:[string] ([] _:string ("iloinen" "hauska" "rauhallinen" "jännittävä" "salaperäinen" "synkkä"))
+        i = 0
+        while (i < 6) {
+            this.chip(dl cur (itemAt moods i) ("mood:" + (itemAt moods i)) (st.mood == (itemAt moods i)))
+            i = (i + 1)
+        }
+        this.newline(cur)
+        this.label(dl "Viiva" (itemAt cur 0) ((itemAt cur 1) + 3.0) 11.0 (EVGColor.rgb(160 168 190)) false)
+        set cur 0 ((itemAt cur 0) + 40.0)
+        def lines:[string] ([] _:string ("siisti" "luonnos" "muste" "sivellin"))
+        i = 0
+        while (i < 4) {
+            this.chip(dl cur (itemAt lines i) ("line:" + (itemAt lines i)) (st.line == (itemAt lines i)))
+            i = (i + 1)
+        }
+        this.newline(cur)
+        def auds:[string] ([] _:string ("lapset" "nuoret" "aikuiset"))
+        i = 0
+        while (i < 3) {
+            this.chip(dl cur (itemAt auds i) ("audience:" + (itemAt auds i)) (st.audience == (itemAt auds i)))
+            i = (i + 1)
+        }
+
+        this.heading(dl cur "AI JA KOMMENTIT")
+        this.chip(dl cur "Pyydä AI:ta" "ai" (inputMode == "ai"))
+        this.chip(dl cur "Kommentoi" "comment" (inputMode == "comment"))
+        this.chip(dl cur "Skenen kuvaus" "note" (inputMode == "note"))
+        this.newline(cur)
+        this.chip(dl cur "Vie PNG" "png" false)
+        this.chip(dl cur "Kumoa ^Z" "undo" false)
+        this.chip(dl cur "Tyhjennä ruutu" "clearpanel" false)
+        render.unclip(dl)
+    }
+
+    fn row:double (dl:EVGDisplayList y:double t:string c:EVGColor bold:boolean on:boolean action:string) {
+        if (on) {
+            this.box(dl X0 (y - 2.0) (listW - 1.0) 20.0 (EVGColor.rgb(38 48 78)) 0.0)
+        }
+        this.label(dl t (X0 + 10.0) y 12.0 c bold)
+        if ((strlen action) > 0) {
+            this.hit(X0 (y - 2.0) (listW - 1.0) 20.0 action)
+        }
+        return (y + 21.0)
+    }
+
+    fn paintList:void (dl:EVGDisplayList) {
+        def ink:EVGColor (EVGColor.rgb(206 214 234))
+        def muted:EVGColor (EVGColor.rgb(118 128 154))
+        def accent:EVGColor (EVGColor.rgb(122 162 247))
+        this.box(dl X0 Y0 listW H (EVGColor.rgb(22 24 33)) 0.0)
+        this.box(dl ((X0 + listW) - 1.0) Y0 1.0 H (EVGColor.rgb(48 52 70)) 0.0)
+        render.clip(dl X0 Y0 (listW - 1.0) H)
+        def y:double (Y0 + 10.0)
+        y = (this.row(dl y "SARJAKUVAT" muted true false ""))
+        def i:int 0
+        while (i < (array_length docs)) {
+            def rel:string (itemAt docs i)
+            def nm:string (substring rel 9 (strlen rel))
+            y = (this.row(dl y ("  " + nm) ink false (hasDoc && (rel == doc.rel)) ("doc:" + rel)))
+            i = (i + 1)
+        }
+        y = (this.row(dl y "  + Uusi sarjakuva" accent false false "newdoc"))
+        if hasDoc {
+            y = (y + 8.0)
+            y = (this.row(dl y "SKENET" muted true false ""))
+            i = 0
+            while (i < (array_length doc.scenes)) {
+                def s:CartoonScene (itemAt doc.scenes i)
+                y = (this.row(dl y ("  " + (to_string (i + 1)) + ". " + s.name + "  (" + s.format + ", " + (to_string (array_length s.panels)) + ")") ink false (i == sceneIx) ("scene:" + (to_string i))))
+                i = (i + 1)
+            }
+            y = (this.row(dl y "  + Uusi skene" accent false false "newscene"))
+            if ((array_length doc.scenes) > 1) {
+                y = (this.row(dl y "  − Poista tämä skene" (EVGColor.rgb(224 120 104)) false false "delscene"))
+            }
+            if ((array_length notes) > 0) {
+                y = (y + 8.0)
+                y = (this.row(dl y "PYYNNÖT JA KOMMENTIT" muted true false ""))
+                i = 0
+                while (i < (array_length notes)) {
+                    y = (this.row(dl y ("  " + (itemAt notes i)) (EVGColor.rgb(224 175 104)) false false ""))
+                    i = (i + 1)
+                }
+            }
+        }
+        render.unclip(dl)
+    }
+
+    fn paintSelection:void (dl:EVGDisplayList sc:CartoonScene) {
+        def accent:EVGColor (EVGColor.rgb(61 120 240))
+        if ((selPanel >= 0) && (selPanel < (array_length sc.panels)) && (sel < 0)) {
+            def p:CartoonPanel (itemAt sc.panels selPanel)
+            render.line(dl (render.screenPoly(p.pts)) 3.0 accent 0.7 true)
+        }
+        def cur@(optional):CartoonItem (this.selected())
+        if (null? cur) {
+            return
+        }
+        def it:CartoonItem (unwrap cur)
+        def x0:double 0.0
+        def y0:double 0.0
+        def x1:double 0.0
+        def y1:double 0.0
+        if ((it.kind == "bubble") || (it.kind == "image")) {
+            x0 = it.x
+            y0 = it.y
+            x1 = (it.x + it.w)
+            y1 = (it.y + it.h)
+        } {
+            x0 = (itemAt it.pts 0)
+            y0 = (itemAt it.pts 1)
+            x1 = x0
+            y1 = y0
+            def k:int 0
+            while ((k + 1) < (array_length it.pts)) {
+                def px:double (itemAt it.pts k)
+                def py:double (itemAt it.pts (k + 1))
+                if (px < x0) {
+                    x0 = px
+                }
+                if (py < y0) {
+                    y0 = py
+                }
+                if (px > x1) {
+                    x1 = px
+                }
+                if (py > y1) {
+                    y1 = py
+                }
+                k = (k + 2)
+            }
+        }
+        def d:EVGDrawCmd (new EVGDrawCmd)
+        d.kind = 1
+        d.x = ((render.X(x0)) - 4.0)
+        d.y = ((render.Y(y0)) - 4.0)
+        d.w = (((x1 - x0) * render.s) + 8.0)
+        d.h = (((y1 - y0) * render.s) + 8.0)
+        d.thickness = 1.5
+        d.r = (accent.red())
+        d.g = (accent.green())
+        d.b = (accent.blue())
+        d.a = 0.9
+        push dl.cmds d
+        if ((it.kind == "bubble") || (it.kind == "image")) {
+            render.rect(dl ((render.X(x1)) - 5.0) ((render.Y(y1)) - 5.0) 10.0 10.0 accent 1.0 2.0)
+        }
+        if ((it.kind == "bubble") && (it.shape != "kerronta") && (it.shape != "efekti")) {
+            render.rect(dl ((render.X(it.tx)) - 6.0) ((render.Y(it.ty)) - 6.0) 12.0 12.0 (EVGColor.rgb(240 120 40)) 1.0 6.0)
+        }
+    }
+
+    fn paint:void (dl:EVGDisplayList images:StudioImages) {
+        clear hits
+        render.fontFamily = "Open Sans"
+        def bg:EVGColor (EVGColor.rgb(52 55 66))
+        this.box(dl (this.canvasX()) Y0 (this.canvasW()) (this.canvasH()) bg 0.0)
+        this.paintList(dl)
+        if hasDoc {
+            render.style = doc.style
+            this.placePage()
+            def sc:CartoonScene (this.scene())
+            render.clip(dl (this.canvasX()) Y0 (this.canvasW()) (this.canvasH()))
+            render.paintScene(dl tr sc images gameDir)
+            if ((array_length drawing) >= 2) {
+                ; the line being drawn, inked as it will be
+                def live:CartoonItem (new CartoonItem)
+                live.kind = "stroke"
+                live.pts = drawing
+                live.width = penWidth
+                live.color = penColor
+                if (tool == "tayta") {
+                    render.line(dl (render.screenPoly(drawing)) 2.0 (EVGColor.rgb(61 120 240)) 0.8 false)
+                } {
+                    render.paintStroke(dl live 1)
+                }
+            }
+            if (clean == false) {
+                this.paintSelection(dl sc)
+            }
+            render.unclip(dl)
+            this.paintSide(dl)
+        } {
+            this.label(dl "Ei sarjakuvia tässä pelissä vielä. Valitse vasemmalta + Uusi sarjakuva." ((this.canvasX()) + 30.0) (Y0 + 40.0) 14.0 (EVGColor.rgb(206 214 234)) false)
+        }
+        ; the line at the bottom
+        def by:double ((Y0 + H) - barH)
+        def bx:double (this.canvasX())
+        def bw:double (this.canvasW())
+        def barCol:EVGColor (EVGColor.rgb(30 32 44))
+        if ((strlen inputMode) > 0) {
+            barCol = (EVGColor.rgb(52 44 22))
+        }
+        this.box(dl bx by bw barH barCol 0.0)
+        if ((strlen inputMode) > 0) {
+            def prompt:string "Kommentti:"
+            if (inputMode == "ai") {
+                prompt = "Ohje AI:lle (saa kuvakaappauksen):"
+            }
+            if (inputMode == "note") {
+                prompt = "Skenen kuvaus:"
+            }
+            def caret:string ""
+            if (((to_int ((sh_now_ms) / 500.0)) % 2) == 0) {
+                caret = "|"
+            }
+            def pw:double (this.label(dl prompt (bx + 10.0) (by + 6.0) 12.0 (EVGColor.rgb(224 175 104)) true))
+            this.label(dl (inputText + caret) ((bx + 18.0) + pw) (by + 6.0) 12.0 (EVGColor.rgb(230 230 240)) false)
+        } {
+            def info:string status
+            def cur@(optional):CartoonItem (this.selected())
+            if (!null? cur) {
+                def it:CartoonItem (unwrap cur)
+                if (it.kind == "bubble") {
+                    info = "Kupla valittu: kirjoita teksti · Shift+Enter uusi rivi · oranssi pallo = hännän kärki · kulma = koko · Del poistaa"
+                }
+            }
+            if ((strlen info) == 0) {
+                info = "Kynä: piirrä hiirellä tai sormella · Kupla: klikkaa sivulle · Valitse: siirrä ja muuta · Ctrl+Z kumoaa"
+            }
+            this.label(dl info (bx + 10.0) (by + 6.0) 12.0 (EVGColor.rgb(118 128 154)) false)
+        }
+    }
+}

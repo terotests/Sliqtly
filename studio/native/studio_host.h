@@ -100,6 +100,8 @@ int sh_mkdirs(const std::string& path);
 int sh_append_text(const std::string& path, const std::string& text);
 // "2026-11-21T14:05:09", local time
 std::string sh_local_time();
+// runs a shell command in the background (its own thread); 1 when started
+int sh_spawn(const std::string& cmd);
 
 // --- MCP (stdio JSON-RPC, `sliqtly-studio --mcp <folder>`) ------------------------
 // Takes stdout for the protocol (the Studio's own prints go to stderr from

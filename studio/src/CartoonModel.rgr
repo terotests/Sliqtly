@@ -1,0 +1,788 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; CartoonModel — comics for games: scenes, panels, bubbles, drawings, style
+; ==============================================================================
+;
+; A cartoon is one file, <game>/cartoons/<name>.cartoon.json:
+;
+;   { "name": "briefing", "style": { ... }, "scenes": [ {
+;       "name": "Skene 1", "format": "sivu", "count": 4, "variant": 0,
+;       "slant": 1, "note": "what happens, for the AI",
+;       "panels": [ { "pts": [x0,y0, x1,y1, x2,y2, x3,y3] }, ... ],
+;       "items": [
+;         { "kind": "bubble", "shape": "puhe", "x":..,"y":..,"w":..,"h":..,
+;           "tx":..,"ty":.., "text": "Hei!", "size": 22, "caps": false,
+;           "color": "#000000", "fill": "#ffffff", "panel": 0 },
+;         { "kind": "stroke", "pts": [x,y, x,y, ...], "width": 4,
+;           "color": "#202020", "panel": 0 },
+;         { "kind": "fill", "pts": [x,y, ...], "color": "#f0c0a0", "panel": 0 },
+;         { "kind": "image", "src": "cartoons/hero.png", "x":..,"y":..,"w":..,"h":.., "panel": 0 }
+;       ] } ] }
+;
+; Every coordinate is in page units: the page is format-sized (sivu 800 x 1100,
+; strippi 1200 x 420, ruutu 900 x 900, puhelin 540 x 960) and (0,0) is its
+; top-left corner. A panel is a quad (four corners, clockwise from top-left);
+; slanted templates just move the corners.
+; ==============================================================================
+
+Import "CartoonJson.rgr"
+
+class CartoonStyle {
+    def preset:string "Klassinen sarjis"
+    ; 1 (simple shapes) .. 5 (lots of detail)
+    def detail:int 3
+    ; neutraali, lämmin, kylmä, pastelli, neon, seepia
+    def tone:string "lämmin"
+    ; ei, pisteet, viivat, ristiviivat
+    def filler:string "pisteet"
+    ; iloinen, hauska, rauhallinen, jännittävä, salaperäinen, synkkä
+    def mood:string "hauska"
+    def speedLines:boolean false
+    def color:boolean true
+    def shading:boolean true
+    ; lapset, nuoret, aikuiset
+    def audience:string "lapset"
+    ; siisti, luonnos, muste, sivellin
+    def line:string "siisti"
+    ; all bubble text in capitals (the comic-book look)
+    def caps:boolean true
+
+    Constructor () {
+    }
+
+    fn copy:CartoonStyle () {
+        def c:CartoonStyle (new CartoonStyle)
+        c.preset = preset
+        c.detail = detail
+        c.tone = tone
+        c.filler = filler
+        c.mood = mood
+        c.speedLines = speedLines
+        c.color = color
+        c.shading = shading
+        c.audience = audience
+        c.line = line
+        c.caps = caps
+        return c
+    }
+
+    sfn presetNames:[string] () {
+        return ([] _:string ("Lasten kuvakirja" "Klassinen sarjis" "Manga" "Noir" "Luonnos" "Pop art" "Avaruus"))
+    }
+
+    fn applyPreset:void (name:string) {
+        preset = name
+        if (name == "Lasten kuvakirja") {
+            detail = 2
+            tone = "pastelli"
+            filler = "ei"
+            mood = "iloinen"
+            speedLines = false
+            color = true
+            shading = false
+            audience = "lapset"
+            line = "muste"
+            caps = false
+        }
+        if (name == "Klassinen sarjis") {
+            detail = 3
+            tone = "lämmin"
+            filler = "pisteet"
+            mood = "hauska"
+            speedLines = false
+            color = true
+            shading = true
+            audience = "lapset"
+            line = "siisti"
+            caps = true
+        }
+        if (name == "Manga") {
+            detail = 4
+            tone = "neutraali"
+            filler = "viivat"
+            mood = "jännittävä"
+            speedLines = true
+            color = false
+            shading = true
+            audience = "nuoret"
+            line = "sivellin"
+            caps = false
+        }
+        if (name == "Noir") {
+            detail = 4
+            tone = "kylmä"
+            filler = "ristiviivat"
+            mood = "synkkä"
+            speedLines = false
+            color = false
+            shading = true
+            audience = "aikuiset"
+            line = "sivellin"
+            caps = true
+        }
+        if (name == "Luonnos") {
+            detail = 2
+            tone = "neutraali"
+            filler = "ei"
+            mood = "rauhallinen"
+            speedLines = false
+            color = false
+            shading = false
+            audience = "nuoret"
+            line = "luonnos"
+            caps = false
+        }
+        if (name == "Pop art") {
+            detail = 3
+            tone = "neon"
+            filler = "pisteet"
+            mood = "hauska"
+            speedLines = true
+            color = true
+            shading = true
+            audience = "nuoret"
+            line = "muste"
+            caps = true
+        }
+        if (name == "Avaruus") {
+            detail = 3
+            tone = "kylmä"
+            filler = "pisteet"
+            mood = "jännittävä"
+            speedLines = true
+            color = true
+            shading = true
+            audience = "lapset"
+            line = "siisti"
+            caps = true
+        }
+    }
+
+    ; A new mix: what "Arvo tyyli" gives. seed picks it, so it can be repeated.
+    fn randomize:void () {
+        def tones:[string] ([] _:string ("neutraali" "lämmin" "kylmä" "pastelli" "neon" "seepia"))
+        def fillers:[string] ([] _:string ("ei" "pisteet" "viivat" "ristiviivat"))
+        def moods:[string] ([] _:string ("iloinen" "hauska" "rauhallinen" "jännittävä" "salaperäinen" "synkkä"))
+        def lines:[string] ([] _:string ("siisti" "luonnos" "muste" "sivellin"))
+        tone = (itemAt tones (to_int ((random) * 6.0)))
+        filler = (itemAt fillers (to_int ((random) * 4.0)))
+        mood = (itemAt moods (to_int ((random) * 6.0)))
+        line = (itemAt lines (to_int ((random) * 4.0)))
+        detail = (1 + (to_int ((random) * 5.0)))
+        speedLines = ((to_int ((random) * 2.0)) == 1)
+        color = ((to_int ((random) * 4.0)) > 0)
+        shading = ((to_int ((random) * 2.0)) == 1)
+        preset = "oma"
+    }
+
+    ; The style in words, for the AI: what to draw and how.
+    fn brief:string () {
+        def out:string ""
+        out = (out + "- tyyli/esiasetus: " + preset + "\n")
+        out = (out + "- yksityiskohtien määrä: " + (to_string detail) + "/5 (1 = pelkistetyt muodot, 5 = runsaasti yksityiskohtia)\n")
+        out = (out + "- värisävy: " + tone + "\n")
+        if color {
+            out = (out + "- väri: värillinen\n")
+        } {
+            out = (out + "- väri: mustavalkoinen (harmaasävyt)\n")
+        }
+        out = (out + "- täyte (filler): " + filler + "\n")
+        out = (out + "- tunnelma: " + mood + "\n")
+        if speedLines {
+            out = (out + "- vauhtiviivat: kyllä\n")
+        } {
+            out = (out + "- vauhtiviivat: ei\n")
+        }
+        if shading {
+            out = (out + "- varjostus: kyllä\n")
+        } {
+            out = (out + "- varjostus: ei\n")
+        }
+        out = (out + "- kohderyhmä: " + audience + "\n")
+        out = (out + "- viiva: " + line + "\n")
+        if caps {
+            out = (out + "- kuplien teksti: versaalilla\n")
+        }
+        return out
+    }
+}
+
+class CartoonPanel {
+    ; four corners, clockwise from the top-left, page units
+    def pts:[double]
+
+    Constructor () {
+    }
+
+    fn cx:double () {
+        return ((((itemAt pts 0) + (itemAt pts 2)) + ((itemAt pts 4) + (itemAt pts 6))) / 4.0)
+    }
+
+    fn cy:double () {
+        return ((((itemAt pts 1) + (itemAt pts 3)) + ((itemAt pts 5) + (itemAt pts 7))) / 4.0)
+    }
+
+    fn minX:double () {
+        def m:double (itemAt pts 0)
+        def k:int 2
+        while (k < (array_length pts)) {
+            if ((itemAt pts k) < m) {
+                m = (itemAt pts k)
+            }
+            k = (k + 2)
+        }
+        return m
+    }
+
+    fn maxX:double () {
+        def m:double (itemAt pts 0)
+        def k:int 2
+        while (k < (array_length pts)) {
+            if ((itemAt pts k) > m) {
+                m = (itemAt pts k)
+            }
+            k = (k + 2)
+        }
+        return m
+    }
+
+    fn minY:double () {
+        def m:double (itemAt pts 1)
+        def k:int 3
+        while (k < (array_length pts)) {
+            if ((itemAt pts k) < m) {
+                m = (itemAt pts k)
+            }
+            k = (k + 2)
+        }
+        return m
+    }
+
+    fn maxY:double () {
+        def m:double (itemAt pts 1)
+        def k:int 3
+        while (k < (array_length pts)) {
+            if ((itemAt pts k) > m) {
+                m = (itemAt pts k)
+            }
+            k = (k + 2)
+        }
+        return m
+    }
+
+    ; inside the (convex) quad
+    fn contains:boolean (x:double y:double) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 3) {
+            return false
+        }
+        def pos:int 0
+        def neg:int 0
+        def i:int 0
+        while (i < n) {
+            def j:int ((i + 1) % n)
+            def x1:double (itemAt pts (i * 2))
+            def y1:double (itemAt pts ((i * 2) + 1))
+            def x2:double (itemAt pts (j * 2))
+            def y2:double (itemAt pts ((j * 2) + 1))
+            def cr:double (((x2 - x1) * (y - y1)) - ((y2 - y1) * (x - x1)))
+            if (cr > 0.0) {
+                pos = (pos + 1)
+            }
+            if (cr < 0.0) {
+                neg = (neg + 1)
+            }
+            i = (i + 1)
+        }
+        return ((pos == 0) || (neg == 0))
+    }
+}
+
+class CartoonItem {
+    ; bubble, stroke, fill, image
+    def kind:string "bubble"
+    ; puhe, ajatus, huuto, kuiskaus, kerronta, efekti, radio
+    def shape:string "puhe"
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def tx:double 0.0
+    def ty:double 0.0
+    def text:string ""
+    def size:double 22.0
+    def caps:boolean false
+    def color:string "#000000"
+    def fill:string "#ffffff"
+    def panel:int -1
+    def pts:[double]
+    def width:double 4.0
+    def src:string ""
+    ; set when a person resized the bubble: text changes no longer refit it
+    def fixed:boolean false
+
+    Constructor () {
+    }
+
+    fn hasTail:boolean () {
+        if ((shape == "kerronta") || (shape == "efekti")) {
+            return false
+        }
+        if ((tx >= x) && (tx <= (x + w)) && (ty >= y) && (ty <= (y + h))) {
+            return false
+        }
+        return true
+    }
+}
+
+class CartoonScene {
+    def name:string "Skene"
+    ; sivu, strippi, ruutu, puhelin
+    def format:string "sivu"
+    def count:int 4
+    def variant:int 0
+    ; 0 straight, 1 a little, 2 a lot
+    def slant:int 0
+    def note:string ""
+    def panels:[CartoonPanel]
+    def items:[CartoonItem]
+
+    Constructor () {
+    }
+
+    fn pageW:double () {
+        if (format == "strippi") {
+            return 1200.0
+        }
+        if (format == "ruutu") {
+            return 900.0
+        }
+        if (format == "puhelin") {
+            return 540.0
+        }
+        return 800.0
+    }
+
+    fn pageH:double () {
+        if (format == "strippi") {
+            return 420.0
+        }
+        if (format == "ruutu") {
+            return 900.0
+        }
+        if (format == "puhelin") {
+            return 960.0
+        }
+        return 1100.0
+    }
+
+    ; The rows of a template: rows split by "/", a row's panel widths by ",".
+    sfn layouts:[string] (count:int wide:boolean) {
+        if (count <= 1) {
+            return ([] _:string ("1"))
+        }
+        if wide {
+            if (count == 2) {
+                return ([] _:string ("1,1" "2,1" "1,2"))
+            }
+            if (count == 3) {
+                return ([] _:string ("1,1,1" "2,1,1" "1,2,1" "1,1,2"))
+            }
+            if (count == 4) {
+                return ([] _:string ("1,1,1,1" "2,1,1,2" "1,1/1,1" "2,1/1,2"))
+            }
+            if (count == 5) {
+                return ([] _:string ("1,1,1/1,1" "2,1,1/1,2" "1,1/1,1,1"))
+            }
+            return ([] _:string ("1,1,1/1,1,1" "2,1,1/1,1,2" "1,2,1/2,1,1"))
+        }
+        if (count == 2) {
+            return ([] _:string ("1/1" "1,1" "1,2"))
+        }
+        if (count == 3) {
+            return ([] _:string ("1/1,1" "1,1/1" "1/1/1" "2,1/1"))
+        }
+        if (count == 4) {
+            return ([] _:string ("1,1/1,1" "1/1,1,1" "1/1,2/1" "1/2,1/1" "2,1/1,2"))
+        }
+        if (count == 5) {
+            return ([] _:string ("1,1/1/1,1" "1/1,2/2,1" "1,1,1/1,1" "1/2,1/1,1"))
+        }
+        return ([] _:string ("1,1/1,1/1,1" "1/1,2/2,1/1" "1,1,1/1,1,1" "2,1/1,2/1,1"))
+    }
+
+    fn layoutText:string () {
+        def wide:boolean (format == "strippi")
+        def list:[string] (CartoonScene.layouts(count wide))
+        def n:int (array_length list)
+        def v:int (variant % n)
+        if (v < 0) {
+            v = 0
+        }
+        return (itemAt list v)
+    }
+
+    sfn meet:[double] (a:double b:double c:double d:double) {
+        ; vertical line x = a + b*y, horizontal line y = c + d*x
+        def den:double (1.0 - (b * d))
+        if ((fabs den) < 0.0001) {
+            den = 0.0001
+        }
+        def x:double ((a + (b * c)) / den)
+        def y:double (c + (d * x))
+        return ([] _:double (x y))
+    }
+
+    ; Builds the panel quads of the template (the items stay).
+    fn buildPanels:void () {
+        clear panels
+        def W:double (this.pageW())
+        def H:double (this.pageH())
+        def m:double 22.0
+        def g:double 16.0
+        if (format == "strippi") {
+            m = 18.0
+            g = 14.0
+        }
+        def rows:[string] (strsplit (this.layoutText()) "/")
+        def nr:int (array_length rows)
+        def innerH:double ((H - (2.0 * m)) - (g * (to_double (nr - 1))))
+        def rowH:double (innerH / (to_double nr))
+        def sl:double (to_double slant)
+        ; row boundaries: c (y at x = 0) and d (slope)
+        def bc:[double]
+        def bd:[double]
+        push bc m
+        push bd 0.0
+        def r:int 1
+        while (r < nr) {
+            def yc:double (((m + ((to_double r) * rowH)) + ((to_double r) * g)) - (g / 2.0))
+            def d:double (0.045 * sl)
+            if ((r % 2) == 0) {
+                d = (0.0 - d)
+            }
+            push bc (yc - (d * (W / 2.0)))
+            push bd d
+            r = (r + 1)
+        }
+        push bc (H - m)
+        push bd 0.0
+        r = 0
+        while (r < nr) {
+            def ws:[string] (strsplit (itemAt rows r) ",")
+            def nc:int (array_length ws)
+            def total:double 0.0
+            def k:int 0
+            while (k < nc) {
+                total = (total + (?? (to_double (trim (itemAt ws k))) 1.0))
+                k = (k + 1)
+            }
+            def innerW:double ((W - (2.0 * m)) - (g * (to_double (nc - 1))))
+            def ymid:double ((m + ((to_double r) * (rowH + g))) + (rowH / 2.0))
+            ; column boundaries: a (x at y = 0) and b (slope)
+            def ba:[double]
+            def bb:[double]
+            push ba m
+            push bb 0.0
+            def x:double m
+            k = 0
+            while (k < (nc - 1)) {
+                def wk:double (((?? (to_double (trim (itemAt ws k))) 1.0) / total) * innerW)
+                x = (x + wk)
+                def xc:double (x + (g / 2.0))
+                def b:double (0.16 * sl)
+                if (((k + r) % 2) == 1) {
+                    b = (0.0 - b)
+                }
+                push ba (xc - (b * ymid))
+                push bb b
+                x = (x + g)
+                k = (k + 1)
+            }
+            push ba (W - m)
+            push bb 0.0
+            def topC:double (itemAt bc r)
+            def topD:double (itemAt bd r)
+            def botC:double (itemAt bc (r + 1))
+            def botD:double (itemAt bd (r + 1))
+            if (r > 0) {
+                topC = (topC + (g / 2.0))
+            }
+            if (r < (nr - 1)) {
+                botC = (botC - (g / 2.0))
+            }
+            k = 0
+            while (k < nc) {
+                def la:double (itemAt ba k)
+                def lb:double (itemAt bb k)
+                def ra:double (itemAt ba (k + 1))
+                def rb:double (itemAt bb (k + 1))
+                if (k > 0) {
+                    la = (la + (g / 2.0))
+                }
+                if (k < (nc - 1)) {
+                    ra = (ra - (g / 2.0))
+                }
+                def p:CartoonPanel (new CartoonPanel)
+                def c0:[double] (CartoonScene.meet(la lb topC topD))
+                def c1:[double] (CartoonScene.meet(ra rb topC topD))
+                def c2:[double] (CartoonScene.meet(ra rb botC botD))
+                def c3:[double] (CartoonScene.meet(la lb botC botD))
+                push p.pts (itemAt c0 0)
+                push p.pts (itemAt c0 1)
+                push p.pts (itemAt c1 0)
+                push p.pts (itemAt c1 1)
+                push p.pts (itemAt c2 0)
+                push p.pts (itemAt c2 1)
+                push p.pts (itemAt c3 0)
+                push p.pts (itemAt c3 1)
+                push panels p
+                k = (k + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
+    fn panelAt:int (x:double y:double) {
+        def i:int 0
+        while (i < (array_length panels)) {
+            def p:CartoonPanel (itemAt panels i)
+            if (p.contains(x y)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
+
+class CartoonDoc {
+    def name:string "sarjakuva"
+    ; relative to the game folder: cartoons/<name>.cartoon.json
+    def rel:string ""
+    def style:CartoonStyle (new CartoonStyle)
+    def scenes:[CartoonScene]
+
+    Constructor () {
+    }
+
+    ; --- writing ------------------------------------------------------------------
+    sfn q:string (s:string) {
+        def out:string "\""
+        def start:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            def r:string ""
+            if (ch == 34) {
+                r = "\\\""
+            }
+            if (ch == 92) {
+                r = "\\\\"
+            }
+            if (ch == 10) {
+                r = "\\n"
+            }
+            if (ch == 13) {
+                r = "\\r"
+            }
+            if (ch == 9) {
+                r = "\\t"
+            }
+            if ((strlen r) > 0) {
+                out = (out + (substring s start i) + r)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        out = (out + (substring s start n) + "\"")
+        return out
+    }
+
+    sfn num:string (v:double) {
+        def r:double ((to_double (to_int ((v * 10.0) + 0.5))) / 10.0)
+        if (v < 0.0) {
+            r = ((to_double (to_int ((v * 10.0) - 0.5))) / 10.0)
+        }
+        def t:int (to_int r)
+        if ((to_double t) == r) {
+            return (to_string t)
+        }
+        return (to_string r)
+    }
+
+    sfn nums:string (list:[double]) {
+        def out:string "["
+        def i:int 0
+        while (i < (array_length list)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + (CartoonDoc.num((itemAt list i))))
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    sfn bool:string (b:boolean) {
+        if b {
+            return "true"
+        }
+        return "false"
+    }
+
+    sfn styleJson:string (st:CartoonStyle) {
+        return ("{\"preset\":" + (CartoonDoc.q(st.preset)) + ",\"detail\":" + (to_string st.detail) + ",\"tone\":" + (CartoonDoc.q(st.tone)) + ",\"filler\":" + (CartoonDoc.q(st.filler)) + ",\"mood\":" + (CartoonDoc.q(st.mood)) + ",\"speedLines\":" + (CartoonDoc.bool(st.speedLines)) + ",\"color\":" + (CartoonDoc.bool(st.color)) + ",\"shading\":" + (CartoonDoc.bool(st.shading)) + ",\"audience\":" + (CartoonDoc.q(st.audience)) + ",\"line\":" + (CartoonDoc.q(st.line)) + ",\"caps\":" + (CartoonDoc.bool(st.caps)) + "}")
+    }
+
+    sfn itemJson:string (it:CartoonItem) {
+        def out:string ("{\"kind\":" + (CartoonDoc.q(it.kind)))
+        if (it.kind == "bubble") {
+            out = (out + ",\"shape\":" + (CartoonDoc.q(it.shape)) + ",\"x\":" + (CartoonDoc.num(it.x)) + ",\"y\":" + (CartoonDoc.num(it.y)) + ",\"w\":" + (CartoonDoc.num(it.w)) + ",\"h\":" + (CartoonDoc.num(it.h)) + ",\"tx\":" + (CartoonDoc.num(it.tx)) + ",\"ty\":" + (CartoonDoc.num(it.ty)) + ",\"text\":" + (CartoonDoc.q(it.text)) + ",\"size\":" + (CartoonDoc.num(it.size)) + ",\"caps\":" + (CartoonDoc.bool(it.caps)) + ",\"color\":" + (CartoonDoc.q(it.color)) + ",\"fill\":" + (CartoonDoc.q(it.fill)) + ",\"fixed\":" + (CartoonDoc.bool(it.fixed)))
+        }
+        if ((it.kind == "stroke") || (it.kind == "fill")) {
+            out = (out + ",\"pts\":" + (CartoonDoc.nums(it.pts)) + ",\"width\":" + (CartoonDoc.num(it.width)) + ",\"color\":" + (CartoonDoc.q(it.color)))
+        }
+        if (it.kind == "image") {
+            out = (out + ",\"src\":" + (CartoonDoc.q(it.src)) + ",\"x\":" + (CartoonDoc.num(it.x)) + ",\"y\":" + (CartoonDoc.num(it.y)) + ",\"w\":" + (CartoonDoc.num(it.w)) + ",\"h\":" + (CartoonDoc.num(it.h)))
+        }
+        out = (out + ",\"panel\":" + (to_string it.panel) + "}")
+        return out
+    }
+
+    sfn sceneJson:string (sc:CartoonScene) {
+        def out:string ("{\"name\":" + (CartoonDoc.q(sc.name)) + ",\"format\":" + (CartoonDoc.q(sc.format)) + ",\"count\":" + (to_string sc.count) + ",\"variant\":" + (to_string sc.variant) + ",\"slant\":" + (to_string sc.slant) + ",\"note\":" + (CartoonDoc.q(sc.note)) + ",\n   \"panels\":[")
+        def i:int 0
+        while (i < (array_length sc.panels)) {
+            def p:CartoonPanel (itemAt sc.panels i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "{\"pts\":" + (CartoonDoc.nums(p.pts)) + "}")
+            i = (i + 1)
+        }
+        out = (out + "],\n   \"items\":[")
+        i = 0
+        while (i < (array_length sc.items)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\n    " + (CartoonDoc.itemJson((itemAt sc.items i))))
+            i = (i + 1)
+        }
+        return (out + "]}")
+    }
+
+    fn toJson:string () {
+        def out:string ("{\"name\":" + (CartoonDoc.q(name)) + ",\n \"style\":" + (CartoonDoc.styleJson(style)) + ",\n \"scenes\":[")
+        def i:int 0
+        while (i < (array_length scenes)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\n  " + (CartoonDoc.sceneJson((itemAt scenes i))))
+            i = (i + 1)
+        }
+        return (out + "]}\n")
+    }
+
+    ; --- reading ------------------------------------------------------------------
+    sfn readStyle:CartoonStyle (o:CJ) {
+        def st:CartoonStyle (new CartoonStyle)
+        st.preset = (o.s("preset" st.preset))
+        st.detail = (o.i("detail" st.detail))
+        if (st.detail < 1) {
+            st.detail = 1
+        }
+        if (st.detail > 5) {
+            st.detail = 5
+        }
+        st.tone = (o.s("tone" st.tone))
+        st.filler = (o.s("filler" st.filler))
+        st.mood = (o.s("mood" st.mood))
+        st.speedLines = (o.bool("speedLines" st.speedLines))
+        st.color = (o.bool("color" st.color))
+        st.shading = (o.bool("shading" st.shading))
+        st.audience = (o.s("audience" st.audience))
+        st.line = (o.s("line" st.line))
+        st.caps = (o.bool("caps" st.caps))
+        return st
+    }
+
+    sfn readItem:CartoonItem (o:CJ) {
+        def it:CartoonItem (new CartoonItem)
+        it.kind = (o.s("kind" "bubble"))
+        it.shape = (o.s("shape" "puhe"))
+        it.x = (o.d("x" 0.0))
+        it.y = (o.d("y" 0.0))
+        it.w = (o.d("w" 160.0))
+        it.h = (o.d("h" 90.0))
+        it.tx = (o.d("tx" (it.x + (it.w * 0.3))))
+        it.ty = (o.d("ty" ((it.y + it.h) + 50.0)))
+        it.text = (o.s("text" ""))
+        it.size = (o.d("size" 22.0))
+        it.caps = (o.bool("caps" false))
+        it.fixed = (o.bool("fixed" false))
+        it.color = (o.s("color" "#000000"))
+        it.fill = (o.s("fill" "#ffffff"))
+        it.panel = (o.i("panel" -1))
+        it.pts = (o.nums("pts"))
+        it.width = (o.d("width" 4.0))
+        it.src = (o.s("src" ""))
+        return it
+    }
+
+    sfn readScene:CartoonScene (o:CJ) {
+        def sc:CartoonScene (new CartoonScene)
+        sc.name = (o.s("name" "Skene"))
+        sc.format = (o.s("format" "sivu"))
+        sc.count = (o.i("count" 4))
+        sc.variant = (o.i("variant" 0))
+        sc.slant = (o.i("slant" 0))
+        sc.note = (o.s("note" ""))
+        def ps:[CJ] (o.arr("panels"))
+        def i:int 0
+        while (i < (array_length ps)) {
+            def po:CJ (itemAt ps i)
+            def p:CartoonPanel (new CartoonPanel)
+            p.pts = (po.nums("pts"))
+            if ((array_length p.pts) >= 6) {
+                push sc.panels p
+            }
+            i = (i + 1)
+        }
+        if ((array_length sc.panels) == 0) {
+            sc.buildPanels()
+        }
+        def its:[CJ] (o.arr("items"))
+        i = 0
+        while (i < (array_length its)) {
+            push sc.items (CartoonDoc.readItem((itemAt its i)))
+            i = (i + 1)
+        }
+        return sc
+    }
+
+    sfn parse:CartoonDoc (text:string rel:string) {
+        def doc:CartoonDoc (new CartoonDoc)
+        doc.rel = rel
+        def o:CJ (CJParser.parse(text))
+        doc.name = (o.s("name" "sarjakuva"))
+        doc.style = (CartoonDoc.readStyle((o.obj("style"))))
+        def list:[CJ] (o.arr("scenes"))
+        def i:int 0
+        while (i < (array_length list)) {
+            push doc.scenes (CartoonDoc.readScene((itemAt list i)))
+            i = (i + 1)
+        }
+        if ((array_length doc.scenes) == 0) {
+            def sc:CartoonScene (new CartoonScene)
+            sc.name = "Skene 1"
+            sc.buildPanels()
+            push doc.scenes sc
+        }
+        return doc
+    }
+}

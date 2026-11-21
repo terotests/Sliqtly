@@ -320,6 +320,11 @@ operators {
             cpp ( "sh_file_size(" (e 1) ")" (imp "\"studio_host.h\"") )
         }
     }
+    sh_spawn _:int (cmd:string) {
+        templates {
+            cpp ( "sh_spawn(" (e 1) ")" (imp "\"studio_host.h\"") )
+        }
+    }
     sh_mcp_start _:int () {
         templates {
             cpp ( "sh_mcp_start()" (imp "\"studio_host.h\"") )
