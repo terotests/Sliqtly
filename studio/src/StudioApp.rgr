@@ -1903,12 +1903,21 @@ class StudioApp {
             cartoon.status = "kommentti tallennettu kuvakaappauksen kanssa"
         }
         if ((shotFor == "cartoon-ai") && ((strlen cartoonBrief) > 0)) {
+            ; SLIQTLY_STUDIO_AI, or by default Claude Code's own CLI. It runs in
+            ; a login shell with the usual install folders on PATH: a Studio
+            ; started from the Dock or Finder does not get the terminal's PATH.
             def cmd:string (sh_env "SLIQTLY_STUDIO_AI")
-            if ((strlen cmd) > 0) {
+            def how:string "SLIQTLY_STUDIO_AI"
+            if ((strlen cmd) == 0) {
+                cmd = "claude -p --permission-mode acceptEdits"
+                how = "claude -p"
+            }
+            if ((cmd != "off") && (cmd != "none")) {
                 def logPath:string ((substring cartoonBrief 0 ((strlen cartoonBrief) - 3)) + ".log")
-                def line:string ("cd '" + (this.gameDir()) + "' && " + cmd + " < '" + cartoonBrief + "' > '" + logPath + "' 2>&1")
+                def inner:string ("export PATH=\"$HOME/.claude/local:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; " + cmd + " < \"" + cartoonBrief + "\" > \"" + logPath + "\" 2>&1; echo \"[studio] exit $?\" >> \"" + logPath + "\"")
+                def line:string ("cd '" + (this.gameDir()) + "' && \"${SHELL:-/bin/sh}\" -lc '" + inner + "'")
                 sh_spawn line
-                cartoon.status = ("AI käynnistetty (SLIQTLY_STUDIO_AI), loki " + logPath + ". Muutokset näkyvät, kun se kirjoittaa tiedoston.")
+                cartoon.status = ("AI käynnistetty (" + how + "), loki " + logPath + ". Muutokset näkyvät, kun se kirjoittaa tiedoston.")
             } {
                 cartoon.status = ("pyyntö tallennettu: " + cartoonBrief + " · Studion MCP:hen liitetty agentti näkee sen (comments_list)")
             }

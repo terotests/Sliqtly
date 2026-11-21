@@ -1195,6 +1195,7 @@ class CartoonEditor {
     fn aiBrief:string (instructions:string shot:string commentId:string) {
         def sc:CartoonScene (this.scene())
         def out:string "# Sarjakuvapyyntö (Sliqtly Game Studio)\n\n"
+        out = (out + "Olet Sliqtly Game Studion sarjakuvaeditorin AI-avustaja. Tee pyydetty muutos suoraan alla mainittuun sarjakuvatiedostoon (JSON) kysymättä lisää; editori näyttää muutoksen heti. Voit katsoa kuvakaappauksen sivusta.\n\n")
         out = (out + "Pyyntö " + commentId + ":\n\n> " + instructions + "\n\n")
         out = (out + "- sarjakuvatiedosto: " + (this.docDisk()) + "\n")
         out = (out + "- skene: " + (to_string sceneIx) + " (\"" + sc.name + "\"), formaatti " + sc.format + ", sivu " + (CartoonDoc.num((sc.pageW()))) + " x " + (CartoonDoc.num((sc.pageH()))) + " yksikköä\n")
@@ -1220,7 +1221,7 @@ class CartoonEditor {
         out = (out + "- väripinta: {\"kind\":\"fill\",\"pts\":[x,y,...],\"color\":\"#f2c9a0\",\"panel\":N} (täytöt piirretään viivojen alle; laita ne listan alkuun)\n")
         out = (out + "- kuva: {\"kind\":\"image\",\"src\":\"cartoons/kuva.png\",\"x\":..,\"y\":..,\"w\":..,\"h\":..,\"panel\":N} (PNG pelin kansioon)\n\n")
         out = (out + "Pidä käyttäjän omat viivat (stroke) ellei pyydetä muuta: niitä voi siistiä, korvata valitulla tyylillä tai täydentää. Pysy ruudun sisällä. Tyylin voi vaihtaa style-objektissa (tone, filler, mood, speedLines, color, shading, detail, line, audience, caps).\n")
-        out = (out + "Kun olet valmis, merkitse kommentti " + commentId + " tehdyksi (Studion MCP: comment_done) ja ota screenshot (area cartoon) tarkistaaksesi tuloksen.\n")
+        out = (out + "Kun olet valmis, merkitse kommentti " + commentId + " tehdyksi: Studion MCP:ssä comment_done, muuten aseta sen rivillä \"done\":true ja \"note\" tiedostossa .studio/comments.jsonl (pelikansiossa). MCP:llä voit tarkistaa tuloksen screenshotilla (area cartoon).\n")
         return out
     }
 
