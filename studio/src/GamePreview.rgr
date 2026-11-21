@@ -384,7 +384,8 @@ class GamePreview {
             if (e == "css") {
                 css = true
             } {
-                if ((GamePreview.isMedia(rel)) == false) {
+                ; a comic of the cartoon editor is data the game may load, not code
+                if (((GamePreview.isMedia(rel)) == false) && ((indexOf rel ".cartoon.json") < 0)) {
                     code = true
                 }
             }

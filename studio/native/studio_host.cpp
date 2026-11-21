@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <thread>
 
 #if defined(__APPLE__)
 #include <OpenGL/gl3.h>
@@ -75,6 +76,9 @@ static int g_close = 0;
 static int g_w = 0, g_h = 0;
 
 static int g_mx = 0, g_my = 0, g_btn = 0;
+// a press seen since the last read: a quick tap (down and up within one
+// frame) still reaches the app as one frame of "down"
+static int g_btn_tap = 0;
 static float g_wheel_y = 0.f, g_wheel_x = 0.f;
 static std::vector<int> g_keys;
 static std::string g_text;
@@ -190,7 +194,7 @@ void sh_poll() {
                 g_mx = (int)ev.button.x;
                 g_my = (int)ev.button.y;
                 int bit = ev.button.button == SDL_BUTTON_LEFT ? 1 : ev.button.button == SDL_BUTTON_RIGHT ? 2 : 4;
-                if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN) g_btn |= bit; else g_btn &= ~bit;
+                if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN) { g_btn |= bit; g_btn_tap |= bit; } else g_btn &= ~bit;
                 break;
             }
             case SDL_EVENT_MOUSE_WHEEL: {
@@ -278,7 +282,7 @@ std::string sh_get_clipboard() {
 
 int sh_mouse_x() { return g_mx; }
 int sh_mouse_y() { return g_my; }
-int sh_mouse_buttons() { return g_btn; }
+int sh_mouse_buttons() { int b = g_btn | g_btn_tap; g_btn_tap = 0; return b; }
 int sh_wheel_y() {
     int v = (int)g_wheel_y;
     g_wheel_y -= (float)v;
@@ -615,4 +619,13 @@ std::string sh_local_time() {
     char buf[32];
     std::strftime(buf, sizeof buf, "%Y-%m-%dT%H:%M:%S", &tmv);
     return buf;
+}
+
+// An AI command for the cartoon editor ("Pyydä AI:ta"): run in the background
+// so the window keeps drawing. The command line is the person's own
+// (SLIQTLY_STUDIO_AI), with its input and output files already in it.
+int sh_spawn(const std::string& cmd) {
+    if (cmd.empty()) return 0;
+    std::thread([cmd]() { int rc = std::system(cmd.c_str()); (void)rc; }).detach();
+    return 1;
 }

@@ -60,6 +60,7 @@ ops = [
  ("sh_append_text","int",[("p","string"),("t","string")]),
  ("sh_local_time","string",[]),
  ("sh_file_size","double",[("p","string")]),
+ ("sh_spawn","int",[("cmd","string")]),
  ("sh_mcp_start","int",[]),
  ("sh_mcp_next","string",[]),
  ("sh_mcp_arg","string",[("k","string")]),

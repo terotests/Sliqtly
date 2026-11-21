@@ -1,0 +1,358 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; CartoonJson — a small JSON reader for the cartoon files
+; ==============================================================================
+;
+; The cartoon editor keeps each comic in a .cartoon.json file that people and
+; AI agents edit by hand too, so it has to read what any JSON writer writes:
+; \u escapes (Python's json.dumps writes ä as ä), numbers with exponents,
+; nested objects in any key order. One tree type, kind says which value it is.
+; ==============================================================================
+
+class CJ {
+    ; 0 null, 1 number, 2 string, 3 boolean, 4 array, 5 object
+    def kind:int 0
+    def num:double 0.0
+    def str:string ""
+    def b:boolean false
+    def keys:[string]
+    def items:[CJ]
+
+    Constructor () {
+    }
+
+    fn get@(optional):CJ (key:string) {
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == key) {
+                def v@(optional):CJ (itemAt items i)
+                return v
+            }
+            i = (i + 1)
+        }
+        def none@(optional):CJ
+        return none
+    }
+
+    fn has:boolean (key:string) {
+        return ((indexOf keys key) >= 0)
+    }
+
+    fn s:string (key:string fallback:string) {
+        def v@(optional):CJ (this.get(key))
+        if (null? v) {
+            return fallback
+        }
+        def x:CJ (unwrap v)
+        if (x.kind == 2) {
+            return x.str
+        }
+        if (x.kind == 1) {
+            return (to_string x.num)
+        }
+        return fallback
+    }
+
+    fn d:double (key:string fallback:double) {
+        def v@(optional):CJ (this.get(key))
+        if (null? v) {
+            return fallback
+        }
+        def x:CJ (unwrap v)
+        if (x.kind == 1) {
+            return x.num
+        }
+        if (x.kind == 2) {
+            return (?? (to_double (trim x.str)) fallback)
+        }
+        return fallback
+    }
+
+    fn i:int (key:string fallback:int) {
+        return (to_int (this.d(key (to_double fallback))))
+    }
+
+    fn bool:boolean (key:string fallback:boolean) {
+        def v@(optional):CJ (this.get(key))
+        if (null? v) {
+            return fallback
+        }
+        def x:CJ (unwrap v)
+        if (x.kind == 3) {
+            return x.b
+        }
+        if (x.kind == 1) {
+            return (x.num != 0.0)
+        }
+        if (x.kind == 2) {
+            return ((x.str == "true") || (x.str == "1"))
+        }
+        return fallback
+    }
+
+    ; the array at key (an empty one when there is none)
+    fn arr:[CJ] (key:string) {
+        def out:[CJ]
+        def v@(optional):CJ (this.get(key))
+        if (null? v) {
+            return out
+        }
+        def x:CJ (unwrap v)
+        if (x.kind == 4) {
+            return x.items
+        }
+        return out
+    }
+
+    fn obj:CJ (key:string) {
+        def v@(optional):CJ (this.get(key))
+        if (null? v) {
+            def empty:CJ (new CJ)
+            empty.kind = 5
+            return empty
+        }
+        def x:CJ (unwrap v)
+        return x
+    }
+
+    ; numbers of an array at key
+    fn nums:[double] (key:string) {
+        def out:[double]
+        def list:[CJ] (this.arr(key))
+        def k:int 0
+        while (k < (array_length list)) {
+            def e:CJ (itemAt list k)
+            if (e.kind == 1) {
+                push out e.num
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+}
+
+class CJParser {
+    def s:string ""
+    def p:int 0
+    def n:int 0
+    def bad:boolean false
+
+    Constructor () {
+    }
+
+    sfn parse:CJ (text:string) {
+        def ps:CJParser (new CJParser)
+        ps.s = text
+        ps.n = (strlen text)
+        ps.p = 0
+        def v:CJ (ps.value())
+        if ps.bad {
+            def none:CJ (new CJ)
+            return none
+        }
+        return v
+    }
+
+    fn ws:void () {
+        while (p < n) {
+            def ch:int (charAt s p)
+            if ((ch == 32) || (ch == 10) || (ch == 13) || (ch == 9)) {
+                p = (p + 1)
+            } {
+                return
+            }
+        }
+    }
+
+    fn hex:int (ch:int) {
+        if ((ch >= 48) && (ch <= 57)) {
+            return (ch - 48)
+        }
+        if ((ch >= 97) && (ch <= 102)) {
+            return (ch - 87)
+        }
+        if ((ch >= 65) && (ch <= 70)) {
+            return (ch - 55)
+        }
+        return 0
+    }
+
+    fn u4:int () {
+        def v:int 0
+        def k:int 0
+        while ((k < 4) && (p < n)) {
+            v = ((v * 16) + (this.hex((charAt s p))))
+            p = (p + 1)
+            k = (k + 1)
+        }
+        return v
+    }
+
+    fn str:string () {
+        ; at the opening quote
+        p = (p + 1)
+        def out:string ""
+        def start:int p
+        while (p < n) {
+            def ch:int (charAt s p)
+            if (ch == 34) {
+                out = (out + (substring s start p))
+                p = (p + 1)
+                return out
+            }
+            if (ch == 92) {
+                out = (out + (substring s start p))
+                p = (p + 1)
+                def e:int (charAt s p)
+                p = (p + 1)
+                if (e == 110) {
+                    out = (out + "\n")
+                }
+                if (e == 116) {
+                    out = (out + "\t")
+                }
+                if (e == 114) {
+                    out = (out + "\r")
+                }
+                if ((e == 34) || (e == 92) || (e == 47)) {
+                    out = (out + (substring s (p - 1) p))
+                }
+                if ((e == 98) || (e == 102)) {
+                    out = (out + " ")
+                }
+                if (e == 117) {
+                    def cp:int (this.u4())
+                    if ((cp >= 55296) && (cp <= 56319) && ((p + 1) < n)) {
+                        if ((charAt s p) == 92) {
+                            p = (p + 2)
+                            def lo:int (this.u4())
+                            cp = ((((cp - 55296) * 1024) + (lo - 56320)) + 65536)
+                        }
+                    }
+                    out = (out + (strfromcode cp))
+                }
+                start = p
+            } {
+                p = (p + 1)
+            }
+        }
+        bad = true
+        return out
+    }
+
+    fn value:CJ () {
+        this.ws()
+        def v:CJ (new CJ)
+        if (p >= n) {
+            bad = true
+            return v
+        }
+        def ch:int (charAt s p)
+        if (ch == 123) {
+            v.kind = 5
+            p = (p + 1)
+            this.ws()
+            if ((p < n) && ((charAt s p) == 125)) {
+                p = (p + 1)
+                return v
+            }
+            while ((p < n) && (bad == false)) {
+                this.ws()
+                if ((p >= n) || ((charAt s p) != 34)) {
+                    bad = true
+                    return v
+                }
+                def key:string (this.str())
+                this.ws()
+                if ((p < n) && ((charAt s p) == 58)) {
+                    p = (p + 1)
+                }
+                def item:CJ (this.value())
+                push v.keys key
+                push v.items item
+                this.ws()
+                if (p >= n) {
+                    bad = true
+                    return v
+                }
+                def sep:int (charAt s p)
+                p = (p + 1)
+                if (sep == 125) {
+                    return v
+                }
+                if (sep != 44) {
+                    bad = true
+                    return v
+                }
+            }
+            return v
+        }
+        if (ch == 91) {
+            v.kind = 4
+            p = (p + 1)
+            this.ws()
+            if ((p < n) && ((charAt s p) == 93)) {
+                p = (p + 1)
+                return v
+            }
+            while ((p < n) && (bad == false)) {
+                def item2:CJ (this.value())
+                push v.items item2
+                this.ws()
+                if (p >= n) {
+                    bad = true
+                    return v
+                }
+                def sep2:int (charAt s p)
+                p = (p + 1)
+                if (sep2 == 93) {
+                    return v
+                }
+                if (sep2 != 44) {
+                    bad = true
+                    return v
+                }
+            }
+            return v
+        }
+        if (ch == 34) {
+            v.kind = 2
+            v.str = (this.str())
+            return v
+        }
+        if (ch == 116) {
+            v.kind = 3
+            v.b = true
+            p = (p + 4)
+            return v
+        }
+        if (ch == 102) {
+            v.kind = 3
+            v.b = false
+            p = (p + 5)
+            return v
+        }
+        if (ch == 110) {
+            p = (p + 4)
+            return v
+        }
+        def start:int p
+        while (p < n) {
+            def c2:int (charAt s p)
+            if (((c2 >= 48) && (c2 <= 57)) || (c2 == 45) || (c2 == 43) || (c2 == 46) || (c2 == 101) || (c2 == 69)) {
+                p = (p + 1)
+            } {
+                v.kind = 1
+                v.num = (?? (to_double (substring s start p)) 0.0)
+                if (p == start) {
+                    bad = true
+                }
+                return v
+            }
+        }
+        v.kind = 1
+        v.num = (?? (to_double (substring s start p)) 0.0)
+        return v
+    }
+}

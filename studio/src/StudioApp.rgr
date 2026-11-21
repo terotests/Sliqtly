@@ -38,6 +38,7 @@ Import "../native/gfx_studio.rgr"
 Import "StudioImages.rgr"
 Import "StudioPainter.rgr"
 Import "GamePreview.rgr"
+Import "CartoonEditor.rgr"
 
 class StudioFile {
     def rel:string ""
@@ -87,6 +88,9 @@ class StudioApp {
     def editor:ScriptEditor (new ScriptEditor)
     def languages:LanguageRegistry (new LanguageRegistry)
     def preview:GamePreview (new GamePreview)
+    ; the comic editor ("Sarjakuva" in the top bar)
+    def cartoon:CartoonEditor (new CartoonEditor)
+    def cartoonBrief:string ""
 
     def files:[StudioFile]
     def fileScroll:int 0
@@ -159,6 +163,7 @@ class StudioApp {
             print ("[studio] no fonts in " + fontDir + " (set SLIQTLY_STUDIO_FONTS)")
         }
         painter.fontFamily = fontFamily
+        cartoon.setText(ctx.tr)
         languages.add((new JsLanguage))
     }
 
@@ -421,6 +426,10 @@ class StudioApp {
         }
         if (action == "comment") {
             this.startComment()
+            return
+        }
+        if (action == "cartoon") {
+            this.toggleCartoon((cartoon.active == false))
             return
         }
         if (action == "closeview") {
@@ -788,6 +797,12 @@ class StudioApp {
             return
         }
         def c:StudioComment (itemAt comments ci)
+        if ((indexOf c.scene "cartoon:") == 0) {
+            this.openCartoonRef(c.scene)
+            viewComment = c.id
+            cartoon.status = ("kommentti " + c.id + ": " + c.text)
+            return
+        }
         if (((strlen c.game) > 0) && (c.game != preview.gameId) && ((indexOf preview.games c.game) >= 0)) {
             preview.select(c.game)
             this.refreshFiles()
@@ -837,10 +852,23 @@ class StudioApp {
         def ok:int 0
         if (shotArea == "window") {
             ok = (sh_screenshot shotPath)
-        } {
+        }
+        if (shotArea == "cartoon") {
+            def pr:[double] (cartoon.pageRect())
+            ok = (sh_screenshot_rect shotPath (itemAt pr 0) (itemAt pr 1) (itemAt pr 2) (itemAt pr 3))
+            cartoon.clean = false
+            this.afterCartoonShot(ok)
+        }
+        if ((shotArea != "window") && (shotArea != "cartoon")) {
             ok = (sh_screenshot_rect shotPath preview.px preview.py preview.pw preview.ph)
         }
         if (shotFor == "mcp") {
+            if ((ok == 1) && (shotArea == "cartoon")) {
+                sh_mcp_reply_image shotPath ("cartoon " + cartoon.doc.rel + " scene " + (to_string cartoon.sceneIx) + " · " + shotPath)
+                shotPath = ""
+                shotFor = ""
+                return
+            }
             if (ok == 1) {
                 sh_mcp_reply_image shotPath ("game " + preview.gameId + " scene " + preview.currentScene + " frame " + (to_string preview.frames) + " · " + shotPath)
             } {
@@ -890,6 +918,10 @@ class StudioApp {
         def ctrl:boolean ((sh_ctrl) == 1)
         editor.setBounds((this.editorX()) topH (this.editorW()) (this.editorH()))
 
+        if cartoon.active {
+            this.cartoonInput(mx my down pressed released ctrl shift)
+            return
+        }
         if pressed {
             if (preview.inside(mx my)) {
                 focus = "game"
@@ -1253,6 +1285,30 @@ class StudioApp {
             this.text(dl (itemAt labels bi) (bx + 10.0) 11.0 12.0 ink false)
             bi = (bi + 1)
         }
+        def cbx:double (to_double ((this.buttonX(0)) - 112))
+        def ccol:EVGColor (EVGColor.rgb(82 64 30))
+        def clabel:string "Sarjakuva"
+        if cartoon.active {
+            ccol = (EVGColor.rgb(61 89 161))
+            clabel = "Koodi ja peli"
+        }
+        this.roundRect(dl cbx 7.0 104.0 26.0 ccol 5.0)
+        this.text(dl clabel (cbx + 10.0) 11.0 12.0 ink false)
+        def cb:StudioHit (new StudioHit)
+        cb.x = cbx
+        cb.y = 7.0
+        cb.w = 104.0
+        cb.h = 26.0
+        cb.action = "cartoon"
+        push hits cb
+        if cartoon.active {
+            cartoon.X0 = 0.0
+            cartoon.Y0 = (to_double topH)
+            cartoon.W = fw
+            cartoon.H = (fh - (to_double topH))
+            cartoon.paint(dl preview.images)
+            return dl
+        }
 
         ; left: games, files, resource folders, comments
         def lx:double 0.0
@@ -1591,6 +1647,9 @@ class StudioApp {
         if (name == "screenshot") {
             sh_mkdirs (GamePreview.joinPath((this.studioDir()) "shots"))
             shotArea = (sh_mcp_arg "area")
+            if (shotArea == "cartoon") {
+                this.toggleCartoon(true)
+            }
             shotPath = (GamePreview.joinPath((this.studioDir()) "shots/mcp-last.png"))
             shotFor = "mcp"
             return
@@ -1676,6 +1735,27 @@ class StudioApp {
             }
             return
         }
+        if (name == "cartoon_open") {
+            this.toggleCartoon(true)
+            if ((sh_mcp_arg "new") == "true") {
+                cartoon.act("newdoc")
+            }
+            def cf:string (sh_mcp_arg "file")
+            if ((strlen cf) > 0) {
+                cartoon.act(("doc:" + cf))
+            }
+            def cs:string (sh_mcp_arg "scene")
+            if ((strlen cs) > 0) {
+                cartoon.act(("scene:" + cs))
+            }
+            sh_mcp_reply (this.cartoonInfo()) 0
+            return
+        }
+        if (name == "cartoon_get") {
+            this.toggleCartoon(true)
+            sh_mcp_reply (this.cartoonInfo()) 0
+            return
+        }
         if (name == "list_assets") {
             sh_mcp_reply (this.assetList((sh_mcp_arg "filter"))) 0
             return
@@ -1683,10 +1763,174 @@ class StudioApp {
         sh_mcp_reply ("unknown tool " + name) 1
     }
 
+    ; --- the comic editor ----------------------------------------------------------
+    fn toggleCartoon:void (on:boolean) {
+        if on {
+            if (this.dirty()) {
+                this.save()
+            }
+            cartoon.open((this.gameDir()))
+            cartoon.active = true
+            editor.focused = false
+            focus = "cartoon"
+            preview.paused = true
+        } {
+            if cartoon.dirty {
+                cartoon.save()
+            }
+            cartoon.active = false
+            focus = "editor"
+            editor.focused = true
+            preview.paused = false
+        }
+    }
+
+    fn openCartoonRef:void (ref:string) {
+        ; cartoon:<rel>#<scene>
+        def rest:string (substring ref 8 (strlen ref))
+        def hash:int (indexOf rest "#")
+        def rel:string rest
+        def sc:int 0
+        if (hash >= 0) {
+            rel = (substring rest 0 hash)
+            sc = (?? (to_int (substring rest (hash + 1) (strlen rest))) 0)
+        }
+        this.toggleCartoon(true)
+        if (rel != cartoon.doc.rel) {
+            cartoon.act(("doc:" + rel))
+        }
+        cartoon.act(("scene:" + (to_string sc)))
+    }
+
+    fn cartoonInput:void (mx:int my:int down:boolean pressed:boolean released:boolean ctrl:boolean shift:boolean) {
+        def wy:int (sh_wheel_y)
+        def gk:string (sh_take_game_keys)
+        def text:string (sh_take_text)
+        def keys:[int]
+        def k:int (sh_pop_key)
+        while (k != 0) {
+            push keys k
+            k = (sh_pop_key)
+        }
+        if (pressed && (my < topH)) {
+            this.clickChrome(mx my)
+            return
+        }
+        if (ctrl && (((indexOf text "s") >= 0) || ((indexOf text "S") >= 0))) {
+            cartoon.save()
+            cartoon.status = ("tallennettu " + cartoon.doc.rel)
+            return
+        }
+        cartoon.input(mx my down pressed released wy shift ctrl text keys)
+    }
+
+    ; once a frame: autosave, the file on disk, the comments of this cartoon,
+    ; and what the editor asked for (a PNG, a comment, an AI request)
+    fn cartoonFrame:void () {
+        if (cartoon.active == false) {
+            return
+        }
+        cartoon.frameTick(lastMouseDown)
+        if ((frameNo % 30) == 0) {
+            cartoon.checkDisk()
+            clear cartoon.notes
+            def prefix:string ("cartoon:" + cartoon.doc.rel)
+            def i:int 0
+            while (i < (array_length comments)) {
+                def c:StudioComment (itemAt comments i)
+                if ((c.done == false) && ((indexOf c.scene prefix) == 0)) {
+                    def t:string c.text
+                    if ((strlen t) > 34) {
+                        t = ((substring t 0 32) + "...")
+                    }
+                    push cartoon.notes t
+                }
+                i = (i + 1)
+            }
+        }
+        def kind:string cartoon.pendingKind
+        if ((strlen kind) == 0) {
+            return
+        }
+        def text:string cartoon.pendingText
+        cartoon.pendingKind = ""
+        cartoon.pendingText = ""
+        if cartoon.dirty {
+            cartoon.save()
+        }
+        if (kind == "png") {
+            def base:string (substring cartoon.doc.rel 0 (indexOf cartoon.doc.rel ".cartoon.json"))
+            def rel:string (base + "-" + (to_string (cartoon.sceneIx + 1)) + ".png")
+            sh_mkdirs (GamePreview.joinPath((this.gameDir()) "cartoons"))
+            shotPath = (GamePreview.joinPath((this.gameDir()) rel))
+            shotArea = "cartoon"
+            shotFor = "cartoon-png"
+            cartoon.clean = true
+            cartoon.status = ("vienti: " + rel + " (pelissä rg.asset(\"" + rel + "\"))")
+            return
+        }
+        def label:string text
+        if (kind == "ai") {
+            label = ("[AI] " + text)
+        }
+        def c2:StudioComment (this.newComment(label))
+        c2.scene = (cartoon.sceneRef())
+        c2.frame = 0
+        shotArea = "cartoon"
+        shotFor = ("cartoon-" + kind)
+        cartoon.clean = true
+        push comments c2
+        this.saveComments()
+        cartoonBrief = ""
+        if (kind == "ai") {
+            def dir:string (GamePreview.joinPath((this.studioDir()) "cartoon-requests"))
+            sh_mkdirs dir
+            cartoonBrief = (GamePreview.joinPath(dir (c2.id + ".md")))
+            sh_write_text cartoonBrief (cartoon.aiBrief(text (GamePreview.joinPath(preview.root c2.shot)) c2.id))
+        }
+        cartoon.status = ("tallennettu " + c2.id)
+    }
+
+    fn afterCartoonShot:void (ok:int) {
+        if (shotFor == "cartoon-png") {
+            if (ok == 1) {
+                this.refreshFiles()
+            } {
+                cartoon.status = ("PNG-vienti epäonnistui: " + shotPath)
+            }
+        }
+        if (shotFor == "cartoon-comment") {
+            cartoon.status = "kommentti tallennettu kuvakaappauksen kanssa"
+        }
+        if ((shotFor == "cartoon-ai") && ((strlen cartoonBrief) > 0)) {
+            def cmd:string (sh_env "SLIQTLY_STUDIO_AI")
+            if ((strlen cmd) > 0) {
+                def logPath:string ((substring cartoonBrief 0 ((strlen cartoonBrief) - 3)) + ".log")
+                def line:string ("cd '" + (this.gameDir()) + "' && " + cmd + " < '" + cartoonBrief + "' > '" + logPath + "' 2>&1")
+                sh_spawn line
+                cartoon.status = ("AI käynnistetty (SLIQTLY_STUDIO_AI), loki " + logPath + ". Muutokset näkyvät, kun se kirjoittaa tiedoston.")
+            } {
+                cartoon.status = ("pyyntö tallennettu: " + cartoonBrief + " · Studion MCP:hen liitetty agentti näkee sen (comments_list)")
+            }
+            cartoonBrief = ""
+        }
+    }
+
+    fn cartoonInfo:string () {
+        if (cartoon.hasDoc == false) {
+            return ("no cartoons in " + (cartoon.dirOf()) + "; call cartoon_open with new=true")
+        }
+        def out:string ("open: " + cartoon.doc.rel + " scene " + (to_string cartoon.sceneIx) + "\ncartoons: " + (join cartoon.docs ", ") + "\n\n")
+        out = (out + (cartoon.aiBrief("(no request: this is the current state)" "(take one: screenshot with area cartoon)" "-")))
+        out = (out + "\n## JSON (" + (cartoon.docDisk()) + ")\n\n" + (cartoon.doc.toJson()))
+        return out
+    }
+
     ; --- the loop ------------------------------------------------------------------
     fn frame:void (dt:double) {
         frameNo = (frameNo + 1)
         this.handleInput()
+        this.cartoonFrame()
         preview.watch()
         this.checkOpenFile()
         if ((frameNo % 30) == 0) {
