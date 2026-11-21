@@ -260,6 +260,13 @@
         }
       },
       {
+        "source": "/games/u/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/games/catalog.json",
         "run": {
           "serviceId": "sliqtly-mcp",
