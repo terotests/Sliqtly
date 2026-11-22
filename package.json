@@ -16,6 +16,7 @@
     "start:studio": "node studio/scripts/start.mjs",
     "studio:app": "bash studio/scripts/make-app.sh",
     "studio:pull": "node studio/scripts/pull.mjs",
+    "studio:push": "node studio/scripts/push.mjs",
     "serve": "node scripts/serve.mjs",
     "check": "node scripts/check.mjs",
     "check:web": "node scripts/check-web.mjs",

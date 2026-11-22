@@ -102,9 +102,12 @@ class StudioApp {
     def docLabels:[string]
     def docDisks:[string]
     def activeDoc:string ""
-    ; "Päivitä webistä": pull.mjs running, its log
-    def pulling:boolean false
-    def pullLog:string ""
+    ; "Päivitä webistä" / "Lähetä Sliqtlyyn": the script running ("pull",
+    ; "push" or ""), its log, and the last upload address given
+    def job:string ""
+    def jobLog:string ""
+    def uploadUrl:string ""
+    def uploadAt:double 0.0
     def cartoonBrief:string ""
     ; the Nano Banana job whose reference screenshot is taken this frame
     def nbJob:string ""
@@ -377,6 +380,10 @@ class StudioApp {
             this.startPull()
             return
         }
+        if (action == "push") {
+            this.startPush("" false)
+            return
+        }
         if ((indexOf action "docclose:") == 0) {
             this.docClose((substring action 9 (strlen action)))
             return
@@ -520,36 +527,77 @@ class StudioApp {
         this.openFile("")
     }
 
-    ; --- "Päivitä webistä": the game's newest files from Sliqtly Games ---------------
-    ; scripts/pull.mjs beside build/, the preview link saved in the game's
+    ; --- Sliqtly Games: "Päivitä webistä" and "Lähetä Sliqtlyyn" -------------------
+    ; scripts/pull.mjs and push.mjs beside build/, run in the background; their
+    ; output goes to <game>/.studio/<job>.log and then to the log.
+    fn runJob:void (kind:string extra:string) {
+        def dir:string (this.gameDir())
+        sh_mkdirs (dir + "/.studio")
+        jobLog = (dir + "/.studio/" + kind + ".log")
+        sh_write_text jobLog ""
+        def script:string ((sh_base_path) + "../scripts/" + kind + ".mjs")
+        def cmd:string ("node " + (StudioApp.shq(script)) + " " + extra + (StudioApp.shq(dir)) + " > " + (StudioApp.shq(jobLog)) + " 2>&1; echo \"[job] exit $?\" >> " + (StudioApp.shq(jobLog)))
+        sh_spawn cmd
+        job = kind
+    }
+
+    ; The newest files of the game; the preview link is saved in the game's
     ; .studio/source.json, else taken from the clipboard once.
     fn startPull:void () {
-        if pulling {
+        if ((strlen job) > 0) {
             return
         }
         def dir:string (this.gameDir())
-        def link:string ""
+        def extra:string ""
         if ((sh_exists (dir + "/.studio/source.json")) == 0) {
             def clip:string (trim (sh_get_clipboard))
             if ((indexOf clip "https://") == 0) {
-                link = clip
+                extra = ((StudioApp.shq(clip)) + " ")
             } {
-                status = "Päivitä webistä: kopioi pelin esikatselulinkki (Sliqtly Games, https://sliqtly.com/games/p/...) leikepöydälle ja paina uudelleen"
+                status = "Hae Sliqtlystä: kopioi pelin esikatselulinkki (Sliqtly Games, https://sliqtly.com/games/p/...) leikepöydälle ja paina uudelleen"
                 return
             }
         }
-        sh_mkdirs (dir + "/.studio")
-        pullLog = (dir + "/.studio/pull.log")
-        sh_write_text pullLog ""
-        def script:string ((sh_base_path) + "../scripts/pull.mjs")
-        def cmd:string ("node " + (StudioApp.shq(script)) + " ")
-        if ((strlen link) > 0) {
-            cmd = (cmd + (StudioApp.shq(link)) + " ")
-        }
-        cmd = (cmd + (StudioApp.shq(dir)) + " > " + (StudioApp.shq(pullLog)) + " 2>&1; echo \"[pull] exit $?\" >> " + (StudioApp.shq(pullLog)))
-        sh_spawn cmd
-        pulling = true
+        this.runJob("pull" extra)
         status = "haetaan pelin uusin versio Sliqtly Gamesista..."
+    }
+
+    ; The changed files to Sliqtly Games through an upload address
+    ; (https://sliqtly.com/games/u/<token>, valid 30 minutes): from the argument
+    ; (MCP), the clipboard, or the last one given if it is still fresh.
+    fn startPush:void (given:string all:boolean) {
+        if ((strlen job) > 0) {
+            return
+        }
+        def url:string (trim given)
+        if ((indexOf url "/games/u/") < 0) {
+            def clip:string (trim (sh_get_clipboard))
+            if (((indexOf clip "https://") == 0) && ((indexOf clip "/games/u/") > 0)) {
+                url = clip
+            }
+        }
+        if ((indexOf url "/games/u/") < 0) {
+            if (((strlen uploadUrl) > 0) && (((sh_now_ms) - uploadAt) < 1500000.0)) {
+                url = uploadUrl
+            }
+        }
+        if ((indexOf url "/games/u/") < 0) {
+            status = "Lähetä Sliqtlyyn: kopioi pelin upload-osoite (Sliqtly Games upload_url, https://sliqtly.com/games/u/...) leikepöydälle ja paina uudelleen"
+            return
+        }
+        if (url != uploadUrl) {
+            uploadUrl = url
+            uploadAt = (sh_now_ms)
+        }
+        if (this.dirty()) {
+            this.save()
+        }
+        def extra:string ((StudioApp.shq(url)) + " ")
+        if all {
+            extra = (extra + "--all ")
+        }
+        this.runJob("push" extra)
+        status = "lähetetään muuttuneet tiedostot Sliqtly Gamesiin..."
     }
 
     sfn shq:string (s:string) {
@@ -557,34 +605,43 @@ class StudioApp {
         return ("'" + (join parts "'\\''") + "'")
     }
 
-    fn checkPull:void () {
-        if (pulling == false) {
+    fn checkJob:void () {
+        if ((strlen job) == 0) {
             return
         }
-        def text:string (sh_read_text pullLog)
-        if ((indexOf text "[pull] exit") < 0) {
+        def text:string (sh_read_text jobLog)
+        if ((indexOf text "[job] exit") < 0) {
             return
         }
-        pulling = false
+        def kind:string job
+        job = ""
         def lines:[string] (strsplit (trim text) "\n")
+        def last:string ""
         def li:int 0
         while (li < (array_length lines)) {
             def pl:string (itemAt lines li)
-            if ((indexOf pl "[pull] exit") < 0) {
+            if ((indexOf pl "[job] exit") < 0) {
                 push preview.logLines pl
+                last = pl
             }
             li = (li + 1)
         }
-        if ((indexOf text "[pull] exit 0") >= 0) {
-            status = "päivitetty webistä"
-            if ((array_length lines) >= 2) {
-                status = (itemAt lines ((array_length lines) - 2))
+        def ok:boolean ((indexOf text "[job] exit 0") >= 0)
+        if (kind == "pull") {
+            if ok {
+                status = last
+                this.refreshFiles()
+                def changed:int (preview.syncFiles(false))
+                preview.restart()
+            } {
+                status = "päivitys epäonnistui, katso loki (.studio/pull.log)"
             }
-            this.refreshFiles()
-            def changed:int (preview.syncFiles(false))
-            preview.restart()
+            return
+        }
+        if ok {
+            status = last
         } {
-            status = "päivitys epäonnistui, katso loki (.studio/pull.log)"
+            status = ("lähetys ei onnistunut kokonaan: " + last + " (.studio/push.log)")
         }
     }
 
@@ -1603,7 +1660,7 @@ class StudioApp {
         } {
             chrome.setView("code")
         }
-        chrome.setActions((this.dirty()) pulling)
+        chrome.setActions((this.dirty()) job)
         def list:[StudioChromeDoc]
         def i:int 0
         while (i < (array_length docKeys)) {
@@ -1841,6 +1898,19 @@ class StudioApp {
                 }
             }
             sh_mcp_reply ("key " + key + " " + mode + " · frame " + (to_string preview.frames) + "\n" + (this.logTail(6))) 0
+            return
+        }
+        if (name == "push") {
+            if ((strlen job) > 0) {
+                sh_mcp_reply ("busy: " + job + " is running") 1
+                return
+            }
+            this.startPush((sh_mcp_arg "upload_url") ((sh_mcp_arg "all") == "true"))
+            if (job != "push") {
+                sh_mcp_reply status 1
+                return
+            }
+            sh_mcp_reply ("sending in the background; read .studio/push.log in the game folder, or call log in a few seconds (lines [push] 200 <path>, then [push] done)") 0
             return
         }
         if (name == "click") {
@@ -2193,7 +2263,7 @@ class StudioApp {
         preview.watch()
         this.checkOpenFile()
         if ((frameNo % 20) == 0) {
-            this.checkPull()
+            this.checkJob()
         }
         if ((frameNo % 30) == 0) {
             this.checkComments()
