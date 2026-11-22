@@ -10,7 +10,8 @@ terminal (Claude Code, Cursor, OpenCode) can edit the same files: within a
 second the Studio notices, reloads the open file and restarts the game.
 Big pictures are read from the disk directly and never uploaded anywhere.
 
-License: AGPL-3.0-or-later (see `LICENSE`). The code editor (EVGSheets),
+License: AGPL-3.0-or-later (see `LICENSE`). The code editor (EVGSheets), the
+controls (EVGUI),
 Ranger's gallery and the RangerGames engine are AGPL too.
 
 ## Start
@@ -43,7 +44,7 @@ the first time it asks for one. The output goes to
 
 ```bash
 cd studio
-scripts/setup.sh     # once: Ranger, EVGSheets and RangerGames into .deps/
+scripts/setup.sh     # once: Ranger, EVGSheets, EVGUI and RangerGames into .deps/
 scripts/build.sh     # engine (cargo) + app (Ranger -> C++) + link
 build/sliqtly-studio ~/games/my-game
 ```
@@ -68,6 +69,24 @@ sliqtly-studio <folder> [--game id] [--file rel] [--size WxH]
 - Files changed on disk by someone else (an agent, `git pull`) are picked up
   within a second. If you have unsaved edits in that file, the Studio keeps
   yours and says so in the status line.
+- The controls are EVGUI controllers (`TabsCtl`, `ToolbarCtl`, `SelectCtl`),
+  styled by EVGUI's `theme/base.css` and the Studio's `ui/studio.css`
+  (`src/StudioChrome.rgr`). The top bar has the view tabs **Koodi ja peli** and
+  **Sarjakuva**, and **Tallenna**, **Käynnistä** and **Päivitä webistä**.
+- Open files, pictures and comments are tabs above the editor. Click a tab to
+  switch to it; its × (or Esc on a picture) closes it. Up to 10 stay open.
+
+### Päivitä webistä: the newest version from Sliqtly Games
+
+**Päivitä webistä** (or `npm run studio:pull -- <game folder>`) fetches the
+newest files of the game from Sliqtly Games through its preview link
+(`https://sliqtly.com/games/p/<token>`, `get_game` gives it as `preview_url`).
+The first time, copy the link to the clipboard and press the button (or give
+it once: `npm run studio:pull -- <link> <game folder>`); it is saved in
+`<game>/.studio/source.json`. Only files that differ are written, so hot
+reload keeps the game running. A local file changed after the last pull is
+first copied to `.studio/backup/<time>/`; files only on disk stay. The output
+goes to the log and `.studio/pull.log`.
 
 ### Scenes, hot reload, fast forward
 
@@ -84,9 +103,11 @@ function hotSave() { return { screen, pos, vel, field: field ? field.id : "" }; 
 function hotLoad(s: any) { screen = s.screen; pos = s.pos; vel = s.vel; field = BODIES.find((b) => b.id === s.field) || null; }
 ```
 
-- The bar above the game shows the scenes as buttons, plus **Tauko/Jatka**
-  (pause), **Askel** (one frame while paused) and **x1 x4 x16 x64** (game
-  frames per window frame; a frame stops early after 40 ms).
+- The bar above the game has **Tauko/Jatka** (pause), **Askel** (one frame
+  while paused), **x1 x4 x16 x64** (game frames per window frame; a frame
+  stops early after 40 ms) and **Kommentoi**. Under it **Kohtaus** picks a
+  scene; its first choice, **alusta (intro)**, starts the game from the
+  beginning, as a player does, so an intro that plays on a fresh start plays.
 - When files change on disk the Studio does as little as it takes. A change
   to pictures or sounds only reads them again, with no restart. A change to
   `style.css` only re-reads the style (`rg_restyle`) and the game goes on.
@@ -111,7 +132,7 @@ Click a picture in the file list (PNG, JPEG, WebP, GIF, BMP) and it is shown
 where the editor is, fitted, with its size in bytes and pixels. The folders
 from `studio.json` are listed under **RESURSSIT**: click one to open it and
 click a file to see it. `--file img/moon.jpg` does the same from the command
-line. **Sulje** or Esc goes back to the editor.
+line. The picture opens as a tab above the editor; × or Esc closes it.
 
 ### Comments
 
@@ -128,10 +149,10 @@ again when it changes.
 
 ### Sarjakuva: the comic editor
 
-**Sarjakuva** in the top bar turns the window into a comic editor for the
-game's cartoon scenes (briefings, story pages, tutorials). It works on
+The **Sarjakuva** tab in the top bar turns the window into a comic editor for
+the game's cartoon scenes (briefings, story pages, tutorials). It works on
 `<game>/cartoons/<name>.cartoon.json`, one file per cartoon, saved on every
-change; **Koodi ja peli** goes back.
+change; the **Koodi ja peli** tab goes back.
 
 - **Pohja** (template): format Sivu (800 x 1100), Strippi (1200 x 420), Ruutu
   (900 x 900) or Puhelin (540 x 960); 1-6 panels; straight, slightly or very
@@ -225,6 +246,7 @@ claude mcp add sliqtly-studio -- /path/to/build/sliqtly-studio ~/games/my-game -
 | `log` | the last lines of the log |
 | `set_speed` | speed (1–256 frames per window frame) and pause |
 | `press_key`, `tap` | a key (KeyboardEvent.key name) or a tap in game coordinates |
+| `click` | a click on the Studio window itself (tabs, buttons, scene picker, file list), window pixels |
 | `comments_list`, `comment_add`, `comment_done` | the comments above |
 | `list_assets` | files of the game and its resource folders, with pixel sizes |
 | `cartoon_open`, `cartoon_get` | the comic editor: open or make a cartoon; its brief and JSON |
@@ -250,7 +272,9 @@ private.
 
 | Part | File |
 | --- | --- |
-| Window, layout, input, file watching, save | `src/StudioApp.rgr` |
+| Window, layout, input, file watching, save, open tabs, pull | `src/StudioApp.rgr` |
+| The controls: EVGUI controllers in one UiHost, laid out by EVGLayout | `src/StudioChrome.rgr`, `ui/studio.css` |
+| Pull a game from Sliqtly Games by its preview link | `scripts/pull.mjs` |
 | The engine: mounts, sync with disk, draw stream to EVG commands | `src/GamePreview.rgr` |
 | EVG display list to OpenGL (text atlas, pictures on the GPU, paths) | `src/StudioPainter.rgr` |
 | Picture cache (stb_image natively, WebP with Ranger's decoder) | `src/StudioImages.rgr` |

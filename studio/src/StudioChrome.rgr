@@ -1,0 +1,444 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; StudioChrome — the Studio's controls, built from EVGUI controllers
+; ==============================================================================
+;
+; The top bar (the view tabs "Koodi ja peli | Sarjakuva" and the Tallenna,
+; Käynnistä and Päivitä webistä buttons), the open documents above the editor
+; (closable tabs: code files, pictures, comments) and the bar above the game
+; (pause, step, speed, comment, and the scene picker) are EVGUI controllers in
+; one UiHost: TabsCtl, ToolbarCtl and SelectCtl, styled by EVGUI's
+; theme/base.css and the Studio's ui/studio.css, laid out by EVGLayout. The
+; host's display list is drawn over the Studio's own, so an open scene list
+; lies over the game.
+;
+; The Studio says what is on (`sync`), the controllers say what was pressed
+; (`press` answers the same action words StudioApp.act takes).
+; ==============================================================================
+
+Import "../../evgui/src/UiHost.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+
+class StudioChromeDoc {
+    def key:string ""
+    def label:string ""
+}
+
+class StudioChrome {
+    def host:UiHost (new UiHost())
+    def views:TabsCtl (new TabsCtl())
+    def actions:ToolbarCtl (new ToolbarCtl())
+    def docs:TabsCtl (new TabsCtl())
+    def play:ToolbarCtl (new ToolbarCtl())
+    def scenes:SelectCtl (new SelectCtl())
+    ; what can be done to the document shown (a comment: mark it done)
+    def docbar:ToolbarCtl (new ToolbarCtl())
+    def docbarSig:string "-"
+    def docbarValues:[string]
+    def title:EVGElement (EVGElement.createDiv())
+    def sceneLabel:EVGElement (EVGElement.createDiv())
+    def ready:boolean false
+    ; what the controllers were last built from: rebuilt only when it changes
+    def docSig:string ""
+    def playSig:string ""
+    def sceneSig:string ""
+    def actionSig:string ""
+    def titleText:string ""
+    ; the title's width, measured by the Studio's fonts
+    def titleW:double 200.0
+    def viewValue:string "code"
+    def docValue:string ""
+    def sceneValue:string ""
+    def showCode:boolean true
+    def actionValues:[string]
+    def playValues:[string]
+    def last:EVGDisplayList (new EVGDisplayList)
+    ; something changed since `last` was laid out
+    def dirty:boolean true
+
+    ; places, set by `place`
+    def W:double 1280.0
+    def H:double 800.0
+    def topH:double 40.0
+    def leftW:double 220.0
+    def editorW:double 600.0
+    def previewW:double 400.0
+    def docH:double 30.0
+    def toolH:double 66.0
+
+    fn init:void (css:string) {
+        host.addStyleSheet(css)
+        host.setPageSize(W H)
+        views.tid = "views"
+        views.name = "Näkymä"
+        views.addItem("code" "Koodi ja peli" "" false)
+        views.addItem("cartoon" "Sarjakuva" "" false)
+        views.value = "code"
+        views.build()
+        host.add(views)
+        actions.tid = "actions"
+        actions.name = "Toiminnot"
+        actions.build()
+        host.add(actions)
+        docs.tid = "docs"
+        docs.name = "Avoimet tiedostot"
+        docs.closeWord = "Sulje "
+        docs.build()
+        host.add(docs)
+        play.tid = "play"
+        play.name = "Peli"
+        play.build()
+        host.add(play)
+        scenes.tid = "scenes"
+        scenes.name = "Kohtaus"
+        scenes.build()
+        host.add(scenes)
+        docbar.tid = "docbar"
+        docbar.name = "Dokumentti"
+        docbar.build()
+        host.add(docbar)
+        def r:EVGElement (unwrap host.root)
+        title.id = "studio-title"
+        title.className = "studio-title"
+        r.addChild(title)
+        sceneLabel.id = "studio-scene-label"
+        sceneLabel.className = "studio-scene-label"
+        UiTree.leafText(sceneLabel "Kohtaus")
+        r.addChild(sceneLabel)
+        ready = true
+    }
+
+    fn place:void (w:double h:double top:double left:double edW:double prevW:double tool:double) {
+        if ((w != W) || (h != H) || (edW != editorW) || (prevW != previewW)) {
+            dirty = true
+        }
+        W = w
+        H = h
+        topH = top
+        leftW = left
+        editorW = edW
+        previewW = prevW
+        toolH = tool
+        host.setPageSize(W H)
+    }
+
+    sfn at:void (el:EVGElement x:double y:double) {
+        UiTree.inline(el "position" "absolute")
+        UiTree.inline(el "left" ((to_string (to_int x)) + "px"))
+        UiTree.inline(el "top" ((to_string (to_int y)) + "px"))
+    }
+
+    ; --- what is on ---------------------------------------------------------------
+    fn setTitle:void (text:string) {
+        if (text == titleText) {
+            return
+        }
+        titleText = text
+        dirty = true
+        UiTree.leafText(title text)
+    }
+
+    fn setView:void (v:string) {
+        viewValue = v
+        showCode = (v == "code")
+        if (views.value != v) {
+            views.value = v
+            views.build()
+            dirty = true
+        }
+    }
+
+    fn setActions:void (unsaved:boolean pulling:boolean) {
+        def sig:string ((to_string unsaved) + (to_string pulling))
+        if (sig == actionSig) {
+            return
+        }
+        actionSig = sig
+        dirty = true
+        clear actions.items
+        def vals:[string]
+        actions.addItem("save" "Tallenna  Ctrl+S" false)
+        push vals "save"
+        actions.addItem("restart" "Käynnistä  F5" false)
+        push vals "restart"
+        def pullName:string "Päivitä webistä"
+        if pulling {
+            pullName = "Haetaan..."
+        }
+        actions.addItem("pull" pullName pulling)
+        push vals "pull"
+        actionValues = vals
+        actions.build()
+        if unsaved {
+            this.markOn(actions "save")
+        }
+    }
+
+    fn markOn:void (bar:ToolbarCtl value:string) {
+        def i:int 0
+        while (i < (array_length bar.items)) {
+            def it:UiItem (itemAt bar.items i)
+            if (it.value == value) {
+                def el:EVGElement (unwrap it.el)
+                UiTree.setState(el "ui-toolbar-button" "on")
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; keys: "file:<rel>", "pic:<rel>", "comment:<id>"
+    fn setDocs:void (list:[StudioChromeDoc] active:string) {
+        def sig:string active
+        def i:int 0
+        while (i < (array_length list)) {
+            def d:StudioChromeDoc (itemAt list i)
+            sig = (sig + "|" + d.key + "=" + d.label)
+            i = (i + 1)
+        }
+        if (sig == docSig) {
+            return
+        }
+        docSig = sig
+        dirty = true
+        clear docs.items
+        clear docs.closable
+        def j:int 0
+        while (j < (array_length list)) {
+            def d2:StudioChromeDoc (itemAt list j)
+            docs.addClosable(d2.key d2.label)
+            j = (j + 1)
+        }
+        docs.value = active
+        docValue = active
+        docs.build()
+    }
+
+    fn setPlay:void (paused:boolean speed:int commenting:boolean) {
+        def sig:string ((to_string paused) + ":" + (to_string speed) + ":" + (to_string commenting))
+        if (sig == playSig) {
+            return
+        }
+        playSig = sig
+        dirty = true
+        clear play.items
+        def vals:[string]
+        if paused {
+            play.addItem("pause" "Jatka" false)
+            push vals "pause"
+            play.addItem("step" "Askel" false)
+            push vals "step"
+        } {
+            play.addItem("pause" "Tauko" false)
+            push vals "pause"
+        }
+        play.addSeparator()
+        def speeds:[int] ([] _:int (1 4 16 64))
+        def si:int 0
+        while (si < 4) {
+            def sp:int (itemAt speeds si)
+            play.addItem(("speed:" + (to_string sp)) ("x" + (to_string sp)) false)
+            push vals ("speed:" + (to_string sp))
+            si = (si + 1)
+        }
+        play.addSeparator()
+        play.addItem("comment" "Kommentoi" false)
+        push vals "comment"
+        playValues = vals
+        play.build()
+        if paused {
+            this.markOn(play "pause")
+        }
+        this.markOn(play ("speed:" + (to_string speed)))
+        if commenting {
+            this.markOn(play "comment")
+        }
+    }
+
+    ; One button for the document shown ("" for none): its action and label.
+    fn setDocAction:void (action:string label:string) {
+        def sig:string (action + "=" + label)
+        if (sig == docbarSig) {
+            return
+        }
+        docbarSig = sig
+        dirty = true
+        clear docbar.items
+        def vals:[string]
+        if ((strlen action) > 0) {
+            docbar.addItem(action label false)
+            push vals action
+        }
+        docbarValues = vals
+        docbar.build()
+    }
+
+    ; The game's scenes, the first one the plain start (which plays an intro).
+    fn setScenes:void (names:[string] current:string) {
+        def sig:string current
+        def i:int 0
+        while (i < (array_length names)) {
+            sig = (sig + "|" + (itemAt names i))
+            i = (i + 1)
+        }
+        if (sig == sceneSig) {
+            return
+        }
+        sceneSig = sig
+        dirty = true
+        clear scenes.items
+        scenes.addItem("__start__" "alusta (intro)" false)
+        def j:int 0
+        while (j < (array_length names)) {
+            def n:string (itemAt names j)
+            scenes.addItem(n n false)
+            j = (j + 1)
+        }
+        def v:string current
+        if ((strlen v) == 0) {
+            v = "__start__"
+        }
+        scenes.value = v
+        sceneValue = v
+        scenes.build()
+    }
+
+    ; --- input --------------------------------------------------------------------
+    ; The action a press at (x, y) is, "" for none; `consumed` says the press
+    ; landed on a control or an open list (and so is nobody else's).
+    def consumed:boolean false
+    def lastTid:string ""
+
+    fn press:string (x:double y:double) {
+        consumed = false
+        dirty = true
+        def tid:string (host.hitTest(x y))
+        lastTid = tid
+        def wasOpen:boolean scenes.open
+        if ((strlen tid) == 0) {
+            if wasOpen {
+                scenes.closeList()
+                consumed = true
+            }
+            return ""
+        }
+        consumed = true
+        ; a tab's close mark: its test id is docs.closeTid(value)
+        def closePrefix:string (docs.closeTid(""))
+        if ((indexOf tid closePrefix) == 0) {
+            return ("docclose:" + (substring tid (strlen closePrefix) (strlen tid)))
+        }
+        host.click(tid)
+        if (wasOpen && ((scenes.owns(tid)) == false)) {
+            scenes.closeList()
+        }
+        if (views.value != viewValue) {
+            viewValue = views.value
+            return ("view:" + views.value)
+        }
+        if (docs.value != docValue) {
+            docValue = docs.value
+            return ("doc:" + docs.value)
+        }
+        if (scenes.value != sceneValue) {
+            sceneValue = scenes.value
+            if (sceneValue == "__start__") {
+                return "restart"
+            }
+            return ("scene:" + sceneValue)
+        }
+        def a:string (StudioChrome.valueFor(actions actionValues tid))
+        if ((strlen a) > 0) {
+            return a
+        }
+        def d:string (StudioChrome.valueFor(docbar docbarValues tid))
+        if ((strlen d) > 0) {
+            return d
+        }
+        return (StudioChrome.valueFor(play playValues tid))
+    }
+
+    sfn valueFor:string (bar:ToolbarCtl values:[string] tid:string) {
+        def i:int 0
+        while (i < (array_length values)) {
+            def v:string (itemAt values i)
+            if ((bar.itemTid(v)) == tid) {
+                def it@(optional):UiItem (bar.itemOf(v))
+                if (null? it) {
+                    return ""
+                }
+                if it.disabled {
+                    return ""
+                }
+                return v
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn hover:void (x:double y:double inside:boolean) {
+        if (host.hoverTo(x y inside)) {
+            dirty = true
+        }
+    }
+
+    ; Hover and press colours ease (base.css transitions): lay out again while
+    ; one is under way.
+    fn tick:void (dtMs:double) {
+        if (host.tick(dtMs)) {
+            dirty = true
+        }
+    }
+
+    ; Is (x, y) on a control or the open scene list?
+    fn over:boolean (x:double y:double) {
+        if scenes.open {
+            if (host.surfaceAt(x y)) {
+                return true
+            }
+        }
+        return ((strlen (host.hitTest(x y))) > 0)
+    }
+
+    ; --- drawing ------------------------------------------------------------------
+    fn displayList:EVGDisplayList () {
+        if (dirty == false) {
+            return last
+        }
+        dirty = false
+        StudioChrome.at(title 14.0 10.0)
+        def vx:double (titleW + 30.0)
+        StudioChrome.at((unwrap views.rootEl) vx 5.0)
+        def actEl:EVGElement (unwrap actions.rootEl)
+        UiTree.inline(actEl "position" "absolute")
+        UiTree.inline(actEl "right" ((to_string (to_int ((W - (leftW + editorW)) + 8.0))) + "px"))
+        UiTree.inline(actEl "top" "5px")
+        def barEl:EVGElement (unwrap docbar.rootEl)
+        UiTree.inline(barEl "position" "absolute")
+        UiTree.inline(barEl "right" ((to_string (to_int ((W - (leftW + editorW)) + 8.0))) + "px"))
+        UiTree.inline(barEl "top" ((to_string (to_int ((topH + docH) + 6.0))) + "px"))
+        def docsEl:EVGElement (unwrap docs.rootEl)
+        def playEl:EVGElement (unwrap play.rootEl)
+        def sceneEl:EVGElement (unwrap scenes.rootEl)
+        if showCode {
+            StudioChrome.at(docsEl (leftW + 4.0) (topH + 3.0))
+            StudioChrome.at(playEl ((W - previewW) + 6.0) (topH + 5.0))
+            StudioChrome.at(sceneLabel ((W - previewW) + 8.0) (topH + 40.0))
+            StudioChrome.at(sceneEl ((W - previewW) + 70.0) (topH + 35.0))
+            UiTree.inline(docsEl "display" "flex")
+            UiTree.inline(barEl "display" "flex")
+            UiTree.inline(playEl "display" "flex")
+            UiTree.inline(sceneEl "display" "flex")
+            UiTree.inline(sceneLabel "display" "block")
+        } {
+            UiTree.inline(docsEl "display" "none")
+            UiTree.inline(barEl "display" "none")
+            UiTree.inline(playEl "display" "none")
+            UiTree.inline(sceneEl "display" "none")
+            UiTree.inline(sceneLabel "display" "none")
+        }
+        last = (host.displayList())
+        return last
+    }
+}

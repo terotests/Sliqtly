@@ -14,7 +14,7 @@ OUT="$HERE/build"
 CXX="${CXX:-c++}"
 mkdir -p "$OUT"
 
-for d in Ranger EVGSheets RangerGames; do
+for d in Ranger EVGSheets EVGUI RangerGames; do
   [[ -d "$DEPS/$d" ]] || { echo "missing $DEPS/$d: run scripts/setup.sh first" >&2; exit 1; }
 done
 
@@ -30,6 +30,10 @@ rm -rf "$RANGER/gallery/studio"
 mkdir -p "$RANGER/gallery/studio"
 cp -R "$HERE/src" "$HERE/native" "$HERE/ranger.json" "$RANGER/gallery/studio/"
 rm -rf "$RANGER/gallery/studio/native/rg_studio"
+# EVGUI's controllers as gallery/evgui (its lib/evg is ../../lib/evg)
+rm -rf "$RANGER/gallery/evgui"
+mkdir -p "$RANGER/gallery/evgui"
+cp -R "$DEPS/EVGUI/src" "$DEPS/EVGUI/ranger.json" "$RANGER/gallery/evgui/"
 if [[ ! -e "$RANGER/gallery/datagrid/src/script/ScriptEditor.rgr" ]]; then
   rm -rf "$RANGER/gallery/datagrid"
   cp -R "$DEPS/EVGSheets/datagrid" "$RANGER/gallery/datagrid"
@@ -65,4 +69,7 @@ for f in Open_Sans Noto_Sans Noto_Emoji; do
   rm -rf "$OUT/fonts/$f"
   cp -R "$RANGER/gallery/pdf_writer/assets/fonts/$f" "$OUT/fonts/$f"
 done
+mkdir -p "$OUT/ui"
+cp "$DEPS/EVGUI/theme/base.css" "$OUT/ui/base.css"
+cp "$HERE/ui/studio.css" "$OUT/ui/studio.css"
 echo "Ready: $OUT/sliqtly-studio <game folder>   (fonts: $OUT/fonts)"

@@ -5,7 +5,7 @@
 ; ==============================================================================
 ;
 ;   ┌──────────────────────────────────────────────────────────────────────┐
-;   │ Sliqtly Game Studio · project · game        [Tallenna] [Käynnistä]   │
+;   │ Studio · game [Koodi ja peli|Sarjakuva]  [Tallenna][Käynnistä][Päivitä] │
 ;   ├──────────┬──────────────────────────────────────┬────────────────────┤
 ;   │ games    │ code editor (Ranger's own,           │ the game, running  │
 ;   │ files    │ JS/TSX checked as you type)          │ natively           │
@@ -39,6 +39,7 @@ Import "StudioImages.rgr"
 Import "StudioPainter.rgr"
 Import "GamePreview.rgr"
 Import "CartoonEditor.rgr"
+Import "StudioChrome.rgr"
 
 class StudioFile {
     def rel:string ""
@@ -81,6 +82,10 @@ class StudioApp {
     def previewW:int 400
     def fontFamily:string "Open Sans"
     def fontDir:string "fonts"
+    ; base.css (EVGUI) and studio.css beside the program
+    def uiDir:string "ui"
+    ; the open documents' tab strip above the editor
+    def docH:int 32
 
     def canvas:SoftCanvas (new SoftCanvas)
     def ctx:UIContext (new UIContext)
@@ -90,6 +95,16 @@ class StudioApp {
     def preview:GamePreview (new GamePreview)
     ; the comic editor ("Sarjakuva" in the top bar)
     def cartoon:CartoonEditor (new CartoonEditor)
+    ; the controls (EVGUI): view tabs, buttons, document tabs, game bar
+    def chrome:StudioChrome (new StudioChrome)
+    ; open documents: "file:<rel>", "pic:<src>", "comment:<id>"
+    def docKeys:[string]
+    def docLabels:[string]
+    def docDisks:[string]
+    def activeDoc:string ""
+    ; "Päivitä webistä": pull.mjs running, its log
+    def pulling:boolean false
+    def pullLog:string ""
     def cartoonBrief:string ""
     ; the Nano Banana job whose reference screenshot is taken this frame
     def nbJob:string ""
@@ -168,6 +183,14 @@ class StudioApp {
         }
         painter.fontFamily = fontFamily
         cartoon.setText(ctx.tr)
+        ; EVG layouts (the controls) measure with the same faces the painter draws
+        EVGDefaultMeasurer.install(ctx.tr.measurer)
+        def base:string (sh_read_text (uiDir + "/base.css"))
+        def own:string (sh_read_text (uiDir + "/studio.css"))
+        if ((strlen base) == 0) {
+            print ("[studio] no " + uiDir + "/base.css: the controls are unstyled")
+        }
+        chrome.init((base + "\n" + own))
         languages.add((new JsLanguage))
     }
 
@@ -241,6 +264,7 @@ class StudioApp {
             return
         }
         openDisk = (GamePreview.joinPath((this.gameDir()) rel))
+        this.docAdd(("file:" + rel) (GamePreview.baseName(rel)) rel)
         editor.init((sh_read_text openDisk))
         editor.setLanguage((languages.forFile(rel)))
         editor.focused = true
@@ -301,103 +325,8 @@ class StudioApp {
             pw = 240
         }
         previewW = pw
-        toolH = (this.toolbarHeight())
+        toolH = 66
         preview.setPanel((to_double (W - pw)) (to_double (topH + toolH)) (to_double pw) (to_double ((H - topH) - toolH)))
-    }
-
-    ; --- the bar above the game ---------------------------------------------------------
-    fn chipW:double (label:string) {
-        return ((ctx.tr.measureWidth(label 12.0)) + 16.0)
-    }
-
-    ; Lays the bar out (paint false: only measures). Answers its height.
-    fn layoutToolbar:int (dl:EVGDisplayList paint:boolean) {
-        def x0:double (to_double ((W - previewW) + 6))
-        def xmax:double (to_double (W - 6))
-        def x:double x0
-        def y:double (to_double (topH + 5))
-        def labels:[string]
-        def actions:[string]
-        if preview.paused {
-            push labels "Jatka"
-            push actions "pause"
-            push labels "Askel"
-            push actions "step"
-        } {
-            push labels "Tauko"
-            push actions "pause"
-        }
-        def speeds:[int] ([] _:int (1 4 16 64))
-        def si:int 0
-        while (si < 4) {
-            def sp:int (itemAt speeds si)
-            push labels ("x" + (to_string sp))
-            push actions ("speed:" + (to_string sp))
-            si = (si + 1)
-        }
-        push labels "Kommentoi"
-        push actions "comment"
-        def ci:int 0
-        while (ci < (array_length preview.scenes)) {
-            def name:string (itemAt preview.scenes ci)
-            push labels name
-            push actions ("scene:" + name)
-            ci = (ci + 1)
-        }
-        def i:int 0
-        while (i < (array_length labels)) {
-            def label:string (itemAt labels i)
-            def act:string (itemAt actions i)
-            def cw:double (this.chipW(label))
-            if (((x + cw) > xmax) && (x > x0)) {
-                x = x0
-                y = (y + 28.0)
-            }
-            if paint {
-                def on:boolean false
-                if (act == ("speed:" + (to_string preview.speed))) {
-                    on = true
-                }
-                if ((act == "pause") && preview.paused) {
-                    on = true
-                }
-                if (act == ("scene:" + preview.currentScene)) {
-                    on = true
-                }
-                def col:EVGColor line
-                if (on) {
-                    col = (EVGColor.rgb(61 89 161))
-                }
-                if ((act == "comment") && commentMode) {
-                    on = true
-                }
-                if ((act == "comment") && (on == false)) {
-                    col = (EVGColor.rgb(82 64 30))
-                }
-                if ((indexOf act "scene:") == 0) {
-                    if (on == false) {
-                        col = (EVGColor.rgb(38 64 52))
-                    }
-                }
-                this.roundRect(dl x y cw 22.0 col 4.0)
-                this.text(dl label (x + 8.0) (y + 3.0) 12.0 ink false)
-                def hit:StudioHit (new StudioHit)
-                hit.x = x
-                hit.y = y
-                hit.w = cw
-                hit.h = 22.0
-                hit.action = act
-                push hits hit
-            }
-            x = ((x + cw) + 6.0)
-            i = (i + 1)
-        }
-        return (to_int (((y + 22.0) + 6.0) - (to_double topH)))
-    }
-
-    fn toolbarHeight:int () {
-        def none:EVGDisplayList (new EVGDisplayList)
-        return (this.layoutToolbar(none false))
     }
 
     fn act:void (action:string) {
@@ -436,8 +365,28 @@ class StudioApp {
             this.toggleCartoon((cartoon.active == false))
             return
         }
+        if (action == "view:cartoon") {
+            this.toggleCartoon(true)
+            return
+        }
+        if (action == "view:code") {
+            this.toggleCartoon(false)
+            return
+        }
+        if (action == "pull") {
+            this.startPull()
+            return
+        }
+        if ((indexOf action "docclose:") == 0) {
+            this.docClose((substring action 9 (strlen action)))
+            return
+        }
+        if ((indexOf action "doc:") == 0) {
+            this.docShow((substring action 4 (strlen action)))
+            return
+        }
         if (action == "closeview") {
-            this.closeView()
+            this.docClose(activeDoc)
             return
         }
         if ((indexOf action "game:") == 0) {
@@ -477,6 +426,168 @@ class StudioApp {
         }
     }
 
+
+    ; --- open documents: the tabs above the editor ----------------------------------
+    fn docIndex:int (key:string) {
+        def i:int 0
+        while (i < (array_length docKeys)) {
+            if ((itemAt docKeys i) == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn docAdd:void (key:string label:string data:string) {
+        if ((this.docIndex(key)) < 0) {
+            if ((array_length docKeys) >= 10) {
+                def drop:int 0
+                if ((itemAt docKeys 0) == activeDoc) {
+                    drop = 1
+                }
+                remove_index docKeys drop
+                remove_index docLabels drop
+                remove_index docDisks drop
+            }
+            push docKeys key
+            push docLabels label
+            push docDisks data
+        }
+        activeDoc = key
+    }
+
+    ; A tab chosen: the file into the editor, the picture or comment into its place.
+    fn docShow:void (key:string) {
+        def i:int (this.docIndex(key))
+        if (i < 0) {
+            return
+        }
+        def data:string (itemAt docDisks i)
+        if ((indexOf key "file:") == 0) {
+            this.closeView()
+            if (data != openRel) {
+                this.openFile(data)
+            }
+            activeDoc = key
+            focus = "editor"
+            editor.focused = true
+            return
+        }
+        if ((indexOf key "pic:") == 0) {
+            def parts:[string] (strsplit data "\t")
+            if ((array_length parts) >= 3) {
+                def disk:string (itemAt parts 1)
+                this.showAsset((itemAt parts 0) disk (itemAt parts 2) (sh_file_size disk))
+            }
+            activeDoc = key
+            return
+        }
+        if ((indexOf key "comment:") == 0) {
+            this.showComment(data)
+            activeDoc = key
+        }
+    }
+
+    fn docClose:void (key:string) {
+        def i:int (this.docIndex(key))
+        if (i < 0) {
+            return
+        }
+        if ((indexOf key "file:") == 0) {
+            if ((itemAt docDisks i) == openRel) {
+                if (this.dirty()) {
+                    this.save()
+                }
+            }
+        }
+        remove_index docKeys i
+        remove_index docLabels i
+        remove_index docDisks i
+        if (key != activeDoc) {
+            return
+        }
+        activeDoc = ""
+        this.closeView()
+        if ((array_length docKeys) > 0) {
+            def next:int i
+            if (next >= (array_length docKeys)) {
+                next = ((array_length docKeys) - 1)
+            }
+            this.docShow((itemAt docKeys next))
+            return
+        }
+        this.openFile("")
+    }
+
+    ; --- "Päivitä webistä": the game's newest files from Sliqtly Games ---------------
+    ; scripts/pull.mjs beside build/, the preview link saved in the game's
+    ; .studio/source.json, else taken from the clipboard once.
+    fn startPull:void () {
+        if pulling {
+            return
+        }
+        def dir:string (this.gameDir())
+        def link:string ""
+        if ((sh_exists (dir + "/.studio/source.json")) == 0) {
+            def clip:string (trim (sh_get_clipboard))
+            if ((indexOf clip "https://") == 0) {
+                link = clip
+            } {
+                status = "Päivitä webistä: kopioi pelin esikatselulinkki (Sliqtly Games, https://sliqtly.com/games/p/...) leikepöydälle ja paina uudelleen"
+                return
+            }
+        }
+        sh_mkdirs (dir + "/.studio")
+        pullLog = (dir + "/.studio/pull.log")
+        sh_write_text pullLog ""
+        def script:string ((sh_base_path) + "../scripts/pull.mjs")
+        def cmd:string ("node " + (StudioApp.shq(script)) + " ")
+        if ((strlen link) > 0) {
+            cmd = (cmd + (StudioApp.shq(link)) + " ")
+        }
+        cmd = (cmd + (StudioApp.shq(dir)) + " > " + (StudioApp.shq(pullLog)) + " 2>&1; echo \"[pull] exit $?\" >> " + (StudioApp.shq(pullLog)))
+        sh_spawn cmd
+        pulling = true
+        status = "haetaan pelin uusin versio Sliqtly Gamesista..."
+    }
+
+    sfn shq:string (s:string) {
+        def parts:[string] (strsplit s "'")
+        return ("'" + (join parts "'\\''") + "'")
+    }
+
+    fn checkPull:void () {
+        if (pulling == false) {
+            return
+        }
+        def text:string (sh_read_text pullLog)
+        if ((indexOf text "[pull] exit") < 0) {
+            return
+        }
+        pulling = false
+        def lines:[string] (strsplit (trim text) "\n")
+        def li:int 0
+        while (li < (array_length lines)) {
+            def pl:string (itemAt lines li)
+            if ((indexOf pl "[pull] exit") < 0) {
+                push preview.logLines pl
+            }
+            li = (li + 1)
+        }
+        if ((indexOf text "[pull] exit 0") >= 0) {
+            status = "päivitetty webistä"
+            if ((array_length lines) >= 2) {
+                status = (itemAt lines ((array_length lines) - 2))
+            }
+            this.refreshFiles()
+            def changed:int (preview.syncFiles(false))
+            preview.restart()
+        } {
+            status = "päivitys epäonnistui, katso loki (.studio/pull.log)"
+        }
+    }
+
     ; --- assets ----------------------------------------------------------------------
     sfn isPicture:boolean (rel:string) {
         def e:string (GamePreview.extOf(rel))
@@ -503,6 +614,9 @@ class StudioApp {
         viewSrc = src
         viewDisk = disk
         viewComment = ""
+        if ((indexOf src "disk:") != 0) {
+            this.docAdd(("pic:" + src) (GamePreview.baseName(disk)) (src + "\t" + disk + "\t" + title))
+        }
         def img:StudioImage (preview.images.get(src disk))
         viewTitle = (title + " · " + (StudioApp.kb(size)))
         if img.ok {
@@ -817,6 +931,7 @@ class StudioApp {
         def disk:string (GamePreview.joinPath(preview.root c.shot))
         this.showAsset(("disk:" + disk) disk ("comment " + c.id) (sh_file_size disk))
         viewComment = c.id
+        this.docAdd(("comment:" + c.id) ("Kommentti " + c.id) c.id)
         viewTitle = (c.time + "  " + c.scene + "  frame " + (to_string c.frame))
     }
 
@@ -904,12 +1019,12 @@ class StudioApp {
         return ((W - leftW) - previewW)
     }
 
-    fn editorH:int () {
-        return (((H - topH) - logH) - 24)
+    fn editorY:int () {
+        return (topH + docH)
     }
 
-    fn buttonX:int (index:int) {
-        return ((W - previewW) - ((2 - index) * 112))
+    fn editorH:int () {
+        return ((((H - topH) - docH) - logH) - 24)
     }
 
     ; --- input ---------------------------------------------------------------------
@@ -930,31 +1045,42 @@ class StudioApp {
         lastMouseDown = down
         def shift:boolean ((sh_shift) == 1)
         def ctrl:boolean ((sh_ctrl) == 1)
-        editor.setBounds((this.editorX()) topH (this.editorW()) (this.editorH()))
+        editor.setBounds((this.editorX()) (this.editorY()) (this.editorW()) (this.editorH()))
 
         if cartoon.active {
             this.cartoonInput(mx my down pressed released ctrl shift)
             return
         }
+        chrome.hover((to_double mx) (to_double my) true)
+        def onChrome:boolean false
         if pressed {
-            if (preview.inside(mx my)) {
-                focus = "game"
-                editor.focused = false
-            } {
-                if ((editor.insideRect(mx my)) && ((this.viewing()) == false) && (commentMode == false)) {
-                    focus = "editor"
-                    editor.focused = true
-                    editor.pointerDown(ctx.tr mx my shift)
+            onChrome = (chrome.over((to_double mx) (to_double my)))
+        }
+        if (pressed && onChrome) {
+            this.clickChrome(mx my)
+        } {
+            if pressed {
+                if (preview.inside(mx my)) {
+                    focus = "game"
+                    editor.focused = false
                 } {
-                    this.clickChrome(mx my)
+                    if ((editor.insideRect(mx my)) && ((this.viewing()) == false) && (commentMode == false)) {
+                        focus = "editor"
+                        editor.focused = true
+                        editor.pointerDown(ctx.tr mx my shift)
+                    } {
+                        this.clickChrome(mx my)
+                    }
+                }
+            } {
+                if (down && (focus == "editor") && editor.focused) {
+                    editor.pointerDrag(ctx.tr mx my)
                 }
             }
-        } {
-            if (down && (focus == "editor") && editor.focused) {
-                editor.pointerDrag(ctx.tr mx my)
-            }
         }
-        preview.pointer(mx my down pressed released)
+        if (onChrome == false) {
+            preview.pointer(mx my down pressed released)
+        }
 
         def wy:int (sh_wheel_y)
         def wx:int (sh_wheel_x)
@@ -1024,7 +1150,7 @@ class StudioApp {
             } {
                 if (this.viewing()) {
                     if (k == 4) {
-                        this.closeView()
+                        this.docClose(activeDoc)
                     }
                 } {
                     if (focus == "editor") {
@@ -1074,6 +1200,13 @@ class StudioApp {
     fn clickChrome:void (mx:int my:int) {
         def fx:double (to_double mx)
         def fy:double (to_double my)
+        def ca:string (chrome.press(fx fy))
+        if chrome.consumed {
+            if ((strlen ca) > 0) {
+                this.act(ca)
+            }
+            return
+        }
         def hi:int 0
         while (hi < (array_length hits)) {
             def h:StudioHit (itemAt hits hi)
@@ -1180,23 +1313,15 @@ class StudioApp {
     ; A picture in the editor's place, fitted, with its name and size above it.
     fn paintView:void (dl:EVGDisplayList) {
         def ex:double (to_double (this.editorX()))
-        def ey:double (to_double topH)
+        def ey:double (to_double (this.editorY()))
         def ew:double (to_double (this.editorW()))
         def eh:double (to_double (this.editorH()))
         this.rect(dl ex ey ew eh (EVGColor.rgb(12 13 18)))
         this.rect(dl ex ey ew 34.0 bar)
         this.clip(dl ex ey ew eh)
-        def bx:double ((ex + ew) - 74.0)
-        this.roundRect(dl bx (ey + 6.0) 66.0 22.0 line 4.0)
-        this.text(dl "Sulje" (bx + 9.0) (ey + 9.0) 12.0 ink false)
-        def hit:StudioHit (new StudioHit)
-        hit.x = bx
-        hit.y = (ey + 6.0)
-        hit.w = 66.0
-        hit.h = 22.0
-        hit.action = "closeview"
-        push hits hit
-        def titleW:double ((bx - ex) - 20.0)
+        def titleW:double (ew - 200.0)
+        def docAct:string ""
+        def docLabel:string ""
         if ((strlen viewComment) > 0) {
             def ci:int (this.commentIndex(viewComment))
             if (ci >= 0) {
@@ -1205,24 +1330,15 @@ class StudioApp {
                 if c.done {
                     label = "Avaa uudelleen"
                 }
-                def cw:double (this.chipW(label))
-                def cx:double ((bx - cw) - 8.0)
-                this.roundRect(dl cx (ey + 6.0) cw 22.0 (EVGColor.rgb(38 64 52)) 4.0)
-                this.text(dl label (cx + 8.0) (ey + 9.0) 12.0 ink false)
-                def dh:StudioHit (new StudioHit)
-                dh.x = cx
-                dh.y = (ey + 6.0)
-                dh.w = cw
-                dh.h = 22.0
-                dh.action = ("cdone:" + c.id)
-                push hits dh
-                titleW = ((cx - ex) - 20.0)
+                docAct = ("cdone:" + c.id)
+                docLabel = label
                 this.text(dl c.text (ex + 12.0) (ey + 44.0) 14.0 ink true)
                 if ((strlen c.note) > 0) {
                     this.text(dl ("> " + c.note) (ex + 12.0) (ey + 64.0) 12.0 good false)
                 }
             }
         }
+        chrome.setDocAction(docAct docLabel)
         this.clip(dl ex ey titleW 34.0)
         this.text(dl viewTitle (ex + 12.0) (ey + 10.0) 12.0 muted false)
         this.unclip(dl)
@@ -1270,57 +1386,15 @@ class StudioApp {
         ; top bar
         this.rect(dl 0.0 0.0 fw (to_double topH) bar)
         this.rect(dl 0.0 (to_double (topH - 1)) fw 1.0 line)
-        def tx:double 14.0
-        tx = (tx + (this.text(dl "Sliqtly Game Studio" tx 10.0 14.0 ink true)) + 16.0)
-        def proj:string (GamePreview.baseName(preview.root))
-        tx = (tx + (this.text(dl proj tx 11.0 13.0 accent false)) + 10.0)
-        if (preview.single == false) {
-            tx = (tx + (this.text(dl ("/ " + preview.gameId) tx 11.0 13.0 accent false)) + 10.0)
-        }
-        def labels:[string] ([] _:string ("Tallenna  ^S" "Käynnistä  F5"))
-        def bi:int 0
-        while (bi < 2) {
-            def bx:double (to_double (this.buttonX(bi)))
-            def bcol:EVGColor line
-            if ((bi == 0) && (this.dirty())) {
-                bcol = (EVGColor.rgb(61 89 161))
-            }
-            this.roundRect(dl bx 7.0 104.0 26.0 bcol 5.0)
-            def tb:StudioHit (new StudioHit)
-            tb.x = bx
-            tb.y = 7.0
-            tb.w = 104.0
-            tb.h = 26.0
-            tb.action = "restart"
-            if (bi == 0) {
-                tb.action = "save"
-            }
-            push hits tb
-            this.text(dl (itemAt labels bi) (bx + 10.0) 11.0 12.0 ink false)
-            bi = (bi + 1)
-        }
-        def cbx:double (to_double ((this.buttonX(0)) - 112))
-        def ccol:EVGColor (EVGColor.rgb(82 64 30))
-        def clabel:string "Sarjakuva"
-        if cartoon.active {
-            ccol = (EVGColor.rgb(61 89 161))
-            clabel = "Koodi ja peli"
-        }
-        this.roundRect(dl cbx 7.0 104.0 26.0 ccol 5.0)
-        this.text(dl clabel (cbx + 10.0) 11.0 12.0 ink false)
-        def cb:StudioHit (new StudioHit)
-        cb.x = cbx
-        cb.y = 7.0
-        cb.w = 104.0
-        cb.h = 26.0
-        cb.action = "cartoon"
-        push hits cb
+        this.syncChrome()
+        def cdl:EVGDisplayList (chrome.displayList())
         if cartoon.active {
             cartoon.X0 = 0.0
             cartoon.Y0 = (to_double topH)
             cartoon.W = fw
             cartoon.H = (fh - (to_double topH))
             cartoon.paint(dl preview.images)
+            StudioApp.append(dl cdl)
             return dl
         }
 
@@ -1428,7 +1502,7 @@ class StudioApp {
         ; centre: editor, status line and log
         def ex:double (to_double (this.editorX()))
         def ew:double (to_double (this.editorW()))
-        editor.setBounds((this.editorX()) topH (this.editorW()) (this.editorH()))
+        editor.setBounds((this.editorX()) (this.editorY()) (this.editorW()) (this.editorH()))
         if (this.viewing()) {
             this.paintView(dl)
         } {
@@ -1436,7 +1510,7 @@ class StudioApp {
             def blink:int (to_int ((sh_now_ms) / 500.0))
             editor.paint(dl ctx.tr blink)
         }
-        def sy:double (to_double (topH + (this.editorH())))
+        def sy:double (to_double ((this.editorY()) + (this.editorH())))
         this.rect(dl ex sy ew 24.0 bar)
         if commentMode {
             this.rect(dl ex sy ew 24.0 (EVGColor.rgb(52 44 22)))
@@ -1477,7 +1551,6 @@ class StudioApp {
         def gx:double (to_double (W - previewW))
         this.rect(dl (gx - 1.0) (to_double topH) 1.0 (fh - (to_double topH)) line)
         this.rect(dl gx (to_double topH) (to_double previewW) (to_double toolH) panel)
-        this.layoutToolbar(dl true)
         preview.paint(dl ctx.tr)
         if (focus == "game") {
             def fc:EVGDrawCmd (new EVGDrawCmd)
@@ -1496,7 +1569,59 @@ class StudioApp {
         if (preview.running == false) {
             this.text(dl preview.status (gx + 16.0) (to_double ((topH + toolH) + 16)) 12.0 warn false)
         }
+        ; the open documents' strip
+        this.rect(dl ex (to_double topH) ew (to_double docH) panel)
+        this.rect(dl ex (to_double ((topH + docH) - 1)) ew 1.0 line)
+        StudioApp.append(dl cdl)
         return dl
+    }
+
+    sfn append:void (dl:EVGDisplayList more:EVGDisplayList) {
+        def i:int 0
+        while (i < (array_length more.cmds)) {
+            push dl.cmds (itemAt more.cmds i)
+            i = (i + 1)
+        }
+    }
+
+    ; What the controls show, from the Studio's state.
+    fn syncChrome:void () {
+        def proj:string (GamePreview.baseName(preview.root))
+        if (preview.single == false) {
+            proj = (proj + " / " + preview.gameId)
+        }
+        def title:string ("Sliqtly Game Studio   " + proj)
+        if (title != chrome.titleText) {
+            chrome.titleW = ((ctx.tr.measureWidth(title 14.0)) * 1.08)
+        }
+        chrome.setTitle(title)
+        chrome.tick(16.0)
+        chrome.place((to_double W) (to_double H) (to_double topH) (to_double leftW) (to_double (this.editorW())) (to_double previewW) (to_double toolH))
+        chrome.docH = (to_double docH)
+        if cartoon.active {
+            chrome.setView("cartoon")
+        } {
+            chrome.setView("code")
+        }
+        chrome.setActions((this.dirty()) pulling)
+        def list:[StudioChromeDoc]
+        def i:int 0
+        while (i < (array_length docKeys)) {
+            def d:StudioChromeDoc (new StudioChromeDoc)
+            d.key = (itemAt docKeys i)
+            d.label = (itemAt docLabels i)
+            if ((d.key == ("file:" + openRel)) && (this.dirty())) {
+                d.label = (d.label + " *")
+            }
+            push list d
+            i = (i + 1)
+        }
+        chrome.setDocs(list activeDoc)
+        chrome.setPlay(preview.paused preview.speed commentMode)
+        chrome.setScenes(preview.scenes preview.currentScene)
+        if ((this.viewing()) == false) {
+            chrome.setDocAction("" "")
+        }
     }
 
     fn row:void (dl:EVGDisplayList index:int label:string col:EVGColor bold:boolean selected:boolean action:string) {
@@ -1718,6 +1843,17 @@ class StudioApp {
             sh_mcp_reply ("key " + key + " " + mode + " · frame " + (to_string preview.frames) + "\n" + (this.logTail(6))) 0
             return
         }
+        if (name == "click") {
+            def cx:int (to_int (?? (to_double (sh_mcp_arg "x")) 0.0))
+            def cy:int (to_int (?? (to_double (sh_mcp_arg "y")) 0.0))
+            this.clickChrome(cx cy)
+            def view:string "code"
+            if cartoon.active {
+                view = "cartoon"
+            }
+            sh_mcp_reply ("clicked " + (to_string cx) + "," + (to_string cy) + " (" + chrome.lastTid + ") · view " + view + " · document " + activeDoc + " · scene " + preview.currentScene + " · " + status) 0
+            return
+        }
         if (name == "tap") {
             def x:double (?? (to_double (sh_mcp_arg "x")) 0.0)
             def y:double (?? (to_double (sh_mcp_arg "y")) 0.0)
@@ -1826,6 +1962,7 @@ class StudioApp {
             push keys k
             k = (sh_pop_key)
         }
+        chrome.hover((to_double mx) (to_double my) true)
         if (pressed && (my < topH)) {
             this.clickChrome(mx my)
             return
@@ -2055,6 +2192,9 @@ class StudioApp {
         this.cartoonFrame()
         preview.watch()
         this.checkOpenFile()
+        if ((frameNo % 20) == 0) {
+            this.checkPull()
+        }
         if ((frameNo % 30) == 0) {
             this.checkComments()
         }
@@ -2159,6 +2299,7 @@ class StudioApp {
         if ((strlen fonts) > 0) {
             app.fontDir = fonts
         }
+        app.uiDir = ((sh_base_path) + "ui")
         app.initFonts()
         def ok:int (sh_open "Sliqtly Game Studio" app.W app.H hidden)
         if (ok == 0) {

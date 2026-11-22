@@ -1,0 +1,77 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+   Sliqtly Game Studio: its look over EVGUI's theme/base.css (loaded first).
+   Dark, compact, the Studio's colours: panel #161821, bar #1e202c, line
+   #303446, ink #ced6ea, accent #7aa2f7. */
+
+.ui-root {
+  padding: 0px;
+  gap: 0px;
+  background-color: rgba(0, 0, 0, 0);
+  font-family: "Open Sans";
+  font-size: 12px;
+}
+
+.studio-title { font-size: 14px; font-weight: bold; color: #ced6ea; }
+.studio-scene-label { font-size: 12px; color: #76809a; }
+
+/* view tabs and document tabs */
+.ui-tabs { gap: 0px; }
+.ui-tablist { gap: 4px; }
+.ui-tabpanel { display: none; }
+.ui-tab {
+  padding: 5px 12px;
+  border: 1px solid #303446;
+  border-radius: 5px;
+  background-color: #262938;
+  color: #aab3cc;
+  font-size: 12px;
+}
+.ui-tab:hover { background-color: #303446; }
+.ui-tab-state-active { background-color: #3d59a1; border-color: #3d59a1; color: #ffffff; }
+.ui-tab-state-active:hover { background-color: #3d59a1; }
+.ui-tab-closable { padding: 3px 4px 3px 10px; gap: 6px; }
+.ui-tab-name { height: 18px; line-height: 18px; }
+.ui-tab-close { color: #ced6ea; width: 16px; height: 16px; line-height: 16px; font-size: 12px; }
+.ui-tab-close:hover { background-color: rgba(255, 255, 255, 0.16); opacity: 1; }
+
+/* buttons */
+.ui-toolbar { gap: 4px; flex-wrap: nowrap; }
+.ui-tablist { flex-wrap: nowrap; }
+.ui-toolbar-button {
+  padding: 4px 9px;
+  border: 1px solid #303446;
+  border-radius: 5px;
+  background-color: #262938;
+  color: #ced6ea;
+  font-size: 12px;
+}
+.ui-toolbar-button:hover { background-color: #303446; }
+.ui-toolbar-button:active { background-color: #3b4260; }
+.ui-toolbar-button-state-on { background-color: #3d59a1; border-color: #3d59a1; color: #ffffff; }
+.ui-toolbar-button-state-on:hover { background-color: #4a68b5; }
+.ui-toolbar-separator { height: 18px; margin: 0px 3px; background-color: #303446; }
+
+/* the scene picker */
+.ui-select-trigger {
+  padding: 4px 10px;
+  border: 1px solid #2f5242;
+  border-radius: 5px;
+  background-color: #26403a;
+  color: #ced6ea;
+  min-width: 180px;
+}
+.ui-select-trigger:hover { background-color: #2f5242; }
+.ui-select-trigger:active { background-color: #36604c; }
+.ui-select-trigger:focus { background-color: #26403a; }
+.ui-select-value { color: #ced6ea; font-size: 12px; }
+.ui-select-content {
+  padding: 4px;
+  gap: 1px;
+  border: 1px solid #303446;
+  border-radius: 6px;
+  background-color: #1e202c;
+}
+.ui-select-item { padding: 4px 12px; border-radius: 4px; color: #ced6ea; font-size: 12px; }
+.ui-select-item:hover { background-color: #303446; }
+.ui-select-item:focus { background-color: #303446; }
+.ui-select-item-state-checked { background-color: #3d59a1; }

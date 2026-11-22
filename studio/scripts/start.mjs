@@ -52,12 +52,12 @@ if (missing.length) {
   process.exit(1);
 }
 
-if (!existsSync(join(studio, ".deps", "Ranger")) || !existsSync(join(studio, ".deps", "RangerGames")) || !existsSync(join(studio, ".deps", "EVGSheets"))) {
-  console.log("[studio] first run: fetching Ranger, EVGSheets and RangerGames into studio/.deps");
+if (!existsSync(join(studio, ".deps", "Ranger")) || !existsSync(join(studio, ".deps", "RangerGames")) || !existsSync(join(studio, ".deps", "EVGSheets")) || !existsSync(join(studio, ".deps", "EVGUI"))) {
+  console.log("[studio] first run: fetching Ranger, EVGSheets, EVGUI and RangerGames into studio/.deps");
   run("bash", ["scripts/setup.sh"]);
 }
 
-const sources = Math.max(newest(join(studio, "src")), newest(join(studio, "native")), statSync(join(studio, "scripts", "build.sh")).mtimeMs);
+const sources = Math.max(newest(join(studio, "src")), newest(join(studio, "native")), newest(join(studio, "ui")), statSync(join(studio, "scripts", "build.sh")).mtimeMs);
 const built = existsSync(exe) ? statSync(exe).mtimeMs : 0;
 if (built < sources || process.argv.includes("--rebuild")) {
   console.log(built ? "[studio] sources changed: building" : "[studio] building (about 2 minutes the first time)");
