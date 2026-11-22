@@ -667,15 +667,19 @@ namespace {
 struct Sphere {
   float x, y, w, h;      // page units
   float box[4];          // game units
-  float p[20];
-  float win[4];
-  int useWin;
-  GLuint tex;
+  float p[40];           // the command's numbers (20, 24, 32 or 40 of them)
+  int n;
+  GLuint tex, ltex, htex, gtex;  // map, city lights, shading heights, shape heights (0: none)
 };
 std::vector<Sphere> g_spheres;
 GLuint g_sphereProg = 0, g_sphereVao = 0, g_sphereVbo = 0;
-GLint g_su[16];
-enum { SU_TEX, SU_EYE, SU_RGT, SU_UPV, SU_FWD, SU_SUN, SU_BOX, SU_VIEW, SU_FOCAL, SU_NIGHT, SU_LIT, SU_WIN, SU_USEWIN, SU_RECT, SU_PAGE };
+const char* SU_NAMES[] = {"tex", "ltex", "htex", "gtex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "win", "view",
+                          "focal", "night", "lit", "useWin", "air", "lgain", "useL", "relief",
+                          "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "uRect", "uPage"};
+enum { SU_TEX, SU_LTEX, SU_HTEX, SU_GTEX, SU_EYE, SU_RGT, SU_UPV, SU_FWD, SU_SUN, SU_AIRC, SU_BOX, SU_WIN, SU_VIEW,
+       SU_FOCAL, SU_NIGHT, SU_LIT, SU_USEWIN, SU_AIR, SU_LGAIN, SU_USEL, SU_RELIEF,
+       SU_USEH, SU_HLO, SU_HHI, SU_HAMP, SU_NEARM, SU_HREL, SU_HFREQ, SU_CRAT, SU_RECT, SU_PAGE, SU_COUNT };
+GLint g_su[SU_COUNT];
 
 const char* SPHERE_VERT = R"GLSL(
 #version 150
@@ -690,34 +694,38 @@ void main() {
 }
 )GLSL";
 
+// web/js/painter.js SPHERE_FS (RangerGames), as GLSL 1.50: keep the two the same
 const char* SPHERE_FRAG = R"GLSL(
 #version 150
 in vec2 uv;
 out vec4 o;
-uniform sampler2D tex;
-uniform vec3 eye, rgt, upv, fwd, sun;
-uniform vec4 box, win;
-uniform vec2 view;
-uniform float focal, night, lit, useWin;
-void main() {
-  vec2 px = box.xy + uv * box.zw;
-  vec3 d = normalize(fwd * focal + rgt * (px.x - view.x * 0.5) - upv * (px.y - view.y * 0.5));
-  float b = dot(eye, d); vec3 q = eye - b * d; float disc = 1.0 - dot(q, q);
-  if (disc < 0.0 || -b < sqrt(disc)) discard;
-  vec3 p = normalize(q - sqrt(disc) * d);
-  float u = atan(p.y, p.x) / 6.2831853 + 0.5; float v = 0.5 - asin(clamp(p.z, -1.0, 1.0)) / 3.1415927;
-  float u2 = fract(u + 0.5) - 0.5; vec2 du = vec2(dFdx(u), dFdy(u)); vec2 du2 = vec2(dFdx(u2), dFdy(u2));
-  if (dot(du2, du2) < dot(du, du)) du = du2;
-  vec2 dv = vec2(dFdx(v), dFdy(v));
-  if (useWin > 0.5) {
-    float uw = u; if (uw < win.x) uw += 1.0; else if (uw > win.z) uw -= 1.0;
-    if (uw < win.x || uw > win.z || v < win.y || v > win.w) discard;
-    vec2 k = 1.0 / (win.zw - win.xy); u = (uw - win.x) * k.x; v = (v - win.y) * k.y; du *= k.x; dv *= k.y;
-  }
-  vec3 c = textureGrad(tex, vec2(u, v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;
-  if (lit > 0.5) { float s = dot(p, sun); c *= mix(1.0 - night, 1.0, smoothstep(-0.06, 0.3, s)) * (0.8 + 0.2 * max(s, 0.0)); }
-  o = vec4(c, 1.0);
-}
+uniform sampler2D tex, ltex, htex, gtex; uniform vec3 eye, rgt, upv, fwd, sun, airc; uniform vec4 box, win; uniform vec2 view;
+uniform float focal, night, lit, useWin, air, lgain, useL, relief;
+uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat;
+vec4 airGlow(vec3 d, vec3 lo, float alt, float len, bool hit) {  float up = dot(normalize(lo), sun);  float day = smoothstep(-0.28, 0.12, up);  float fw = pow(max(dot(d, sun), 0.0), 10.0) * smoothstep(-0.45, 0.02, up);  float dusk = smoothstep(-0.3, -0.02, up) * (1.0 - smoothstep(0.0, 0.25, up));  float dens = exp(-alt * 4.5) * (1.0 - alt);  float depth = dens * len / (air * 2.0);  float a = clamp(depth * (0.55 * day + 2.6 * fw + 0.25 * dusk), 0.0, 1.0);  vec3 col = airc * (0.7 + 0.6 * day) + vec3(1.0, 0.96, 0.9) * fw * 3.0 + vec3(1.0, 0.55, 0.3) * dusk * 0.8;  return vec4(col, a);}
+float lum(vec2 t) { vec3 c = texture(tex, t).rgb; return dot(c, vec3(0.3, 0.5, 0.2)); }
+vec2 lonlat(vec3 p) { return vec2(atan(p.y, p.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(p.z, -1.0, 1.0)) / 3.1415927); }
+// GLSL 1.50 leaves uint(negative int) undefined (Mesa gives 0): keep the bits by hand
+uint u32(int x) { return uint(x + 1073741824) - 1073741824u; }
+uint hsh(ivec3 c) { uint h = (u32(c.x) * 0x8da6b343u) ^ (u32(c.y) * 0xd8163841u) ^ (u32(c.z) * 0xcb1ab31fu);  h ^= h >> 16u; h *= 0x7feb352du; h ^= h >> 15u; h *= 0x846ca68bu; h ^= h >> 16u; return h; }
+float hv(ivec3 c) { return float(hsh(c) >> 8u) / 16777215.0; }
+float vnoise(vec3 x) { vec3 f = floor(x); ivec3 c = ivec3(f); vec3 t = x - f; t = t * t * (3.0 - 2.0 * t);  float a = mix(hv(c), hv(c + ivec3(1, 0, 0)), t.x), b = mix(hv(c + ivec3(0, 1, 0)), hv(c + ivec3(1, 1, 0)), t.x);  float e = mix(hv(c + ivec3(0, 0, 1)), hv(c + ivec3(1, 0, 1)), t.x), g = mix(hv(c + ivec3(0, 1, 1)), hv(c + ivec3(1, 1, 1)), t.x);  return mix(mix(a, b, t.y), mix(e, g, t.y), t.z); }
+float crater(vec3 p, float f, int o) { vec3 x = p * f + vec3(0.37, 0.61, 0.19) * float(o & 1); vec3 fc = floor(x); ivec3 c = ivec3(fc);  uint h = hsh(ivec3(c.x + 1000 * (o + 1), c.y, c.z)); if ((h & 255u) >= 170u) return 0.0;  uint g = hsh(ivec3(c.x, c.y + 7919, c.z + 31 * o));  vec3 j = vec3(float((h >> 8u) & 255u), float((h >> 16u) & 255u), float((g >> 8u) & 255u)) / 255.0 * 0.5 + 0.25;  float rr = 0.08 + 0.1 * float(g & 255u) / 255.0; float dd = length(x - fc - j) / rr;  if (dd >= 1.4) return 0.0;  float k = rr / f; float b = dd < 1.0 ? 0.4 * (dd * dd - 1.0) + 0.08 * smoothstep(0.6, 1.0, dd) : 0.08 * (1.0 - smoothstep(1.0, 1.4, dd));  return b * k; }
+float bumps(vec3 p, int n) { if (hamp <= 0.0) return 0.0; float s = 0.0, a = 1.0, f = hfreq;  for (int k = 0; k < 9; k++) { if (k >= n) break; s += a * (2.0 * vnoise(p * f) - 1.0); a *= 0.48; f *= 2.03; }  float cr = 0.0; if (crat > 0.0) { float cf = hfreq * 0.9; int nc = n >= 5 ? n - 2 : max(n - 2, 1);    for (int k = 0; k < 7; k++) { if (k >= nc) break; cr += crater(p, cf, 2 * k) + crater(p, cf, 2 * k + 1); cf *= 2.7; } }  return s * hamp + cr * crat; }
+float dec(vec4 c) { return (c.r * 65280.0 + c.g * 255.0) / 65535.0; }
+// the shape read bilinearly by hand, like the game reads it: GPUs' own filtering weighs the texels in 1/256 steps,
+// and those small terraces cast false shadows when the sun is low
+float shape(vec2 t) { ivec2 sz = textureSize(gtex, 0); vec2 x = t * vec2(sz) - 0.5; vec2 f = floor(x); vec2 a = x - f;
+  int i0 = int(f.x) % sz.x; if (i0 < 0) i0 += sz.x; int i1 = (i0 + 1) % sz.x;
+  int j0 = clamp(int(f.y), 0, sz.y - 1), j1 = clamp(int(f.y) + 1, 0, sz.y - 1);
+  float top = mix(dec(texelFetch(gtex, ivec2(i0, j0), 0)), dec(texelFetch(gtex, ivec2(i1, j0), 0)), a.x);
+  float bot = mix(dec(texelFetch(gtex, ivec2(i0, j1), 0)), dec(texelFetch(gtex, ivec2(i1, j1), 0)), a.x);
+  return mix(top, bot, a.y); }
+float ground(vec3 p, int n) { return 1.0 + hlo + (hhi - hlo) * shape(lonlat(p)) + bumps(p, n); }
+float shadeH(vec3 p, float lod) { return (hhi - hlo) * dec(textureLod(htex, lonlat(p), lod)); }
+bool march(vec3 d, float pix, out float t) {  float Ro = 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq, Ri = 1.0 + hlo - 2.0 * hamp - 0.25 * crat / hfreq;  float bq = dot(eye, d), ee = dot(eye, eye); float ds = bq * bq - ee + Ro * Ro;  t = 0.0; if (ds < 0.0) return false;  float t0 = max(0.0, -bq - sqrt(ds)), t1 = -bq + sqrt(ds);  float di = bq * bq - ee + Ri * Ri; if (di > 0.0 && -bq - sqrt(di) > 0.0) t1 = min(t1, -bq - sqrt(di));  if (t1 <= t0) return false;  float tp = t0; t = t0; bool hit = false;  for (int i = 0; i < 160; i++) {    vec3 x = eye + d * t; float r = length(x); float f = r - ground(x / r, 3);    if (f < 0.0) { hit = true; break; }    if (f < t * pix * 0.3) { hit = true; tp = t; break; }    tp = t; t += max(f * 0.55, t * pix * 0.4);    if (t > t1) return false;  }  if (!hit) return false;  float a = tp, b = t;  for (int i = 0; i < 7; i++) { float m = (a + b) * 0.5; vec3 x = eye + d * m; float r = length(x);    if (r - ground(x / r, 5) < 0.0) b = m; else a = m; }  t = b; return true;}
+float sunRay(vec3 x, float sz) {  float k = 1.0, t = max(sz * 4.0, 2e-6);  for (int i = 0; i < 28; i++) { vec3 y = x + sun * t; float r = length(y); if (r > 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq) break;    float h = r - ground(y / r, 4); k = min(k, 10.0 * h / t); if (k < 0.0) return 0.0; t *= 1.3; }  return clamp(k, 0.0, 1.0);}
+void main() {  vec2 px = box.xy + uv * box.zw;  vec3 d = normalize(fwd * focal + rgt * (px.x - view.x * 0.5) - upv * (px.y - view.y * 0.5));  float b = dot(eye, d); vec3 q = eye - b * d; float q2 = dot(q, q); float disc = 1.0 - q2;  bool terr = useH > 0.5 && nearM > 0.5; float pix = 1.0 / focal; float th = 0.0;  bool hit = terr ? march(d, pix, th) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));  if (!hit) {    float R = 1.0 + air;    if (air <= 0.0 || useWin > 0.5 || q2 >= R * R || -b < 0.0) discard;    float hq = sqrt(q2);    vec4 g = airGlow(d, q, max(hq - 1.0, 0.0) / air, 2.0 * sqrt(R * R - q2), false);    if (g.a < 0.003) discard;    o = vec4(min(g.rgb, vec3(1.0)) * g.a, g.a); return;  }  if (!terr) th = -b - sqrt(max(disc, 0.0));  vec3 p = normalize(eye + d * th);  vec2 uvw = lonlat(p); float u = uvw.x, v = uvw.y;  float u2 = fract(u + 0.5) - 0.5; vec2 du = vec2(dFdx(u), dFdy(u)); vec2 du2 = vec2(dFdx(u2), dFdy(u2));  if (dot(du2, du2) < dot(du, du)) du = du2;  vec2 dv = vec2(dFdx(v), dFdy(v));  float fp = max(th * pix, 1e-7);  if (terr) { float k = fp / 6.2831853 / max(0.05, sqrt(1.0 - p.z * p.z)); du = vec2(k, 0.0); dv = vec2(0.0, fp / 3.1415927); }  if (useWin > 0.5) {    float uw = u; if (uw < win.x) uw += 1.0; else if (uw > win.z) uw -= 1.0;    if (uw < win.x || uw > win.z || v < win.y || v > win.w) discard;    vec2 k = 1.0 / (win.zw - win.xy); u = (uw - win.x) * k.x; v = (v - win.y) * k.y; du *= k.x; dv *= k.y;  }  vec3 c = textureGrad(tex, vec2(u, v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;  vec3 n = p;  vec3 east = normalize(vec3(-p.y, p.x, 0.0) + vec3(1e-6, 0.0, 0.0)); vec3 north = cross(p, east);  if (useH > 0.5) {    float ta = 6.2831853 / float(textureSize(htex, 0).x); float eps = max(fp, ta * 0.5);    float lod = max(0.0, log2(eps / ta)); int nb = 0;    if (terr) { nb = 5; float wl = 1.0 / (hfreq * pow(2.03, 5.0)); for (int k = 0; k < 4; k++) { if (wl < fp * 3.0) break; nb++; wl /= 2.03; } }    float gx = (shadeH(normalize(p + east * eps), lod) - shadeH(normalize(p - east * eps), lod)) / (2.0 * eps);    float gy = (shadeH(normalize(p + north * eps), lod) - shadeH(normalize(p - north * eps), lod)) / (2.0 * eps);    vec3 tl = hrel * (gx * east + gy * north);    if (nb > 0) { float eb = max(fp, 1e-7);      tl += (bumps(normalize(p + east * eb), nb) - bumps(normalize(p - east * eb), nb)) / (2.0 * eb) * east        + (bumps(normalize(p + north * eb), nb) - bumps(normalize(p - north * eb), nb)) / (2.0 * eb) * north; }    n = normalize(p - tl);  } else if (relief != 0.0) {    vec2 ts = 1.0 / vec2(textureSize(tex, 0)); float clat = max(0.05, sqrt(1.0 - p.z * p.z));    float hx = (lum(vec2(u + ts.x, v)) - lum(vec2(u - ts.x, v))) / (2.0 * ts.x * 6.2831853 * clat);    float hy = (lum(vec2(u, v - ts.y)) - lum(vec2(u, v + ts.y))) / (2.0 * ts.y * 3.1415927);    n = normalize(p - relief * (hx * east + hy * north));  }  float s = dot(p, sun);  if (lit > 0.5 && useH > 0.5) {    float sn = dot(n, sun); float k = smoothstep(-0.04, terr ? 0.22 : 0.3, s) * clamp(sn / max(s, 0.06), 0.0, 1.6);    if (terr && k > 0.0 && sn > 0.0) k *= sunRay(eye + d * th, fp);    c *= mix(1.0 - night, 1.0, min(k, 1.25));  } else if (lit > 0.5) { float sn = dot(n, sun); float k = smoothstep(-0.06, 0.3, s); if (relief != 0.0) k *= smoothstep(-0.25, 0.2, sn) * (0.55 + 0.45 * smoothstep(0.0, 0.6, sn / max(s, 0.05)));    c *= mix(1.0 - night, 1.0, k) * (0.8 + 0.2 * max(sn, 0.0)); }  if (useL > 0.5 && lit > 0.5) {    vec3 L = texture(ltex, lonlat(p)).rgb; c += L * vec3(1.0, 0.88, 0.65) * lgain * (1.0 - smoothstep(-0.12, 0.06, s));  }  if (air > 0.0 && useWin < 0.5) {    float R = 1.0 + air; float t0 = -b - sqrt(max(R * R - q2, 0.0));    vec4 g = airGlow(d, p, 0.0, max(th - max(t0, 0.0), 0.0), true);    c = mix(c, g.rgb, g.a * 0.85);  }  o = vec4(min(c, vec3(1.0)), 1.0);}
 )GLSL";
 
 bool sphereInit() {
@@ -736,8 +744,7 @@ bool sphereInit() {
   glGetProgramiv(p, GL_LINK_STATUS, &ok);
   if (ok != GL_TRUE) { std::fprintf(stderr, "[evggl] sphere link failed\n"); return false; }
   g_sphereProg = p;
-  const char* names[] = {"tex", "eye", "rgt", "upv", "fwd", "sun", "box", "view", "focal", "night", "lit", "win", "useWin", "uRect", "uPage"};
-  for (int i = 0; i <= SU_PAGE; i++) g_su[i] = glGetUniformLocation(p, names[i]);
+  for (int i = 0; i < SU_COUNT; i++) g_su[i] = glGetUniformLocation(p, SU_NAMES[i]);
   const float corners[] = {0, 0, 1, 0, 0, 1, 1, 1};
   glGenVertexArrays(1, &g_sphereVao);
   glBindVertexArray(g_sphereVao);
@@ -753,46 +760,86 @@ bool sphereInit() {
 
 static void studio_spheres_clear() { g_spheres.clear(); }
 
+static void bindTex(int unit, GLuint t) {
+  glActiveTexture(GL_TEXTURE0 + unit);
+  glBindTexture(GL_TEXTURE_2D, t);
+}
+
 static void studio_draw_sphere(int idx) {
   if (idx < 0 || idx >= (int)g_spheres.size() || !sphereInit()) return;
   const Sphere& s = g_spheres[(size_t)idx];
+  const float* p = s.p;
+  bool w32 = s.n >= 32, w40 = s.n >= 40 && s.htex && s.gtex;
+  bool useWin = w32 ? p[24] > 0.5f : s.n >= 24;
   glUseProgram(g_sphereProg);
   glBindVertexArray(g_sphereVao);
+  bindTex(0, s.tex);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, useWin ? GL_CLAMP_TO_EDGE : GL_REPEAT);
+  bindTex(1, s.ltex);
+  bindTex(2, w40 ? s.htex : 0);
+  bindTex(3, w40 ? s.gtex : 0);
+  // the shape is read bilinearly at its own size (as the game reads it)
+  if (w40) glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, s.tex);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, s.useWin ? GL_CLAMP_TO_EDGE : GL_REPEAT);
-  glUniform1i(g_su[SU_TEX], 0);
-  glUniform3f(g_su[SU_EYE], s.p[0], s.p[1], s.p[2]);
-  glUniform3f(g_su[SU_RGT], s.p[3], s.p[4], s.p[5]);
-  glUniform3f(g_su[SU_UPV], s.p[6], s.p[7], s.p[8]);
-  glUniform3f(g_su[SU_FWD], s.p[9], s.p[10], s.p[11]);
-  glUniform3f(g_su[SU_SUN], s.p[12], s.p[13], s.p[14]);
-  glUniform1f(g_su[SU_FOCAL], s.p[15]);
-  glUniform2f(g_su[SU_VIEW], s.p[16], s.p[17]);
-  glUniform1f(g_su[SU_NIGHT], s.p[18]);
-  glUniform1f(g_su[SU_LIT], s.p[19]);
+  for (int i = 0; i < 4; i++) glUniform1i(g_su[SU_TEX + i], i);
+  glUniform3f(g_su[SU_EYE], p[0], p[1], p[2]);
+  glUniform3f(g_su[SU_RGT], p[3], p[4], p[5]);
+  glUniform3f(g_su[SU_UPV], p[6], p[7], p[8]);
+  glUniform3f(g_su[SU_FWD], p[9], p[10], p[11]);
+  glUniform3f(g_su[SU_SUN], p[12], p[13], p[14]);
+  glUniform1f(g_su[SU_FOCAL], p[15]);
+  glUniform2f(g_su[SU_VIEW], p[16], p[17]);
+  glUniform1f(g_su[SU_NIGHT], p[18]);
+  glUniform1f(g_su[SU_LIT], p[19]);
+  glUniform1f(g_su[SU_USEWIN], useWin ? 1.f : 0.f);
+  glUniform4f(g_su[SU_WIN], useWin ? p[20] : 0.f, useWin ? p[21] : 0.f, useWin ? p[22] : 1.f, useWin ? p[23] : 1.f);
+  glUniform1f(g_su[SU_AIR], w32 ? p[25] : 0.f);
+  glUniform3f(g_su[SU_AIRC], w32 ? p[26] : 0.f, w32 ? p[27] : 0.f, w32 ? p[28] : 0.f);
+  glUniform1f(g_su[SU_LGAIN], w32 ? p[29] : 0.f);
+  glUniform1f(g_su[SU_USEL], s.ltex ? 1.f : 0.f);
+  glUniform1f(g_su[SU_RELIEF], w32 ? p[30] : 0.f);
+  glUniform1f(g_su[SU_USEH], w40 ? 1.f : 0.f);
+  glUniform1f(g_su[SU_HLO], w40 ? p[32] : 0.f);
+  glUniform1f(g_su[SU_HHI], w40 ? p[33] : 0.f);
+  glUniform1f(g_su[SU_HAMP], w40 ? p[34] : 0.f);
+  glUniform1f(g_su[SU_NEARM], w40 ? p[35] : 0.f);
+  glUniform1f(g_su[SU_HREL], w40 ? p[36] : 0.f);
+  glUniform1f(g_su[SU_HFREQ], w40 ? p[37] : 1.f);
+  glUniform1f(g_su[SU_CRAT], w40 ? p[38] : 0.f);
   glUniform4f(g_su[SU_BOX], s.box[0], s.box[1], s.box[2], s.box[3]);
-  glUniform4f(g_su[SU_WIN], s.win[0], s.win[1], s.win[2], s.win[3]);
-  glUniform1f(g_su[SU_USEWIN], s.useWin ? 1.f : 0.f);
   glUniform4f(g_su[SU_RECT], s.x, s.y, s.w, s.h);
   glUniform2f(g_su[SU_PAGE], (float)g_pageW, (float)g_pageH);
+  // the glowing air comes out premultiplied
+  glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
   glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glBindVertexArray(0);
 }
 
+static GLuint cachedTex(double key) {
+  if (key <= 0) return 0;
+  auto it = g_cachedTex.find((int)key);
+  return it == g_cachedTex.end() ? 0 : it->second;
+}
+
+// params: the command's numbers, then three picture keys (city lights,
+// shading heights, shape heights; 0: none), so n is the count + 3
 extern "C" void evggl_sphere(float x, float y, float w, float h, int key,
                              float bx, float by, float bw, float bh,
                              const double* params, int n) {
   auto it = g_cachedTex.find(key);
-  if (it == g_cachedTex.end() || n < 20) return;
+  int np = n - 3;
+  if (it == g_cachedTex.end() || np < 20) return;
   flushQuadRun();
   Sphere s{};
   s.x = x; s.y = y; s.w = w; s.h = h;
   s.box[0] = bx; s.box[1] = by; s.box[2] = bw; s.box[3] = bh;
-  for (int i = 0; i < 20; i++) s.p[i] = (float)params[i];
-  s.useWin = n >= 24 ? 1 : 0;
-  for (int i = 0; i < 4; i++) s.win[i] = s.useWin ? (float)params[20 + i] : 0.f;
+  s.n = np > 40 ? 40 : np;
+  for (int i = 0; i < s.n; i++) s.p[i] = (float)params[i];
   s.tex = it->second;
+  s.ltex = cachedTex(params[np]);
+  s.htex = cachedTex(params[np + 1]);
+  s.gtex = cachedTex(params[np + 2]);
   g_spheres.push_back(s);
   QuadRun run;
   run.start = -1 - (int)(g_spheres.size() - 1);

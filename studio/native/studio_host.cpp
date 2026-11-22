@@ -69,6 +69,7 @@ int32_t rg_eval(const uint8_t* p, size_t n);
 void rg_studio_reset();
 void rg_textures(int32_t on);
 void rg_detail(int32_t on);
+void rg_terrain(int32_t on);
 int32_t rg_restyle();
 }
 
@@ -444,9 +445,10 @@ void sh_rg_put_text(const std::string& vfsPath, const std::string& text) {
     put_bytes(vfsPath, (const uint8_t*)text.data(), text.size());
 }
 int sh_rg_start(const std::string& id) {
-    // the Studio draws textured globes and their detail pictures (kind 8)
+    // the Studio draws textured globes, their detail pictures and real heights (kind 8)
     rg_textures(1);
     rg_detail(1);
+    rg_terrain(1);
     return rg_start((const uint8_t*)id.data(), id.size());
 }
 void sh_rg_resize(double w, double h) { rg_resize(w, h); }
