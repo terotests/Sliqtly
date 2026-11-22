@@ -6,15 +6,18 @@
 #   .deps/Ranger        the Ranger compiler, the gallery's text editor, fonts
 #                       and UI context; lib/evg and lib/image (its own deps step)
 #   .deps/EVGSheets     the code editor (datagrid/src/script, AGPL)
+#   .deps/EVGUI         the controllers the Studio's controls are built from
+#                       (TabsCtl, ToolbarCtl, SelectCtl) and theme/base.css
 #   .deps/RangerGames   the game engine (crates/rg_engine), linked as a static
 #                       library; its own setup fetches its dependencies
 #
-# Needs git, node and cargo. RANGER_DIR / EVGSHEETS_DIR / RANGERGAMES_DIR set
+# Needs git, node and cargo. RANGER_DIR / EVGSHEETS_DIR / EVGUI_DIR / RANGERGAMES_DIR set
 # to existing checkouts are linked instead of cloned.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 RANGER_REV=ab06d5c3bfd80efa67e390901a9a52455f67a7b1
 EVGSHEETS_REV=ab5dd0340a8290732f27af03833e13d5b71876f5
+EVGUI_REV=4fa46f9b97a7ca15dec38ae2503afb919ef4ba7a
 RANGERGAMES_REV=c41220bacd4fe78500fae840edcfa99f3f9fa9b9
 mkdir -p .deps
 
@@ -35,6 +38,7 @@ link_or_fetch() { # name env-var url rev
 
 link_or_fetch Ranger RANGER_DIR https://github.com/terotests/Ranger.git "$RANGER_REV"
 link_or_fetch EVGSheets EVGSHEETS_DIR https://github.com/terotests/EVGSheets.git "$EVGSHEETS_REV"
+link_or_fetch EVGUI EVGUI_DIR https://github.com/terotests/EVGUI.git "$EVGUI_REV"
 link_or_fetch RangerGames RANGERGAMES_DIR https://github.com/terotests/RangerGames.git "$RANGERGAMES_REV"
 
 if [[ ! -e .deps/Ranger/lib/evg/EVGDisplayList.rgr ]]; then
