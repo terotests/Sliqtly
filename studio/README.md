@@ -72,21 +72,43 @@ sliqtly-studio <folder> [--game id] [--file rel] [--size WxH]
 - The controls are EVGUI controllers (`TabsCtl`, `ToolbarCtl`, `SelectCtl`),
   styled by EVGUI's `theme/base.css` and the Studio's `ui/studio.css`
   (`src/StudioChrome.rgr`). The top bar has the view tabs **Koodi ja peli** and
-  **Sarjakuva**, and **Tallenna**, **Käynnistä** and **Päivitä webistä**.
+  **Sarjakuva**, and **Tallenna**, **Käynnistä**, **Hae Sliqtlystä** and **Lähetä Sliqtlyyn**.
 - Open files, pictures and comments are tabs above the editor. Click a tab to
   switch to it; its × (or Esc on a picture) closes it. Up to 10 stay open.
 
-### Päivitä webistä: the newest version from Sliqtly Games
+### Hae Sliqtlystä / Lähetä Sliqtlyyn: the game on Sliqtly Games
 
-**Päivitä webistä** (or `npm run studio:pull -- <game folder>`) fetches the
+**Hae Sliqtlystä** (or `npm run studio:pull -- <game folder>`) fetches the
 newest files of the game from Sliqtly Games through its preview link
 (`https://sliqtly.com/games/p/<token>`, `get_game` gives it as `preview_url`).
 The first time, copy the link to the clipboard and press the button (or give
 it once: `npm run studio:pull -- <link> <game folder>`); it is saved in
 `<game>/.studio/source.json`. Only files that differ are written, so hot
 reload keeps the game running. A local file changed after the last pull is
-first copied to `.studio/backup/<time>/`; files only on disk stay. The output
-goes to the log and `.studio/pull.log`.
+first copied to `.studio/backup/<time>/`; files only on disk stay. What
+Sliqtly Games has is noted in `.studio/manifest.json`.
+
+**Lähetä Sliqtlyyn** (or `npm run studio:push -- <upload address> <game folder>`)
+sends the files that differ from what Sliqtly Games has, one by one, to the
+game's upload address: `https://sliqtly.com/games/u/<token>`, which Sliqtly
+Games' `upload_url` tool gives and which works for 30 minutes. Copy it to the
+clipboard and press the button; the Studio remembers it for 25 minutes. An
+agent can call the Studio's MCP tool `push` with it. `--all` compares with the
+game on Sliqtly Games byte for byte first, `--dry` only lists. Files over
+8 MB are not sent; files only on Sliqtly Games are listed, not deleted. The
+output goes to the log and `.studio/push.log`.
+
+A game whose web version is built (tiles, compressed pictures, a bundle) says
+so in its `studio.json`:
+
+```json
+{ "publish": { "before": "node tools/tiles.mjs", "from": "dist", "skip": ["raw/", "*.psd"] } }
+```
+
+`before` runs in the game folder first (a failure stops the push), `from` is
+the folder that is sent (default the game folder), `skip` leaves paths out (a
+prefix ending in `/`, `*.ext`, or a path). `studio.json`, dot files and
+`node_modules` are never sent.
 
 ### Scenes, hot reload, fast forward
 
@@ -246,6 +268,7 @@ claude mcp add sliqtly-studio -- /path/to/build/sliqtly-studio ~/games/my-game -
 | `log` | the last lines of the log |
 | `set_speed` | speed (1–256 frames per window frame) and pause |
 | `press_key`, `tap` | a key (KeyboardEvent.key name) or a tap in game coordinates |
+| `push` | send the changed files to Sliqtly Games (`upload_url` address, optional `all`) |
 | `click` | a click on the Studio window itself (tabs, buttons, scene picker, file list), window pixels |
 | `comments_list`, `comment_add`, `comment_done` | the comments above |
 | `list_assets` | files of the game and its resource folders, with pixel sizes |
@@ -274,7 +297,7 @@ private.
 | --- | --- |
 | Window, layout, input, file watching, save, open tabs, pull | `src/StudioApp.rgr` |
 | The controls: EVGUI controllers in one UiHost, laid out by EVGLayout | `src/StudioChrome.rgr`, `ui/studio.css` |
-| Pull a game from Sliqtly Games by its preview link | `scripts/pull.mjs` |
+| Pull a game from Sliqtly Games by its preview link, push changed files to it | `scripts/pull.mjs`, `scripts/push.mjs`, `scripts/pack.mjs` |
 | The engine: mounts, sync with disk, draw stream to EVG commands | `src/GamePreview.rgr` |
 | EVG display list to OpenGL (text atlas, pictures on the GPU, paths) | `src/StudioPainter.rgr` |
 | Picture cache (stb_image natively, WebP with Ranger's decoder) | `src/StudioImages.rgr` |

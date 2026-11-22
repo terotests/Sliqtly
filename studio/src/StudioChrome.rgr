@@ -149,8 +149,8 @@ class StudioChrome {
         }
     }
 
-    fn setActions:void (unsaved:boolean pulling:boolean) {
-        def sig:string ((to_string unsaved) + (to_string pulling))
+    fn setActions:void (unsaved:boolean job:string) {
+        def sig:string ((to_string unsaved) + job)
         if (sig == actionSig) {
             return
         }
@@ -158,16 +158,24 @@ class StudioChrome {
         dirty = true
         clear actions.items
         def vals:[string]
-        actions.addItem("save" "Tallenna  Ctrl+S" false)
+        def busy:boolean ((strlen job) > 0)
+        actions.addItem("save" "Tallenna" false)
         push vals "save"
-        actions.addItem("restart" "Käynnistä  F5" false)
+        actions.addItem("restart" "Käynnistä" false)
         push vals "restart"
-        def pullName:string "Päivitä webistä"
-        if pulling {
+        actions.addSeparator()
+        def pullName:string "Hae Sliqtlystä"
+        if (job == "pull") {
             pullName = "Haetaan..."
         }
-        actions.addItem("pull" pullName pulling)
+        actions.addItem("pull" pullName busy)
         push vals "pull"
+        def pushName:string "Lähetä Sliqtlyyn"
+        if (job == "push") {
+            pushName = "Lähetetään..."
+        }
+        actions.addItem("push" pushName busy)
+        push vals "push"
         actionValues = vals
         actions.build()
         if unsaved {
