@@ -940,6 +940,26 @@ class GamePreview {
                         push c.pts (sh_rg_draw_at (e + gi))
                         gi = (gi + 1)
                     }
+                    ; then the keys of the other pictures (0: none): city
+                    ; lights (string 2), and the heights "shading|shape"
+                    ; (string 3, with 40 numbers)
+                    def lightsKey:double 0.0
+                    if ((nx >= 32) && (s1 >= 0)) {
+                        lightsKey = (this.globeKey((sh_rg_string s1)))
+                    }
+                    def shadeKey:double 0.0
+                    def shapeKey:double 0.0
+                    if ((nx >= 40) && (s2 >= 0)) {
+                        def hs:string (sh_rg_string s2)
+                        def bar:int (indexOf hs "|")
+                        if (bar > 0) {
+                            shadeKey = (this.globeKey((substring hs 0 bar)))
+                            shapeKey = (this.globeKey((substring hs (bar + 1) (strlen hs))))
+                        }
+                    }
+                    push c.pts lightsKey
+                    push c.pts shadeKey
+                    push c.pts shapeKey
                     push dl.cmds c
                 }
             }
@@ -956,6 +976,18 @@ class GamePreview {
         cmdsLast = count
         dumpNext = false
         this.takeImageProblems()
+    }
+
+    ; a globe's other picture on the GPU, by its key (0: none or unreadable)
+    fn globeKey:double (src:string) {
+        if ((strlen src) == 0) {
+            return 0.0
+        }
+        def img:StudioImage (images.get(src (this.diskFor(src))))
+        if (images.ensureUploaded(img)) {
+            return (to_double img.key)
+        }
+        return 0.0
     }
 
     fn paintImage:void (dl:EVGDisplayList c:EVGDrawCmd src:string flags:int hasCrop:boolean c0:double c1:double c2:double c3:double hasTile:boolean tx0:double ty0:double tw:double th:double) {
