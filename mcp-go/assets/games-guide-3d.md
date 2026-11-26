@@ -101,3 +101,40 @@ Scope, CC BY 4.0: credit "Solar System Scope" in the game).
 A game made in the RangerGames repository is brought here file by file without base64:
 `{ path: "models/m-kibo.glb", library: "games/marsiin/models/m-kibo.glb" }` copies a file of that
 game's pack in the RangerGames build (`packs/<game>.rgpk`, published from its main branch).
+
+A game's own shader: a `.glsl` file with only functions (no `#version`, no `main`) for a hook
+the engine offers; the engine wraps it, so it runs the same on the web, Android and Quest.
+Today the hook is `liquid` for `shape: "splats"` (a baked `.rgps` particle run):
+
+```tsx
+rg.shader("magma", { src: "shaders/magma.glsl", kind: "liquid" });
+rg.three("add", { id: "m", shape: "splats", src: "theia.rgps",
+  material: { shader: "magma", u: { glow: 1.6, crust: 0.5 } } });
+```
+
+```glsl
+uniform float u_glow;   // material.u.glow: u_ + the name, 1 to 4 numbers
+uniform float u_crust;
+vec4 liquid(Fluid f) {  // f.n f.thick f.temp f.view f.sun f.t f.uv f.pal f.edge
+  float n = fbm(vec3(f.uv * 18.0, f.t * 0.3), 4);
+  float crust = smoothstep(0.1, 0.5, n + u_crust - f.temp);
+  vec3 c = mix(heat(f.temp * 1.1) * u_glow, vec3(0.12, 0.09, 0.08), crust);
+  return vec4(c, f.edge);   // colour and coverage, not premultiplied
+}
+```
+
+Kind `surface` paints a textured planet (`rg.three("planet", { texture, material })`): the hook
+`vec3 surface(Surface s)` gets `s.p` (the point, unit), `s.n`, `s.uv`, `s.col` (what the engine drew,
+lit), `s.sun`, `s.view`, `s.t` (the planet's `flowTime`), `s.light`, `s.day`, and returns the colour:
+
+```glsl
+uniform float u_glow;
+vec3 surface(Surface s) {
+  float crack = 1.0 - smoothstep(0.0, 0.035, abs(fbm(s.p * 3.0, 5)));
+  return s.col * (1.0 - crack * 0.8) + heat(0.55 + 0.45 * crack) * u_glow * crack;
+}
+```
+
+The library (`hash1` `hash2` `vnoise` `fbm` `curl2` `curl3`, `heat`, `fresnel` `aaStep`) is already
+included. Errors go to the game's log with the file's own lines (`shaders/magma.glsl:5: ...`) and the
+engine's own look is drawn instead. The screenshot tool draws without the shader.
