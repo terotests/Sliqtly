@@ -123,6 +123,18 @@ vec4 liquid(Fluid f) {  // f.n f.thick f.temp f.view f.sun f.t f.uv f.pal f.edge
 }
 ```
 
+Kind `surface` paints a textured planet (`rg.three("planet", { texture, material })`): the hook
+`vec3 surface(Surface s)` gets `s.p` (the point, unit), `s.n`, `s.uv`, `s.col` (what the engine drew,
+lit), `s.sun`, `s.view`, `s.t` (the planet's `flowTime`), `s.light`, `s.day`, and returns the colour:
+
+```glsl
+uniform float u_glow;
+vec3 surface(Surface s) {
+  float crack = 1.0 - smoothstep(0.0, 0.035, abs(fbm(s.p * 3.0, 5)));
+  return s.col * (1.0 - crack * 0.8) + heat(0.55 + 0.45 * crack) * u_glow * crack;
+}
+```
+
 The library (`hash1` `hash2` `vnoise` `fbm` `curl2` `curl3`, `heat`, `fresnel` `aaStep`) is already
 included. Errors go to the game's log with the file's own lines (`shaders/magma.glsl:5: ...`) and the
 engine's own look is drawn instead. The screenshot tool draws without the shader.
